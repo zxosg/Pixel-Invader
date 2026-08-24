@@ -1,0 +1,98 @@
+// Import QL screens into ImageJ
+// (C) 2007 osg^patisoners
+
+file_path 	= "";
+byteHigh 	= 0;
+byteLow 	= 0;
+
+posX 	= 0;
+posy 	= 0;
+
+red = 255<<16;
+green = 255<<8;
+blue = 255;
+
+newImage("QL_Screen_4", "RGB White", 512, 256, 1);
+imageID4 	= getImageID();
+newImage("QL_Screen_8", "RGB White", 256, 256, 1);
+imageID8 	= getImageID();
+
+run("Raw...", "image=8-bit width=128 height=256 offset=0 number=1 gap=0");
+imageID0	= getImageID();
+
+setBatchMode(true);
+
+for (posY=0; posY<256; posY++) {
+	showProgress(posY, 256);	
+	for (posX = 0;  posX<128; posX+=2) {
+
+		selectImage(imageID0);
+		byteLow 	= getPixel(posX, posY);
+		byteHigh	= getPixel(posX+1, posY);
+		i = 0;
+		grn1 		= 128&(byteLow<<i)/128;
+		red1		= 128&(byteHigh<<i)/128;
+		blu1		= (grn1+red1)>1;
+		selectImage(imageID4);
+		setPixel(posX*4+i,posY,grn1*green+red1*red+blu1*blue);
+		i++;
+		grn2 		= 128&(byteLow<<i)/128;
+		red2		= 128&(byteHigh<<i)/128;
+		blu1		= (grn2+red2)>1;
+		selectImage(imageID4);
+		setPixel(posX*4+i,posY,grn2*green+red2*red+blu1*blue);
+		selectImage(imageID8);
+		setPixel(posX*2+round(i/2),posY,grn1*green+red1*red+blue*red2);
+		i++;
+
+		grn1 		= 128&(byteLow<<i)/128;
+		red1		= 128&(byteHigh<<i)/128;
+		blu1		= (grn1+red1)>1;
+		selectImage(imageID4);
+		setPixel(posX*4+i,posY,grn1*green+red1*red+blu1*blue);
+		i++;
+		grn2 		= 128&(byteLow<<i)/128;
+		red2		= 128&(byteHigh<<i)/128;
+		blu1		= (grn2+red2)>1;
+		selectImage(imageID4);
+		setPixel(posX*4+i,posY,grn2*green+red2*red+blu1*blue);
+		selectImage(imageID8);
+		setPixel(posX*2+round(i/2),posY,grn1*green+red1*red+blue*red2);
+		i++;
+
+		grn1 		= 128&(byteLow<<i)/128;
+		red1		= 128&(byteHigh<<i)/128;
+		blu1		= (grn1+red1)>1;
+		selectImage(imageID4);
+		setPixel(posX*4+i,posY,grn1*green+red1*red+blu1*blue);
+		i++;
+		grn2 		= 128&(byteLow<<i)/128;
+		red2		= 128&(byteHigh<<i)/128;
+		blu1		= (grn2+red2)>1;
+		selectImage(imageID4);
+		setPixel(posX*4+i,posY,grn2*green+red2*red+blu1*blue);
+		selectImage(imageID8);
+		setPixel(posX*2+round(i/2),posY,grn1*green+red1*red+blue*red2);
+		i++;
+
+		grn1 		= 128&(byteLow<<i)/128;
+		red1		= 128&(byteHigh<<i)/128;
+		blu1		= (grn1+red1)>1;
+		selectImage(imageID4);
+		setPixel(posX*4+i,posY,grn1*green+red1*red+blu1*blue);
+		i++;
+		grn2 		= 128&(byteLow<<i)/128;
+		red2		= 128&(byteHigh<<i)/128;
+		blu1		= (grn2+red2)>1;
+		selectImage(imageID4);
+		setPixel(posX*4+i,posY,grn2*green+red2*red+blu1*blue);
+		selectImage(imageID8);
+		setPixel(posX*2+round(i/2),posY,grn1*green+red1*red+blue*red2);
+		i++;
+
+	};
+};
+
+setBatchMode(false);
+updateDisplay();
+beep();

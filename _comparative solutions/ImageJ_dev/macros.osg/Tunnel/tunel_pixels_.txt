@@ -1,0 +1,105 @@
+// http://lodev.org/cgtutor/tunnel.html
+
+var 	w=256;
+var	h=192;
+var	texHeight=64
+var	texWidth =64
+var	ratio = 16;
+var	angle;
+var	distance;
+var	dID, aID, nID, tID;
+var	txr = 4;
+
+if (txr==1) {
+// use ImageJ about screen
+
+	run("About ImageJ...");
+	run("Specify...", "width=128 height=128 x=190 y=16");
+	run("Crop");
+	run("8-bit");
+	run("Enhance Contrast...", "saturated=0.4 equalize");
+	tID = getImageID();
+
+} else if (txr==2) {
+
+// generate texture
+
+	newImage("texture", "8-bit black", texWidth, texHeight, 1); tID = getImageID();
+	for(x = 0; x < texWidth; x++) {
+	for(y = 0; y < texHeight; y++) {
+		setPixel(x,y,(x * 256 / texWidth) ^ (y * 256 / texHeight));
+	}
+	}
+
+} else if (txr==3) {
+
+// use selected image
+	open("P:\\Dev-ZX\\_images\\tunnelstonetex.png");
+	run("8-bit");
+	run("Enhance Contrast...", "saturated=0.4 equalize");
+	tID = getImageID();
+
+} else if (txr==4) {
+	
+// use any image that is currenly active
+	tID = getImageID();
+}
+
+// generate mapping tables
+
+newImage("distn", "8-bit black", w, h, 1); dID=getImageID();
+newImage("angle", "8-bit black", w, h, 1); aID=getImageID();
+
+
+	setBatchMode(true);
+	for(x = 0; x < w; x++) {
+	for(y = 0; y < h; y++) {
+
+		distance = round(ratio * texHeight / sqrt((x - w/2.0) * (x - w/2.0) + (y - h/2.0) * (y - h/2.0))) % texHeight;
+		angle = round(0.5 * texWidth * atan2(y - h/2.0, x - w/2.0) / PI);
+		if (angle<0)
+			angle=256+angle; 
+		// print(x+" "+y+" "+angle);
+		selectImage(dID); setPixel(x,y,distance);
+		selectImage(aID); setPixel(x,y,angle);
+	}
+	}
+	setBatchMode(false);
+
+// print("tables done");
+
+
+newImage("tunnel", "8-bit black", w, h, 1); nID = getImageID();
+
+// animate textures
+
+	for(l = 0; l < 200; l++) {
+	setBatchMode(true);
+	animation = getTime() / 10000.0;
+
+	//calculate the shift values out of the animation value
+	shiftX = round(texWidth * 1.0 * animation);
+	shiftY = round(texHeight * 3.0 * animation);        
+        
+	for(x = 0; x < w; x++) {
+	for(y = 0; y < h; y++) {
+		
+		selectImage(dID); texX = (getPixel(x,y) + round(shiftX)) % texWidth;
+       	selectImage(aID); 
+			a = getPixel(x,y);
+			// if (a>128)
+			//	a=a-256;	
+			texY = (a + round(shiftY)) % texHeight;
+		selectImage(tID); color = getPixel(texX,texY);
+		// print(f, "\t"+texX+"\t"+texY);
+
+		//get the texel from the texture by using the tables, shifted with the animation values
+		selectImage(nID); setPixel(x,y,color);
+	}
+	}
+	setBatchMode(false);
+	updateDisplay();
+	wait(10);
+
+}
+// print("over");

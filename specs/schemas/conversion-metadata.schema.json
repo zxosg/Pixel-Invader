@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://retroconverter.local/schemas/conversion-metadata-3.0.0.json",
+  "title": "Retro Converter conversion metadata",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "application_version", "fidelity_class",
+    "deterministic_projection", "source", "profile", "conversion", "target",
+    "zx_spectrum", "sinclair_ql", "pmd_85", "quality", "warnings",
+    "validation", "outputs", "preview", "completed_at_utc"
+  ],
+  "properties": {
+    "schema_version": { "const": "3.0.0" },
+    "application_version": { "type": "string", "minLength": 1 },
+    "fidelity_class": { "enum": ["NATIVE_STATIC", "SIMULATION_ONLY"] },
+    "deterministic_projection": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "source": {
+      "type": "object",
+      "required": ["sha256", "format", "decoded_width", "decoded_height", "interpretation"],
+      "properties": {
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "format": { "enum": ["png", "jpeg", "pmd85-bin"] },
+        "decoded_width": { "type": "integer", "minimum": 1 },
+        "decoded_height": { "type": "integer", "minimum": 1 },
+        "interpretation": { "type": "object" }
+      }
+    },
+    "profile": { "type": "object" },
+    "conversion": { "type": "object" },
+    "target": { "type": "object" },
+    "zx_spectrum": { "type": ["object", "null"] },
+    "sinclair_ql": { "type": ["object", "null"] },
+    "pmd_85": {
+      "type": ["object", "null"],
+      "properties": {
+        "mode": { "enum": ["pmd85-2-tv", "pmd85-2-rgb", "pmd85-3-pal", "pmd85-3-rgb", "pmd85-colorace"] },
+        "calibration": { "type": "string", "minLength": 1 },
+        "attribute_model": { "enum": ["native", "colorace-pair"] },
+        "attribute_cell": { "type": "object" },
+        "fixed_background": { "const": "black" },
+        "blink_animation_supported": { "const": false },
+        "blink_bit_interpretation": { "enum": ["static-intensity", "native-color-bit"] },
+        "gap_policy": { "enum": ["zero", "preserve-imported"] },
+        "addressing": { "type": "object" },
+        "enabled_foreground_ids": { "type": "array", "items": { "type": "integer", "minimum": 0, "maximum": 6 } },
+        "artifact_sha256": { "$ref": "#/$defs/sha256" },
+        "decoded_rgba_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "quality": { "type": "object" },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "validation": { "type": "object" },
+    "outputs": { "type": "object" },
+    "preview": { "type": "object" },
+    "completed_at_utc": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

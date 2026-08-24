@@ -1,0 +1,29 @@
+size = 256;
+newImage("test", "32-bit white", size, size, 1);
+
+x0=0;
+y0=0;
+x1=50;
+y1=100;
+
+dx=x1-x0;
+dy=y1-y0;
+
+if (dy<0) {
+  yi=-1;
+  dy=-dy;
+} else {
+ yi=1;
+}
+
+d= 2*dy - dx;
+y = y0;
+
+for (x=x0; x<x1; x++) {
+	setPixel(x,y,0);
+	if(d>0) {
+		y=y+yi;
+		d=d-2*dx;
+	}
+	d=d+2*dy;
+}

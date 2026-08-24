@@ -1,0 +1,49 @@
+// Import QL screens into ImageJ
+// (C) 2007 osg^patisoners
+
+posX 	= 0;
+posy 	= 0;
+
+red = 1<<16;
+green = 1<<8;
+
+run("Raw...", "image=[1-bit Bitmap] width=1024 height=256 offset=0 number=1 gap=0");
+imageID0	= getImageID();
+imageName = getTitle();
+newImage(imageName+"_m4", "RGB White", 512, 256, 1);
+imageID4 	= getImageID();
+newImage(imageName+"_m8", "RGB White", 256, 256, 1);
+imageID8 	= getImageID();
+
+setBatchMode(true);
+
+for (posY=0; posY<256; posY++) {
+	showProgress(posY, 256);	
+	for (posX = 0;  posX<1024; posX+=16) {
+		for (i=0; i<8; i+=2) {
+
+		selectImage(imageID0);
+		red1	= getPixel(posX+i+8, posY);
+		grn1	= getPixel(posX+i, posY);
+		blu1	= (grn1+red1)>255;
+		red2	= getPixel(posX+i+9, posY);
+		grn2	= getPixel(posX+i+1, posY);
+		blu2	= (grn2+red2)>255;
+
+		selectImage(imageID4);
+		setPixel(posX>>1+i,posY,grn1*green+red1*red+blu1*255);
+		setPixel(posX>>1+i+1,posY,grn2*green+red2*red+blu2*255);
+		selectImage(imageID8);
+		setPixel(posX>>2+i>>1,posY,grn1*green+red1*red+red2);
+
+		}
+	}
+}
+selectImage(imageID0);
+close();
+
+setBatchMode(false);
+selectImage(imageID4);
+updateDisplay();
+selectImage(imageID8);
+updateDisplay();

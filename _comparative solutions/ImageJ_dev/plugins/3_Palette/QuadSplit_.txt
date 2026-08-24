@@ -1,0 +1,101 @@
+var imageName	=	getTitle();
+var imageID0	=	getImageID();
+var imageID1	=	0;
+width		=	getWidth()
+height		=	getHeight()
+
+r1 = newArray(4); 
+g1 = newArray(4); 
+b1 = newArray(4);
+
+r2 = newArray(4); 
+g2 = newArray(4); 
+b2 = newArray(4);
+
+r = newArray(8);
+g = newArray(8);
+b = newArray(8);
+
+var p1		= 0;
+var p2		= 4;
+var i1		= 2;
+var i2		= 6;
+var imageID 	= 0;
+var br		= 63;
+var br1	= 0;
+var br2	= 0;
+
+r[0]=0;	g[0]=0;	b[0]=0;
+r[1]=0;	g[1]=0;	b[1]=1;
+r[2]=1;	g[2]=0;	b[2]=0;
+r[3]=1;	g[3]=0;	b[3]=1;
+r[4]=0;	g[4]=1;	b[4]=0;
+r[5]=0;	g[5]=1;	b[5]=1;
+r[6]=1;	g[6]=1;	b[6]=0;
+r[7]=1;	g[7]=1;	b[7]=1;
+
+
+Dialog.create("Select Colors")
+	Dialog.addNumber("Paper 1", p1);
+	Dialog.addNumber("Ink 1", i1);
+	Dialog.addNumber("Paper 2", p2);
+	Dialog.addNumber("Ink 2", i2);
+	Dialog.addCheckbox("Bright 1", br1);	
+	Dialog.addCheckbox("Bright 2", br2);
+Dialog.show();
+
+p1 = Dialog.getNumber();
+i1 = Dialog.getNumber();
+p2 = Dialog.getNumber();
+i2 = Dialog.getNumber();
+br1= Dialog.getCheckbox() * br;
+br2= Dialog.getCheckbox() * br;
+
+r1[0] = r[p1]*(192+br1); 
+r2[0] = r[p2]*(192+br2); 
+g1[0] = g[p1]*(192+br1); 
+g2[0] = g[p2]*(192+br2); 
+b1[0] = b[p1]*(192+br1); 
+b2[0] = b[p2]*(192+br2);
+
+r1[1] = r[p1]*(192+br1); 
+r2[1] = r[i2]*(192+br2); 
+g1[1] = g[p1]*(192+br1); 
+g2[1] = g[i2]*(192+br2); 
+b1[1] = b[p1]*(192+br1); 
+b2[1] = b[i2]*(192+br2);
+
+r1[2] = r[i1]*(192+br1); 
+r2[2] = r[i2]*(192+br2); 
+g1[2] = g[i1]*(192+br1); 
+g2[2] = g[i2]*(192+br2); 
+b1[2] = b[i1]*(192+br1); 
+b2[2] = b[i2]*(192+br2);
+
+r1[3] = r[i1]*(192+br1); 
+r2[3] = r[p2]*(192+br2); 
+g1[3] = g[i1]*(192+br1); 
+g2[3] = g[p2]*(192+br2); 
+b1[3] = b[i1]*(192+br1); 
+b2[3] = b[p2]*(192+br2);
+
+newImage("test", "RGB White", width, height, 1); imageID1 =  getImageID();
+
+selectImage(imageID0); 
+
+setBatchMode(true);
+for(y=0;y<height;y++) {
+	for(x=0;x<width;x++) {
+		selectImage(imageID0);
+		col = getPixel(x,y);
+		selectImage(imageID1);
+		if (y&1) {
+			setPixel(x,y,r1[col]*65536+g1[col]*256+b1[col]);
+		} else {
+			setPixel(x,y,r2[col]*65536+g2[col]*256+b2[col]);
+		}
+	}
+}
+setBatchMode(false);
+// selectImage(imageID0);
+

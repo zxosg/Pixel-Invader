@@ -1,0 +1,10 @@
+// align selection to x divided by 8
+// osg 21.03.10
+
+getSelectionBounds(x, y, w, h);
+x = round(x/8)*8;
+w = round(w/8)*8;
+y = round(y/8)*8;
+h = round(h/8)*8;
+makeRectangle(x,y,w,h);
+

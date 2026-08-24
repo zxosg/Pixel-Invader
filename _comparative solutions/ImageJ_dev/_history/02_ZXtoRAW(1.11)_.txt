@@ -1,0 +1,147 @@
+var sx, sy, x, y, ex, ey;
+var bwdth, attrPos, wdth, hght;
+var stepY		=	8;
+var attrs		=	0;
+var align		= 	0;
+var imageName	=	getTitle();
+var imageID0	=	getImageID();	// source image
+var imageID1	=	0;			// ZX RAW (linear; pixels, attrs)
+var imageID2	=	0;			// ZX RAW with header
+var interleave	= 	1;			// row of attrs, pixels, attrs...
+var clear		= 	1;			// clear selection
+var header		=	1;			// create header
+
+init();
+setBatchMode(true);
+
+convert();
+if (header)
+	head();
+
+setBatchMode(false);
+
+// end
+
+function convert() {
+
+	if (0==attrs) {
+		selectImage(imageID0);
+		makeRectangle(0, 0, getWidth(), getHeight());
+
+		getStatistics(area, mean, pap, ink, std, attrCount);
+		makeRectangle(sx, sy, wdth, hght);
+	}
+
+	for(y=sy; y<ey; y+=stepY) {
+		for(x=sx;x<ex; x+=8) {
+			selectImage(imageID0);
+			if (attrs) {
+				makeRectangle(x, y, 8, stepY);
+				getStatistics(area, mean, pap, ink, std, attrCount);
+				if (std==0) { // = single color in attribute
+					ink	= 8;
+				}
+			}
+			for(j=0;j<stepY;j++) {
+				byte = 0;
+				selectImage(imageID0);
+				for(i=0;i<8;i++) {
+					col = getPixel(x+i,y+j);
+					byte = byte<<1+(col==ink);
+				}
+				selectImage(imageID1);
+				setPixel(x>>3,(y-sy)+j,byte);
+			}
+			if (attrs) {
+				setPixel(x>>3,(y-sy)/stepY+hght,pap<<3+ink-8*(ink==8));
+			}
+		}
+	}
+}
+
+function head() {
+	newImage(imageName+"_hd", "8-bit White", 1, (3 + bwdth * (hght+attrs*(hght/stepY))), 1);
+	imageID2 = getImageID();
+
+	bhght = hght + attrs*(hght/stepY);
+	addr	= 0;
+	setPixel(0,addr,bwdth); addr++;
+	setPixel(0,addr, hght); addr++;
+	setPixel(0,addr,attrs*stepY); addr++;
+
+  if (interleave) {
+  	for(y=0; y<hght; y++) {
+  		if (attrs && (y%stepY==0)) {
+  			for(x=0; x<bwdth; x++) {
+  				selectImage(imageID1);
+  				val=getPixel(x,y/stepY+hght);
+  				selectImage(imageID2);
+  				setPixel(0,addr,val);
+  				addr++;
+  			}
+  		}
+
+  		for(x=0; x<bwdth; x++) {
+  			selectImage(imageID1);
+  			val=getPixel(x,y);
+  			selectImage(imageID2);
+  			setPixel(0,addr,val);
+  			addr++;
+  		}
+  	}
+  } else {
+  	for(y=0; y<bhght; y++) {
+  		for(x=0; x<bwdth; x++) {
+  			selectImage(imageID1);
+  			val=getPixel(x,y);
+  			selectImage(imageID2);
+  			setPixel(0,addr,val);
+  			addr++;
+  		}
+  	}
+  }
+}
+
+function init() {
+	Dialog.create("8 col Indexed to ZX Raw")
+		Dialog.addNumber("Attribute height", stepY)
+		Dialog.addCheckbox("Interleave Attrs with Pixels",interleave)
+		Dialog.addCheckbox("Include attributes", attrs)
+		Dialog.addCheckbox("Align selection to attributes", align)
+		Dialog.addCheckbox("Clear selection", clear)
+		Dialog.addCheckbox("Create header",header)
+	Dialog.show();
+	stepY = Dialog.getNumber();
+	interleave = attrs = Dialog.getCheckbox();
+	attrs = Dialog.getCheckbox();
+	align = Dialog.getCheckbox();
+	clear = Dialog.getCheckbox();
+	header = Dialog.getCheckbox();
+
+	stepY = (attrs==0)+(attrs==1)*stepY;
+	alignXY();
+
+	if (clear) {
+		run("Select None");
+	}
+
+	getSelectionBounds(sx, sy, wdth, hght);
+	ex = sx + wdth;
+	ey = sy + hght;
+	bwdth = floor(wdth/8);
+	attrPos = attrs*hght*bwdth;
+
+	newImage(imageName+"_zx", "8-bit White", bwdth, hght+attrs*(hght/stepY), 1);
+	imageID1 = getImageID();
+}
+
+function alignXY() {
+	getSelectionBounds(x, y, w, h);
+	x = round(x/8)*8;
+	w = round(w/stepY)*stepY;
+	if (attrs) {
+		y = round(y/stepY)*stepY;
+		h = round(h/stepY)*stepY;
+	}
+	makeRectangle(x,y,w,h);
+}

@@ -1,0 +1,341 @@
+import ij.*;
+import ij.process.*;
+import ij.gui.*;
+import ij.plugin.filter.PlugInFilter;
+import java.awt.*;
+import java.awt.event.*;
+import java.io.*;
+import java.util.*; // Required for Vector, List, Map, HashMap, Comparator, ArrayList, Arrays, LinkedHashSet
+import javax.swing.*;
+import javax.swing.filechooser.FileNameExtensionFilter;
+import java.awt.image.BufferedImage;
+import java.awt.image.RescaleOp;
+import java.awt.image.LookupTable;
+import java.awt.image.LookupOp;
+import java.awt.image.ShortLookupTable;
+import java.awt.image.DataBufferInt;
+
+/**
+ * ImageJ plugin to convert images to a ZX Spectrum-like appearance
+ * with real-time preview capabilities, simplified UI, color modes.
+ * Fixes User Defined Brightness and adds logging for Block Size issue.
+ * Version: 2025-04-07-Fix4
+ */
+public class ZX_Spectrum_Converter2 implements PlugInFilter, ActionListener, ItemListener {
+
+    // --- Enums for Modes (Unchanged) ---
+    private enum DitheringMode { FLOYD_STEINBERG("Floyd-Steinberg"), HALFTONE("Halftone"), BAYER_2X2("Bayer 2x2"), BAYER_4X4("Bayer 4x4"), BAYER_8X8("Bayer 8x8"); private final String label; DitheringMode(String label) { this.label = label; } @Override public String toString() { return label; } public static String[] getLabels() { return Arrays.stream(DitheringMode.values()).map(DitheringMode::toString).toArray(String[]::new); } public static DitheringMode fromString(String text) { for (DitheringMode b : DitheringMode.values()) { if (b.label.equalsIgnoreCase(text)) { return b; } } return FLOYD_STEINBERG; } public int getBayerSize() { switch (this) { case BAYER_2X2: return 2; case BAYER_4X4: return 4; case BAYER_8X8: return 8; default: return 0; } } }
+    private enum ColorMode { ZX_NORMAL("ZX Spectrum (Normal)"), ZX_BRIGHT_ATTRIBUTE("ZX Spectrum (Bright Attribute)"), BLACK_AND_WHITE("Black and White"), BLACK_RED_GREEN_WHITE("Black/Red/Green/White"), USER_DEFINED("User Defined Subset"), CUSTOM("Custom (External File)"); private final String label; ColorMode(String label) { this.label = label; } @Override public String toString() { return label; } public static String[] getLabels() { return Arrays.stream(ColorMode.values()).map(ColorMode::toString).toArray(String[]::new); } public static ColorMode fromString(String text) { for (ColorMode b : ColorMode.values()) { if (b.label.equalsIgnoreCase(text)) { return b; } } return ZX_NORMAL; } }
+
+    // --- Palettes (Unchanged) ---
+    private final Color[] zxPaletteNormal = { new Color(0,0,0), new Color(0,0,192), new Color(192,0,0), new Color(192,0,192), new Color(0,192,0), new Color(0,192,192), new Color(192,192,0), new Color(192,192,192) };
+    private final Color[] zxPaletteBright = { new Color(0,0,0), new Color(0,0,255), new Color(255,0,0), new Color(255,0,255), new Color(0,255,0), new Color(0,255,255), new Color(255,255,0), new Color(255,255,255) };
+    private final Color[] bwPalette = { new Color(0,0,0), new Color(255,255,255) };
+    private final Color[] brgwPalette = { new Color(0,0,0), new Color(255,0,0), new Color(0,255,0), new Color(255,255,255) };
+
+    // --- Plugin Parameters (Global state) ---
+    private ImagePlus imp;
+    private int blockSizeX = 8; private int blockSizeY = 8;
+    private double ditheringLevel = 1.0; private double brightness = 1.0;
+    private double contrast = 1.0; private double gamma = 1.0;
+    private DitheringMode ditheringMode = DitheringMode.FLOYD_STEINBERG;
+    private ColorMode colorMode = ColorMode.ZX_NORMAL;
+    private Color[] customPalette = null;
+    private String paletteFilePath = "";
+    private double brightAttributeThreshold = 150.0;
+    // User Defined Palette Flags
+    private boolean userUseBlack = true; private boolean userUseBlue = true; private boolean userUseRed = true; private boolean userUseMagenta = true;
+    private boolean userUseGreen = true; private boolean userUseCyan = true; private boolean userUseYellow = true; private boolean userUseWhite = true;
+    private boolean userAllowBright = false;
+
+    // --- Dialog and Preview ---
+    private GenericDialog gd;
+    private ImagePlus previewImp;
+
+    // --- Setup and Run (Unchanged) ---
+    @Override public int setup(String arg, ImagePlus imp) { this.imp = imp; if (imp == null) { IJ.noImage(); return DONE; } if (imp.getType() != ImagePlus.COLOR_RGB) { IJ.error(getClass().getSimpleName(), "Plugin requires an RGB image."); return DONE; } IJ.log(getClass().getSimpleName() + ": Setup complete."); return DOES_RGB; }
+    @Override public void run(ImageProcessor ip) { IJ.log(getClass().getSimpleName() + ": Run method started."); try { ColorMode initialColorMode = this.colorMode; Color[] initialCustomPalette = this.customPalette; boolean[] initialUserFlags = getUserDefinedFlags(); if (showDialog()) { IJ.log(getClass().getSimpleName() + ": OK clicked. Applying final processing..."); processImage(ip); imp.updateAndDraw(); IJ.log(getClass().getSimpleName() + ": Final processing applied."); } else { IJ.log(getClass().getSimpleName() + ": Dialog canceled."); this.colorMode = initialColorMode; this.customPalette = initialCustomPalette; setUserDefinedFlags(initialUserFlags); } } catch (Exception e) { IJ.log("!!! ERROR during showDialog or final processing !!!"); e.printStackTrace(); } finally { IJ.log(getClass().getSimpleName() + ": Cleaning up preview window (if open)."); if (previewImp != null && previewImp.getWindow() != null && previewImp.isVisible()) { previewImp.close(); IJ.log(getClass().getSimpleName() + ": Preview window closed."); } previewImp = null; IJ.log(getClass().getSimpleName() + ": Run method finished."); } }
+
+    // --- Dialog Creation and Handling ---
+    private boolean showDialog() { // Unchanged except for reading fixed checkbox states
+        IJ.log("showDialog: Creating dialog...");
+        gd = new GenericDialog("ZX Spectrum Converter");
+        // Block Size (Choice 0)
+        String[] blockSizes = {"Disabled", "8x8", "8x4", "8x2", "8x1"}; String defaultBlockSize = "8x8"; if (blockSizeX == 1 && blockSizeY == 1) defaultBlockSize = "Disabled"; else if (blockSizeX == 8 && blockSizeY == 4) defaultBlockSize = "8x4"; else if (blockSizeX == 8 && blockSizeY == 2) defaultBlockSize = "8x2"; else if (blockSizeX == 8 && blockSizeY == 1) defaultBlockSize = "8x1";
+        gd.addChoice("Block_Size:", blockSizes, defaultBlockSize); ((Choice) gd.getChoices().lastElement()).addItemListener(this);
+        // Dithering Mode (Choice 1)
+        gd.addChoice("Dithering_Mode:", DitheringMode.getLabels(), this.ditheringMode.toString()); ((Choice) gd.getChoices().lastElement()).addItemListener(this);
+        // Color Mode (Choice 2)
+        gd.addChoice("Color_Mode:", ColorMode.getLabels(), this.colorMode.toString()); ((Choice) gd.getChoices().lastElement()).addItemListener(this);
+        // User Defined Color Checkboxes (Checkboxes 0-8)
+        gd.setInsets(5, 20, 0); gd.addMessage("User Defined Palette Colors (Active when Color Mode is 'User Defined Subset'):");
+        gd.addCheckbox("Use Black", userUseBlack); ((Checkbox) gd.getCheckboxes().lastElement()).addItemListener(this);
+        gd.addCheckbox("Use Blue", userUseBlue); ((Checkbox) gd.getCheckboxes().lastElement()).addItemListener(this);
+        gd.addCheckbox("Use Red", userUseRed); ((Checkbox) gd.getCheckboxes().lastElement()).addItemListener(this);
+        gd.addCheckbox("Use Magenta", userUseMagenta); ((Checkbox) gd.getCheckboxes().lastElement()).addItemListener(this);
+        gd.addCheckbox("Use Green", userUseGreen); ((Checkbox) gd.getCheckboxes().lastElement()).addItemListener(this);
+        gd.addCheckbox("Use Cyan", userUseCyan); ((Checkbox) gd.getCheckboxes().lastElement()).addItemListener(this);
+        gd.addCheckbox("Use Yellow", userUseYellow); ((Checkbox) gd.getCheckboxes().lastElement()).addItemListener(this);
+        gd.addCheckbox("Use White", userUseWhite); ((Checkbox) gd.getCheckboxes().lastElement()).addItemListener(this);
+        gd.addCheckbox("Allow Bright Versions", userAllowBright); ((Checkbox) gd.getCheckboxes().lastElement()).addItemListener(this);
+        gd.setInsets(10, 0, 0);
+        // Sliders (Sliders 0-3)
+        AdjustmentListener sliderListener = e -> updatePreview();
+        gd.addSlider("Dithering_Level", 0, 100, (int) (ditheringLevel * 100)); ((Scrollbar) gd.getSliders().lastElement()).addAdjustmentListener(sliderListener);
+        gd.addSlider("Brightness", 0, 200, (int) (brightness * 100)); ((Scrollbar) gd.getSliders().lastElement()).addAdjustmentListener(sliderListener);
+        gd.addSlider("Contrast", 0, 200, (int) (contrast * 100)); ((Scrollbar) gd.getSliders().lastElement()).addAdjustmentListener(sliderListener);
+        gd.addSlider("Gamma", 1, 300, (int) (gamma * 100)); ((Scrollbar) gd.getSliders().lastElement()).addAdjustmentListener(sliderListener);
+        // Load Button
+        Button loadPaletteButton = new Button("Load Custom Palette"); loadPaletteButton.addActionListener(this); Panel buttonPanel = new Panel(new FlowLayout(FlowLayout.CENTER)); buttonPanel.add(loadPaletteButton); gd.addPanel(buttonPanel);
+        IJ.log("showDialog: Components added.");
+        gd.addWindowListener(new WindowAdapter() { boolean firstShown = false; @Override public void windowActivated(WindowEvent e) { if (!firstShown && gd != null && gd.isShowing()) { IJ.log("showDialog: Dialog window activated, triggering initial preview."); SwingUtilities.invokeLater(() -> { IJ.log("showDialog: Running initial updatePreview via invokeLater."); updatePreview(); }); firstShown = true; } } }); IJ.log("showDialog: WindowListener added.");
+        IJ.log("showDialog: Calling gd.showDialog()..."); gd.showDialog(); IJ.log("showDialog: gd.showDialog() returned. Canceled: " + gd.wasCanceled());
+        if (gd.wasCanceled()) { return false; }
+        IJ.log("showDialog: OK clicked. Reading final values...");
+        String blockSizeChoiceString = gd.getNextChoice(); switch (blockSizeChoiceString) { case "Disabled":blockSizeX=1;blockSizeY=1;break; case "8x8":blockSizeX=8;blockSizeY=8;break; case "8x4":blockSizeX=8;blockSizeY=4;break; case "8x2":blockSizeX=8;blockSizeY=2;break; case "8x1":blockSizeX=8;blockSizeY=1;break; }
+        String ditheringModeString = gd.getNextChoice(); this.ditheringMode = DitheringMode.fromString(ditheringModeString);
+        String colorModeString = gd.getNextChoice(); this.colorMode = ColorMode.fromString(colorModeString);
+        // Read User Defined Checkbox states (using corrected access method)
+        Vector<?> checkboxes = gd.getCheckboxes(); if (checkboxes != null && checkboxes.size() >= 9) { this.userUseBlack = ((Checkbox) checkboxes.get(0)).getState(); this.userUseBlue = ((Checkbox) checkboxes.get(1)).getState(); this.userUseRed = ((Checkbox) checkboxes.get(2)).getState(); this.userUseMagenta = ((Checkbox) checkboxes.get(3)).getState(); this.userUseGreen = ((Checkbox) checkboxes.get(4)).getState(); this.userUseCyan = ((Checkbox) checkboxes.get(5)).getState(); this.userUseYellow = ((Checkbox) checkboxes.get(6)).getState(); this.userUseWhite = ((Checkbox) checkboxes.get(7)).getState(); this.userAllowBright = ((Checkbox) checkboxes.get(8)).getState(); IJ.log("Read Checkbox States: Black=" + userUseBlack + "..." + ", Bright=" + userAllowBright); } else { IJ.log("Error reading checkbox states."); }
+        if (this.colorMode == ColorMode.CUSTOM && this.customPalette == null) { IJ.log("Warning: Custom palette selected but none loaded. Reverting to ZX Normal."); this.colorMode = ColorMode.ZX_NORMAL; }
+        ditheringLevel = gd.getNextNumber() / 100.0; brightness = gd.getNextNumber() / 100.0; contrast = gd.getNextNumber() / 100.0; gamma = gd.getNextNumber() / 100.0;
+        IJ.log("showDialog: Final values read. Dithering=" + this.ditheringMode + ", Color=" + this.colorMode);
+        return true;
+    }
+
+
+    // --- Core Image Processing ---
+    private void processImage(ImageProcessor ip) { BufferedImage bufferedImage = ip.getBufferedImage(); BufferedImage adjustedImage = applyBCG(bufferedImage, this.brightness, this.contrast, this.gamma); BufferedImage ditheredImage = applyDithering(adjustedImage); BufferedImage zxImage = convertToZXSpectrum(adjustedImage, ditheredImage, this.blockSizeX, this.blockSizeY); if (zxImage.getType() == BufferedImage.TYPE_INT_RGB && ip instanceof ColorProcessor) { int[] pixels = ((DataBufferInt) zxImage.getRaster().getDataBuffer()).getData(); ip.setPixels(pixels); } else { ImagePlus tempImp = new ImagePlus("", zxImage); ImageProcessor tempIp = tempImp.getProcessor(); ip.insert(tempIp, 0, 0); } }
+    private BufferedImage applyBCG(BufferedImage img, double brightness, double contrast, double gamma) { float contrastFactor = (float) contrast; float offset = (float) (128.0 * (1.0 - contrastFactor) + 255.0 * (brightness - 1.0)); RescaleOp rescaleOp = new RescaleOp(contrastFactor, offset, null); BufferedImage contrastBrightImg = rescaleOp.filter(img, null); LookupTable lookupTable = createGammaLookupTable(gamma); LookupOp gammaOp = new LookupOp(lookupTable, null); return gammaOp.filter(contrastBrightImg, null); }
+    private LookupTable createGammaLookupTable(double gamma) { if (gamma <= 0) gamma = 0.01; short[] gammaLookup = new short[256]; double exponent = 1.0 / gamma; for (int i = 0; i < 256; i++) gammaLookup[i] = (short) Math.min(255, (int) (255.0 * Math.pow(i / 255.0, exponent) + 0.5)); short[][] lookupData = new short[3][256]; for(int i=0; i<3; i++) System.arraycopy(gammaLookup, 0, lookupData[i], 0, 256); return new ShortLookupTable(0, lookupData); }
+    private BufferedImage applyDithering(BufferedImage image) { int width = image.getWidth(); int height = image.getHeight(); BufferedImage ditheredImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB); Graphics2D g2d = ditheredImage.createGraphics(); g2d.drawImage(image, 0, 0, null); g2d.dispose(); Color[] paletteForDithering = getActivePalette(); switch (this.ditheringMode) { case FLOYD_STEINBERG: return floydSteinbergDitherProcess(ditheredImage, paletteForDithering); case BAYER_2X2: case BAYER_4X4: case BAYER_8X8: return bayerDitherProcess(ditheredImage, this.ditheringMode.getBayerSize(), paletteForDithering); case HALFTONE: return halftoneDitherProcess(ditheredImage, paletteForDithering); default: IJ.log("applyDithering: No dithering applied. Quantizing only."); BufferedImage quantizedImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB); for (int y = 0; y < height; y++) for (int x = 0; x < width; x++) { Color originalColor = new Color(ditheredImage.getRGB(x, y)); quantizedImage.setRGB(x, y, findClosestColor(originalColor, paletteForDithering).getRGB()); } return quantizedImage; } }
+     private BufferedImage floydSteinbergDitherProcess(BufferedImage image, Color[] targetPalette) { int width = image.getWidth(); int height = image.getHeight(); float ditherFactor = (float)this.ditheringLevel; float[] errorR = new float[width]; float[] errorG = new float[width]; float[] errorB = new float[width]; float[] nextErrorR = new float[width]; float[] nextErrorG = new float[width]; float[] nextErrorB = new float[width]; for (int y = 0; y < height; y++) { Arrays.fill(nextErrorR, 0f); Arrays.fill(nextErrorG, 0f); Arrays.fill(nextErrorB, 0f); float propagatedErrorR = 0, propagatedErrorG = 0, propagatedErrorB = 0; for (int x = 0; x < width; x++) { Color originalColor = new Color(image.getRGB(x, y)); int oldR = clamp(originalColor.getRed() + errorR[x] + propagatedErrorR); int oldG = clamp(originalColor.getGreen() + errorG[x] + propagatedErrorG); int oldB = clamp(originalColor.getBlue() + errorB[x] + propagatedErrorB); Color correctedColor = new Color(oldR, oldG, oldB); Color closestColor = findClosestColor(correctedColor, targetPalette); image.setRGB(x, y, closestColor.getRGB()); float errR = (oldR - closestColor.getRed())*ditherFactor; float errG = (oldG - closestColor.getGreen())*ditherFactor; float errB = (oldB - closestColor.getBlue())*ditherFactor; propagatedErrorR = errR*7f/16f; propagatedErrorG = errG*7f/16f; propagatedErrorB = errB*7f/16f; if (x > 0) { nextErrorR[x - 1] += errR*3f/16f; nextErrorG[x - 1] += errG*3f/16f; nextErrorB[x - 1] += errB*3f/16f; } nextErrorR[x] += errR*5f/16f; nextErrorG[x] += errG*5f/16f; nextErrorB[x] += errB*5f/16f; if (x < width - 1) { nextErrorR[x + 1] += errR*1f/16f; nextErrorG[x + 1] += errG*1f/16f; nextErrorB[x + 1] += errB*1f/16f; } } System.arraycopy(nextErrorR, 0, errorR, 0, width); System.arraycopy(nextErrorG, 0, errorG, 0, width); System.arraycopy(nextErrorB, 0, errorB, 0, width); } return image; }
+     private int clamp(float value) { return Math.max(0, Math.min(255, (int)(value + 0.5f))); } private int clamp(int value) { return Math.max(0, Math.min(255, value)); }
+     private BufferedImage bayerDitherProcess(BufferedImage image, int requestedN, Color[] targetPalette) { int width = image.getWidth(); int height = image.getHeight(); BufferedImage outputImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB); int[][] bayerMatrix = getBayerMatrix(requestedN); int actualN = bayerMatrix.length; float ditherFactor = (float)this.ditheringLevel; float thresholdDivisor = (float)(actualN * actualN); for (int y = 0; y < height; y++) for (int x = 0; x < width; x++) { Color originalColor = new Color(image.getRGB(x, y)); float threshold = (bayerMatrix[x % actualN][y % actualN] / thresholdDivisor) * 255f * ditherFactor; int r = clamp(originalColor.getRed() + threshold - (127.5f * ditherFactor)); int g = clamp(originalColor.getGreen() + threshold - (127.5f * ditherFactor)); int b = clamp(originalColor.getBlue() + threshold - (127.5f * ditherFactor)); outputImage.setRGB(x, y, findClosestColor(new Color(r, g, b), targetPalette).getRGB()); } return outputImage; }
+     private BufferedImage halftoneDitherProcess(BufferedImage image, Color[] targetPalette) { int width = image.getWidth(); int height = image.getHeight(); BufferedImage outputImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB); float ditherFactor = (float)this.ditheringLevel; for (int y = 0; y < height; y++) for (int x = 0; x < width; x++) { Color originalColor = new Color(image.getRGB(x, y)); float thresholdOffset = ((x + y) % 2 == 0) ? (128f * ditherFactor) : (-128f * ditherFactor); int r = clamp(originalColor.getRed() + thresholdOffset); int g = clamp(originalColor.getGreen() + thresholdOffset); int b = clamp(originalColor.getBlue() + thresholdOffset); outputImage.setRGB(x, y, findClosestColor(new Color(r, g, b), targetPalette).getRGB()); } return outputImage; }
+    private int[][] getBayerMatrix(int N) { if (N == 2) { return new int[][]{{0, 2}, {3, 1}}; } if (N < 2 || N > 8 || (N & (N - 1)) != 0) { IJ.log("Warning: Bayer matrix size " + N + " not supported. Using 2x2."); return new int[][]{{0, 2}, {3, 1}}; } int[][] smallerMatrix = getBayerMatrix(N / 2); int halfN = N / 2; int[][] matrix = new int[N][N]; for (int y = 0; y < halfN; y++) for (int x = 0; x < halfN; x++) { int val = smallerMatrix[x][y]; matrix[x][y] = 4 * val + 0; matrix[x + halfN][y] = 4 * val + 2; matrix[x][y + halfN] = 4 * val + 3; matrix[x + halfN][y + halfN] = 4 * val + 1; } return matrix; }
+
+    /** Updated convertToZXSpectrum: accepts adjustedImage, fixes block skip logic */
+    private BufferedImage convertToZXSpectrum(BufferedImage adjustedImage, BufferedImage ditheredImage, int blockWidth, int blockHeight) {
+        int width = ditheredImage.getWidth(); int height = ditheredImage.getHeight();
+        BufferedImage zxImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        // *** FIXED Condition: Only skip if block size is effectively 1x1 (Disabled) ***
+        if (blockWidth == 1 && blockHeight == 1) {
+            Graphics2D g = zxImage.createGraphics(); g.drawImage(ditheredImage, 0, 0, null); g.dispose();
+            return zxImage;
+        }
+        // Process block by block
+        for (int yStart = 0; yStart < height; yStart += blockHeight) {
+            for (int xStart = 0; xStart < width; xStart += blockWidth) {
+                processBlock(adjustedImage, ditheredImage, zxImage, xStart, yStart, blockWidth, blockHeight);
+            }
+        } return zxImage;
+    }
+
+    /** Updated processBlock for Bright Attribute heuristic and User Defined Brightness logic */
+     private void processBlock(BufferedImage adjustedImage, BufferedImage ditheredImage, BufferedImage outputImage, int startX, int startY, int blockWidth, int blockHeight) {
+        int endX = Math.min(startX + blockWidth, ditheredImage.getWidth());
+        int endY = Math.min(startY + blockHeight, ditheredImage.getHeight());
+        // Palette used for initial dithering/quantization (determined by getActivePalette before this)
+        Color[] ditherPalette = getActivePalette();
+        // Target palette for ZX modes (used for mapping bright colors)
+        Color[] zxNormal = zxPaletteNormal;
+
+        // --- Determine if Bright attribute should be ON for this block ---
+        boolean useBrightAttribute = false;
+        // Check 1: Is the overall mode one that USES the bright attribute?
+        boolean brightModeActive = (this.colorMode == ColorMode.ZX_BRIGHT_ATTRIBUTE) ||
+                                   (this.colorMode == ColorMode.USER_DEFINED && this.userAllowBright);
+
+        if (brightModeActive) {
+            // Check 2: Does the block's average intensity meet the threshold?
+            double totalIntensity = 0; int pixelCount = 0;
+            for (int y = startY; y < endY; y++) { for (int x = startX; x < endX; x++) {
+                // Use adjustedImage (pre-dither) for check
+                Color adjColor = new Color(adjustedImage.getRGB(x, y));
+                totalIntensity += (adjColor.getRed() + adjColor.getGreen() + adjColor.getBlue()) / 3.0; pixelCount++;
+            }}
+            if (pixelCount > 0 && (totalIntensity / pixelCount) >= brightAttributeThreshold) {
+                useBrightAttribute = true;
+            }
+        }
+        // --- End Brightness Check ---
+
+        // --- Count occurrences of palette colors in the DITHERED block ---
+        Map<Color, Integer> colorCounts = new HashMap<>();
+        for (int y = startY; y < endY; y++) { for (int x = startX; x < endX; x++) {
+             Color ditheredPixelColor = new Color(ditheredImage.getRGB(x, y));
+             // Find closest color *within the palette used for dithering*
+             Color closestDitherPaletteColor = findClosestColor(ditheredPixelColor, ditherPalette);
+             colorCounts.put(closestDitherPaletteColor, colorCounts.getOrDefault(closestDitherPaletteColor, 0) + 1);
+        }}
+
+        // --- Determine BASE Ink and Paper from the DITHERED block's colors ---
+        // These are colors from the ditherPalette
+        Color baseInk = (ditherPalette.length > 0) ? ditherPalette[0] : Color.BLACK;
+        Color basePaper = (ditherPalette.length > 1) ? ditherPalette[1] : Color.WHITE;
+        if (!colorCounts.isEmpty()) {
+             java.util.List<Map.Entry<Color, Integer>> sortedColors = new java.util.ArrayList<>(colorCounts.entrySet());
+             sortedColors.sort((e1, e2) -> e2.getValue().compareTo(e1.getValue()));
+             baseInk = sortedColors.get(0).getKey();
+             if (sortedColors.size() > 1) {
+                 basePaper = sortedColors.get(1).getKey();
+                 if (basePaper.equals(baseInk)) { basePaper = findClosestDifferentPaletteColor(baseInk, ditherPalette); }
+             } else { basePaper = findClosestDifferentPaletteColor(baseInk, ditherPalette); }
+        }
+
+        // --- Determine FINAL Ink and Paper (applying brightness if needed) ---
+        Color finalInk = baseInk; Color finalPaper = basePaper;
+        if (useBrightAttribute) {
+            // Map the base ink/paper (which could be from any dither palette)
+            // to their closest NORMAL ZX color, then find the BRIGHT version of that.
+            Color normalInkEquivalent = findClosestColor(baseInk, zxNormal);
+            Color normalPaperEquivalent = findClosestColor(basePaper, zxNormal);
+
+            finalInk = getBrightColor(normalInkEquivalent);
+            finalPaper = getBrightColor(normalPaperEquivalent);
+
+            // Ensure final paper is different from final ink after brightening
+            if (finalPaper.equals(finalInk)) {
+                 // Find the closest different *bright* color
+                 finalPaper = findClosestDifferentPaletteColor(finalInk, zxPaletteBright);
+            }
+        }
+
+        // Add diagnostic logging for block processing
+        // if (startY == 0 && startX == 0) { // Log first block only
+        //     IJ.log(String.format("Block[%d,%d %dx%d]: Mode=%s, BrightAttr=%b, DitherPalSize=%d, BaseInk=%s, BasePap=%s, FinalInk=%s, FinalPap=%s",
+        //         startX, startY, blockWidth, blockHeight, this.colorMode, useBrightAttribute, ditherPalette.length,
+        //         colorToName(baseInk), colorToName(basePaper), colorToName(finalInk), colorToName(finalPaper) ));
+        // }
+
+
+        // --- Apply final Ink/Paper Restriction ---
+        for (int y = startY; y < endY; y++) { for (int x = startX; x < endX; x++) {
+             Color ditheredPixelColor = new Color(ditheredImage.getRGB(x, y));
+             // Decide based on which BASE color the dithered pixel was closer to
+             Color closestBaseColor = findClosestColor(ditheredPixelColor, ditherPalette);
+             double distToBaseInk = colorDistance(closestBaseColor, baseInk);
+             double distToBasePaper = colorDistance(closestBaseColor, basePaper);
+             outputImage.setRGB(x, y, (distToBaseInk <= distToBasePaper) ? finalInk.getRGB() : finalPaper.getRGB());
+        }}
+     }
+
+     /** Helper to get the bright version of a normal ZX Spectrum color */
+     private Color getBrightColor(Color normalColor) { if (normalColor == null) return Color.BLACK; for (int i = 0; i < zxPaletteNormal.length; i++) { if (zxPaletteNormal[i].equals(normalColor)) { return (i == 0) ? zxPaletteNormal[0] : zxPaletteBright[i]; } } return normalColor; }
+     private Color findClosestDifferentPaletteColor(Color inputColor, Color[] targetPalette) { Color closest = null; double minDistance = Double.MAX_VALUE; boolean foundDifferent = false; if (targetPalette == null || targetPalette.length < 2) return inputColor; for (Color paletteColor : targetPalette) { if (paletteColor.equals(inputColor)) continue; foundDifferent = true; double distance = colorDistance(inputColor, paletteColor); if (distance < minDistance) { minDistance = distance; closest = paletteColor; } } return foundDifferent ? closest : inputColor; }
+    private double colorDistance(Color c1, Color c2) { long r=(long)c1.getRed()-c2.getRed(); long g=(long)c1.getGreen()-c2.getGreen(); long b=(long)c1.getBlue()-c2.getBlue(); return Math.sqrt(r*r + g*g + b*b); }
+    private Color findClosestColor(Color input, Color[] targetPalette) { if (targetPalette == null || targetPalette.length == 0) return Color.BLACK; Color closest = targetPalette[0]; double minDistance = Double.MAX_VALUE; for (Color paletteColor : targetPalette) { double distance = colorDistance(input, paletteColor); if (distance < minDistance) { minDistance = distance; closest = paletteColor; } if (minDistance == 0) break; } return closest; }
+
+    // --- Event Handlers (Unchanged) ---
+    @Override public void actionPerformed(ActionEvent e) { String command = e.getActionCommand(); if (command != null && command.equals("Load Custom Palette")) { IJ.log("Load Palette button clicked."); JFileChooser fileChooser = new JFileChooser(paletteFilePath); FileNameExtensionFilter filter = new FileNameExtensionFilter("Palette Files (*.pal, *.txt, *.csv)", "pal", "txt", "csv"); fileChooser.setFileFilter(filter); int returnVal = fileChooser.showOpenDialog(gd); if (returnVal == JFileChooser.APPROVE_OPTION) { File file = fileChooser.getSelectedFile(); paletteFilePath = file.getAbsolutePath(); boolean loaded = loadPaletteFromFile(paletteFilePath); if (loaded) { IJ.log("Palette loaded successfully, setting mode to Custom and updating preview."); Vector<?> choices = gd.getChoices(); if (choices != null && choices.size() > 2 && choices.get(2) instanceof Choice) { Choice colorModeChoice = (Choice) choices.get(2); colorModeChoice.select(ColorMode.CUSTOM.toString()); } else { updatePreview(); } } } else { IJ.log("Load Palette canceled."); } } }
+    @Override public void itemStateChanged(ItemEvent e) { if (gd == null || !(e.getSource() instanceof Choice || e.getSource() instanceof Checkbox)) return; Vector<?> choices = gd.getChoices(); Vector<?> checkboxes = gd.getCheckboxes(); boolean isOurComponent = (choices != null && choices.contains(e.getSource())) || (checkboxes != null && checkboxes.contains(e.getSource())); if (!isOurComponent) return; if (e.getStateChange() == ItemEvent.SELECTED || e.getStateChange() == ItemEvent.DESELECTED) { if (choices != null && choices.size() > 2 && e.getSource() == choices.get(2)) { if (((Choice)e.getSource()).getSelectedItem().equals(ColorMode.CUSTOM.toString()) && this.customPalette == null) { IJ.log("Custom palette mode selected, but no palette data is loaded yet."); } } updatePreview(); } }
+
+    // --- Preview Update Logic ---
+    private void updatePreview() { // IJ.log("updatePreview called.");
+        if (gd == null || imp == null || !gd.isShowing()) { return; }
+        Vector<?> choices = gd.getChoices(); Vector<?> checkboxes = gd.getCheckboxes(); Vector<?> sliders = gd.getSliders();
+        if (choices == null || checkboxes == null || sliders == null || choices.size() < 3 || checkboxes.size() < 9 || sliders.size() < 4) { IJ.log("updatePreview exiting: Component vectors null or insufficient."); return; }
+
+        // Read CURRENT values
+        int currentBlockX, currentBlockY; DitheringMode currentDitheringMode; ColorMode currentSelectedColorMode;
+        boolean currentUseBlack, currentUseBlue, currentUseRed, currentUseMagenta, currentUseGreen, currentUseCyan, currentUseYellow, currentUseWhite, currentAllowBright;
+        Color[] currentDitherPalette; // Palette resolved for dithering step based on mode + user flags
+        double currentDitheringLevel, currentBrightness, currentContrast, currentGamma;
+        try {
+             currentBlockX=8; currentBlockY=8; String blockSizeChoiceString=((Choice)choices.get(0)).getSelectedItem(); switch(blockSizeChoiceString){case"Disabled":currentBlockX=1;currentBlockY=1;break; case"8x8":currentBlockX=8;currentBlockY=8;break; case"8x4":currentBlockX=8;currentBlockY=4;break; case"8x2":currentBlockX=8;currentBlockY=2;break; case"8x1":currentBlockX=8;currentBlockY=1;break;}
+             String ditheringModeString=((Choice)choices.get(1)).getSelectedItem(); currentDitheringMode=DitheringMode.fromString(ditheringModeString);
+             String colorModeString=((Choice)choices.get(2)).getSelectedItem(); currentSelectedColorMode=ColorMode.fromString(colorModeString);
+             currentUseBlack=((Checkbox)checkboxes.get(0)).getState(); currentUseBlue=((Checkbox)checkboxes.get(1)).getState(); currentUseRed=((Checkbox)checkboxes.get(2)).getState(); currentUseMagenta=((Checkbox)checkboxes.get(3)).getState(); currentUseGreen=((Checkbox)checkboxes.get(4)).getState(); currentUseCyan=((Checkbox)checkboxes.get(5)).getState(); currentUseYellow=((Checkbox)checkboxes.get(6)).getState(); currentUseWhite=((Checkbox)checkboxes.get(7)).getState(); currentAllowBright=((Checkbox)checkboxes.get(8)).getState();
+             // Determine palette FOR DITHERING based on mode and current user flags
+             switch(currentSelectedColorMode){
+                 case ZX_NORMAL:currentDitherPalette=zxPaletteNormal;break; case ZX_BRIGHT_ATTRIBUTE:currentDitherPalette=zxPaletteNormal;break; case BLACK_AND_WHITE:currentDitherPalette=bwPalette;break; case BLACK_RED_GREEN_WHITE:currentDitherPalette=brgwPalette;break;
+                 case USER_DEFINED:currentDitherPalette=generateUserPaletteFromCheckboxStates(currentUseBlack, currentUseBlue, currentUseRed, currentUseMagenta, currentUseGreen, currentUseCyan, currentUseYellow, currentUseWhite, currentAllowBright); break; // Generate from CURRENT checkbox state
+                 case CUSTOM:currentDitherPalette=(this.customPalette!=null&&this.customPalette.length>0)?this.customPalette:zxPaletteNormal;break; default:currentDitherPalette=zxPaletteNormal;break;
+             }
+             currentDitheringLevel=((Scrollbar)sliders.get(0)).getValue()/100.0; currentBrightness=((Scrollbar)sliders.get(1)).getValue()/100.0; currentContrast=((Scrollbar)sliders.get(2)).getValue()/100.0; currentGamma=((Scrollbar)sliders.get(3)).getValue()/100.0;
+        } catch (Exception ex) { IJ.log("Error reading dialog components for preview: " + ex.getMessage()); ex.printStackTrace(); return; }
+
+        // Process DUPLICATE image
+        BufferedImage adjustedImagePreview = null; ImageProcessor ipPreview = null;
+        int backupBlockX=this.blockSizeX; int backupBlockY=this.blockSizeY; DitheringMode backupDithMode = this.ditheringMode; ColorMode backupColorMode = this.colorMode; Color[] backupCustomPalette = this.customPalette; double backupDithLevel=this.ditheringLevel; double backupBright=this.brightness; double backupContrast=this.contrast; double backupGamma=this.gamma; boolean[] backupUserFlags = getUserDefinedFlags();
+
+        try {
+            // Set temporary state for processing
+            this.blockSizeX=currentBlockX; this.blockSizeY=currentBlockY; this.ditheringMode=currentDitheringMode; this.colorMode=currentSelectedColorMode;
+            setUserDefinedFlags(new boolean[]{currentUseBlack, currentUseBlue, currentUseRed, currentUseMagenta, currentUseGreen, currentUseCyan, currentUseYellow, currentUseWhite, currentAllowBright}); // Set user flags needed by generateUserPaletteFromFields if called via getActivePalette
+            this.customPalette = currentDitherPalette; // Make resolved DITHER palette available if mode was CUSTOM or USER_DEFINED needed it
+            this.ditheringLevel=currentDitheringLevel; this.brightness=currentBrightness; this.contrast=currentContrast; this.gamma=currentGamma;
+
+            adjustedImagePreview = applyBCG(imp.getBufferedImage(), this.brightness, this.contrast, this.gamma);
+            BufferedImage ditheredImagePreview = applyDithering(adjustedImagePreview); // Uses getActivePalette() -> correct dither palette
+            BufferedImage zxImagePreview = convertToZXSpectrum(adjustedImagePreview, ditheredImagePreview, this.blockSizeX, this.blockSizeY); // Uses getActivePalette() + bright logic
+            ipPreview = new ColorProcessor(zxImagePreview);
+
+        } catch (Exception ex) { IJ.log("!!! Error during preview image processing: " + ex.getMessage() + " !!!"); ex.printStackTrace(); ipPreview = null;
+        } finally {
+            // Restore original global state
+             this.blockSizeX=backupBlockX; this.blockSizeY=backupBlockY; this.ditheringMode=backupDithMode; this.colorMode=backupColorMode; this.customPalette=backupCustomPalette; this.ditheringLevel=backupDithLevel; this.brightness=backupBright; this.contrast=backupContrast; this.gamma=backupGamma; setUserDefinedFlags(backupUserFlags);
+        }
+
+        if (ipPreview == null) { IJ.log("updatePreview exiting: Preview ImageProcessor is null after processing attempt."); return; }
+        final ImageProcessor finalIpPreview = ipPreview;
+
+        // Update preview window on EDT
+        SwingUtilities.invokeLater(() -> { try { boolean previewExistsAndVisible=(previewImp!=null && previewImp.getWindow()!=null && previewImp.isVisible()); if (!previewExistsAndVisible) { if (previewImp!=null) previewImp.close(); previewImp=new ImagePlus("Preview ["+imp.getShortTitle()+"]", finalIpPreview); previewImp.show(); ImageWindow win=previewImp.getWindow(); if(win!=null&&gd!=null&&gd.isShowing()){Point dialogLoc=gd.getLocationOnScreen();int dialogWidth=gd.getWidth();Dimension screenSize=Toolkit.getDefaultToolkit().getScreenSize(); int xPos=dialogLoc.x+dialogWidth+10;int yPos=dialogLoc.y; if(xPos>screenSize.width-win.getWidth()){xPos=dialogLoc.x-win.getWidth()-10;} if(yPos>screenSize.height-win.getHeight()){yPos=screenSize.height-win.getHeight()-10;} xPos=Math.max(0,xPos);yPos=Math.max(0,yPos); win.setLocation(xPos,yPos);}} else { previewImp.setProcessor(finalIpPreview); previewImp.updateAndDraw(); } } catch (Exception e) { IJ.log("!!! Exception inside invokeLater while updating preview window !!!"); e.printStackTrace(); if(previewImp!=null) previewImp.close(); previewImp=null; } });
+    }
+
+
+    // --- Palette Loading ---
+    private boolean loadPaletteFromFile(String filePath) { java.util.List<Color> loadedPalette = new java.util.ArrayList<>(); try (BufferedReader br = new BufferedReader(new FileReader(filePath))) { String line; int lineNum = 0; while ((line = br.readLine()) != null) { lineNum++; line = line.trim(); if (line.isEmpty() || line.startsWith("#") || line.startsWith(";")) continue; String[] values = line.split("[,\\s]+"); if (values.length == 3) { try { int r=clamp(Integer.parseInt(values[0].trim())); int g=clamp(Integer.parseInt(values[1].trim())); int b=clamp(Integer.parseInt(values[2].trim())); loadedPalette.add(new Color(r, g, b)); } catch (NumberFormatException nfe) { IJ.log("Warning: Invalid number format on line " + lineNum + ": " + line); } } else { IJ.log("Warning: Skipping malformed line " + lineNum + ": " + line); } } if (!loadedPalette.isEmpty()) { this.customPalette = loadedPalette.toArray(new Color[0]); IJ.log("Loaded " + this.customPalette.length + " colors from " + new File(filePath).getName()); return true; } else { IJ.error("Palette Loading", "No valid colors found in file."); this.customPalette = null; return false; } } catch (IOException ex) { IJ.error("Palette Loading Error", "Error reading file:\n" + ex.getMessage()); this.customPalette = null; return false; } }
+
+    // --- Helper Methods ---
+    /** Updated Helper to get the palette for DITHERING step */
+    private Color[] getActivePalette() {
+        switch (this.colorMode) {
+            case ZX_NORMAL:             return zxPaletteNormal;
+            case ZX_BRIGHT_ATTRIBUTE:   return zxPaletteNormal; // Dither to NORMAL palette
+            case BLACK_AND_WHITE:       return bwPalette;
+            case BLACK_RED_GREEN_WHITE: return brgwPalette;
+            case USER_DEFINED:          return generateUserPaletteFromFields(); // Generate from checkbox fields
+            case CUSTOM:                return (this.customPalette != null && this.customPalette.length > 0) ? this.customPalette : zxPaletteNormal; // Fallback
+            default:                    return zxPaletteNormal;
+        }
+    }
+
+    /** Generates palette for USER_DEFINED mode based on current checkbox field values. Ignores bright flag here. */
+    private Color[] generateUserPaletteFromFields() {
+        LinkedHashSet<Color> palette = new LinkedHashSet<>();
+        boolean[] selections = getUserDefinedFlags(); // Get current state from fields
+        // Add selected normal colors ONLY
+        for (int i = 0; i < 8; i++) { // Indices 0-7 correspond to Black-White
+            if (selections[i]) {
+                palette.add(zxPaletteNormal[i]);
+            }
+        }
+        // NOTE: Bright versions are NOT added here. They are handled by processBlock if needed.
+        if (palette.isEmpty()) { IJ.log("Warning: User Defined palette has no colors selected. Defaulting to Black & White."); return bwPalette; }
+        return palette.toArray(new Color[0]);
+    }
+
+    /** Generates palette for USER_DEFINED mode based on checkbox state arguments. Ignores bright flag. */
+    private Color[] generateUserPaletteFromCheckboxStates(boolean useBlack, boolean useBlue, boolean useRed, boolean useMagenta, boolean useGreen, boolean useCyan, boolean useYellow, boolean useWhite, boolean allowBright_ignored) {
+        LinkedHashSet<Color> palette = new LinkedHashSet<>();
+        boolean[] selections = { useBlack, useBlue, useRed, useMagenta, useGreen, useCyan, useYellow, useWhite };
+        for (int i = 0; i < 8; i++) { if (selections[i]) palette.add(zxPaletteNormal[i]); }
+        // Ignore allowBright_ignored here
+        if (palette.isEmpty()) return bwPalette;
+        return palette.toArray(new Color[0]);
+    }
+
+    // Helpers to get/set user defined flags state easily
+    private boolean[] getUserDefinedFlags() { return new boolean[]{ userUseBlack, userUseBlue, userUseRed, userUseMagenta, userUseGreen, userUseCyan, userUseYellow, userUseWhite, userAllowBright }; }
+    private void setUserDefinedFlags(boolean[] flags) { if (flags == null || flags.length < 9) return; userUseBlack = flags[0]; userUseBlue = flags[1]; userUseRed = flags[2]; userUseMagenta = flags[3]; userUseGreen = flags[4]; userUseCyan = flags[5]; userUseYellow = flags[6]; userUseWhite = flags[7]; userAllowBright = flags[8]; }
+
+    // Bayer size helper
+    private int getBayerSizeFromIndex(int index) { switch (index) { case 0: return 2; case 1: return 4; case 2: return 8; default: IJ.log("Warning: Invalid Bayer index " + index + ". Defaulting to size 4."); return 4; } }
+
+    // Helper for logging color names (optional)
+    private String colorToName(Color c) { if(c==null) return "null"; return String.format("RGB(%d,%d,%d)", c.getRed(), c.getGreen(), c.getBlue()); }
+
+} // End of ZX_Spectrum_Converter class

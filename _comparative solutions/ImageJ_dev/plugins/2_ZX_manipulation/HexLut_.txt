@@ -1,0 +1,83 @@
+var r0 = newArray(8); 
+var g0 = newArray(8); 
+var b0 = newArray(8);
+
+var file = "";
+
+r = newArray(8);
+g = newArray(8);
+b = newArray(8);
+
+p = newArray(3);
+i = newArray(3);
+x = newArray(3);
+
+p[0] = 0; p[1] = 0; p[2] = 1;
+i[0] = 1; i[1] = 4; i[2] = 5;
+b[0] = 0; b[1] = 0; b[2] = 0;
+
+var imageID 	= 0;
+var br		= 64;
+var ravg;
+var gavg;
+var bavg;
+
+
+r[0]=0;	g[0]=0;	b[0]=0;
+r[1]=0;	g[1]=0;	b[1]=1;
+r[2]=1;	g[2]=0;	b[2]=0;
+r[3]=1;	g[3]=0;	b[3]=1;
+r[4]=0;	g[4]=1;	b[4]=0;
+r[5]=0;	g[5]=1;	b[5]=1;
+r[6]=1;	g[6]=1;	b[6]=0;
+r[7]=1;	g[7]=1;	b[7]=1;
+
+
+Dialog.create("Select Colors")
+	for(j=0; j<3; j++) {
+		Dialog.addNumber("Paper "+j, p[j]);
+		Dialog.addNumber("Ink "+j, i[j]);
+		Dialog.addCheckbox("Bright "+j, x[j]);
+	}
+Dialog.show();
+
+for(j=0; j<3; j++) {
+	p[j] = Dialog.getNumber();
+	i[j] = Dialog.getNumber();
+	x[j] = Dialog.getCheckbox() * br;
+	file = file + "_"+p[j]+""+i[j]+""+x[j];
+}
+
+j=0;
+
+colAvg(p[0],p[1],p[2],x[0],x[1],x[2]); addCol(j); j++;
+colAvg(i[0],i[1],i[2],x[0],x[1],x[2]); addCol(j); j++;
+
+colAvg(i[0],p[1],p[2],x[0],x[1],x[2]); addCol(j); j++;
+colAvg(p[0],i[1],p[2],x[0],x[1],x[2]); addCol(j); j++;
+colAvg(p[0],p[1],i[2],x[0],x[1],x[2]); addCol(j); j++;
+
+colAvg(p[0],i[1],i[2],x[0],x[1],x[2]); addCol(j); j++;
+colAvg(i[0],p[1],i[2],x[0],x[1],x[2]); addCol(j); j++;
+colAvg(i[0],i[1],p[2],x[0],x[1],x[2]); addCol(j); j++;
+
+newImage("lut"+file, "8-bit White", 4, 1, 1);
+imageID = getImageID(); 
+selectImage(imageID);
+setLut(r0,g0,b0);
+save("lut_"+file+".gif");
+run("Show LUT");
+selectImage(imageID);
+close();
+
+function colAvg(c1,c2,c3,x1,x2,x3) {
+ravg = (r[c1]*(192+x[x1])+r[c2]*(192+x[x2])+r[c3]*(192+x[x3]))/3
+gavg = (g[c1]*(192+x[x1])+g[c2]*(192+x[x2])+g[c3]*(192+x[x3]))/3
+bavg = (b[c1]*(192+x[x1])+b[c2]*(192+x[x2])+b[c3]*(192+x[x3]))/3
+}
+
+function addCol(j) {
+r0[j] = ravg;
+g0[j] = gavg;
+b0[j] = bavg;
+}

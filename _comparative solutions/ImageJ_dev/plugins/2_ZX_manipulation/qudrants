@@ -1,0 +1,20 @@
+run("Select All");
+run("Copy");
+cw = getWidth();
+ch = getHeight();
+
+run("Canvas Size...", "width="+cw+" height="+ch*2+" position=Top-Left zero");
+print(cw+" x "+ch);
+makeRectangle(0, ch, cw, ch);
+run("Paste");
+run("Invert");
+run("Select All");
+run("Copy");
+cw = getWidth();
+ch = getHeight();
+
+run("Canvas Size...", "width="+cw+" height="+ch*2+" position=Top-Left zero");
+print(cw+" x "+ch);
+makeRectangle(0, ch, cw, ch);
+run("Paste");
+run("Flip Horizontally");

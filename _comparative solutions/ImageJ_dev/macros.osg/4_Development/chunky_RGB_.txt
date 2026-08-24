@@ -1,0 +1,37 @@
+var sID;
+var dID;
+var w;
+var h;
+
+// source image
+sID = getImageID();
+w = getWidth();
+h = getHeight();
+
+// destination image
+newImage("image", "RGB black", w*4, h*4, 1);
+dID = getImageID();
+
+setBatchMode(true);
+for(x=0;x<w;x++) {
+	for(y=0;y<h;y++) {
+		selectImage(sID); 
+		col = getPixel(x,y);
+		selectImage(dID);
+		r = col>>20&7;
+		g = col>>12&7;
+		b = col>>05&7;
+		xx = x*4;
+		yy = y*4;
+		putPixel(xx,yy  ,r>>2&1*255<<16); putPixel(xx+1,yy  ,r>>1&1*255<<16); putPixel(xx+2,yy  ,r&1*255<<16);
+		putPixel(xx,yy+1,g>>2&1*255<< 8); putPixel(xx+1,yy+1,g>>1&1*255<< 8); putPixel(xx+2,yy+1,g&1*255<< 8);
+		putPixel(xx,yy+2,b>>2&1*255    ); putPixel(xx+1,yy+2,b>>1&1*255    ); putPixel(xx+2,yy+2,b&1*255    );
+	}
+}
+
+
+
+
+
+
+

@@ -1,0 +1,21 @@
+{
+  "name": "retro-converter",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "packageManager": "pnpm@11.9.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "benchmark:corpus": "node tools/summarize-benchmark-corpus.mjs",
+    "check": "pnpm run typecheck && pnpm run test",
+    "dev": "pnpm --filter @retro-converter/zx-spectrum build && pnpm --filter @retro-converter/sinclair-ql build && pnpm --filter @retro-converter/web dev",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  }
+}

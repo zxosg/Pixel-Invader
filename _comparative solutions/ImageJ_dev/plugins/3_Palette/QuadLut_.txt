@@ -1,0 +1,54 @@
+r0 = newArray(4); 
+g0 = newArray(4); 
+b0 = newArray(4);
+r = newArray(8);
+g = newArray(8);
+b = newArray(8);
+
+var p1		= 0;
+var p2		= 4;
+var i1		= 2;
+var i2		= 6;
+var imageID 	= 0;
+var br		= 64;
+var br1	= 0;
+var br2	= 0;
+
+r[0]=0;	g[0]=0;	b[0]=0;
+r[1]=0;	g[1]=0;	b[1]=1;
+r[2]=1;	g[2]=0;	b[2]=0;
+r[3]=1;	g[3]=0;	b[3]=1;
+r[4]=0;	g[4]=1;	b[4]=0;
+r[5]=0;	g[5]=1;	b[5]=1;
+r[6]=1;	g[6]=1;	b[6]=0;
+r[7]=1;	g[7]=1;	b[7]=1;
+
+
+Dialog.create("Select Colors")
+	Dialog.addNumber("Paper 1", p1);
+	Dialog.addNumber("Ink 1", i1);
+	Dialog.addNumber("Paper 2", p2);
+	Dialog.addNumber("Ink 2", i2);
+	Dialog.addCheckbox("Bright 1", br1);	
+	Dialog.addCheckbox("Bright 2", br2);
+Dialog.show();
+p1 = Dialog.getNumber();
+i1 = Dialog.getNumber();
+p2 = Dialog.getNumber();
+i2 = Dialog.getNumber();
+br1= Dialog.getCheckbox() * br;
+br2= Dialog.getCheckbox() * br;
+
+r0[0] = (r[p1]*(192+br1)+r[p2]*(192+br2))>>1; g0[0] = (g[p1]*(192+br1)+g[p2]*(192+br2))>>1; b0[0] = (b[p1]*(192+br1)+b[p2]*(192+br2))>>1;
+r0[1] = (r[p1]*(192+br1)+r[i2]*(192+br2))>>1; g0[1] = (g[p1]*(192+br1)+g[i2]*(192+br2))>>1; b0[1] = (b[p1]*(192+br1)+b[i2]*(192+br2))>>1;
+r0[2] = (r[i1]*(192+br1)+r[i2]*(192+br2))>>1; g0[2] = (g[i1]*(192+br1)+g[i2]*(192+br2))>>1; b0[2] = (b[i1]*(192+br1)+b[i2]*(192+br2))>>1;
+r0[3] = (r[i1]*(192+br1)+r[p2]*(192+br2))>>1; g0[3] = (g[i1]*(192+br1)+g[p2]*(192+br2))>>1; b0[3] = (b[i1]*(192+br1)+b[p2]*(192+br2))>>1;
+
+newImage("lut"+p1+i1+p2+i2, "8-bit White", 4, 1, 1);
+imageID = getImageID(); 
+selectImage(imageID);
+setLut(r0,g0,b0);
+save("lut_"+p1+""+i1+""+br1/64+""+p2+""+i2+""+br2/64+".gif");
+run("Show LUT");
+selectImage(imageID);
+close();

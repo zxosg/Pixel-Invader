@@ -1,0 +1,29 @@
+{
+  "name": "@retro-converter/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@retro-converter/conversion-core": "workspace:*",
+    "@retro-converter/image-codecs": "workspace:*",
+    "@retro-converter/pmd-85": "workspace:*",
+    "@retro-converter/sinclair-ql": "workspace:*",
+    "@retro-converter/zx-charset": "workspace:*",
+    "@retro-converter/zx-spectrum": "workspace:*",
+    "fflate": "0.8.3",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.4",
+    "vite": "8.1.5"
+  }
+}

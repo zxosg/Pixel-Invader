@@ -1,0 +1,10 @@
+  // This example macro demonstrates how to create a
+  // custom command with a keyboard shortcut.
+  macro "Save As RAW... [j]" {
+    saveAs("Raw Data");
+  }
+
+  macro "Dither Tool - " {
+        run("OsgDitherNew ");
+  }
+

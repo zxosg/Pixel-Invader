@@ -1,0 +1,11 @@
+var 	w=32;
+var	h=24;
+
+	newImage("persp", "8-bit black", texWidth, texHeight, 1); tID = getImageID();
+
+	for(x = 0; x < w; x++) {
+	for(y = 0; y < h; y++) {
+		setPixel(x,y,(x * 256 / texWidth) ^ (y * 256 / texHeight));
+	}
+	}
+

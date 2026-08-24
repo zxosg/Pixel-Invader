@@ -1,0 +1,18 @@
+{
+  "name": "Pixel Invader · Image Convertor",
+  "short_name": "Pixel Invader",
+  "description": "Image Convertor powered by Void Engine · OSG^Invaders",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#11151c",
+  "theme_color": "#11151c",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

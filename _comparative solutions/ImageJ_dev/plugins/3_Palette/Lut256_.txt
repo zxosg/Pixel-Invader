@@ -1,0 +1,14 @@
+r0 = newArray(256); 
+g0 = newArray(256); 
+b0 = newArray(256);
+r1 = newArray(256); 
+g1 = newArray(256); 
+b1 = newArray(256);
+getLut(r0,g0,b0);
+for(i=0;i<r0.length;i++) {
+	r1[i] = r0[i];
+	g1[i] = g0[i];
+	b1[i] = b0[i];
+}
+setLut(r1,g1,b1);
+

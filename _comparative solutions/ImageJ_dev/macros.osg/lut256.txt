@@ -1,0 +1,5 @@
+r = newArray(256); 
+g = newArray(256); 
+b = newArray(256);
+getLut(r,g,b);
+setLut(r,g,b);

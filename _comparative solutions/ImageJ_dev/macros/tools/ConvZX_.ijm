@@ -1,0 +1,414 @@
+//==============================================================================
+// Convertor from 8 color paletted images to Sinclair ZX Spectrum multicolor mode.
+// (C) 2006 Omega of Patisoners
+// 
+// version history:
+// - v0.9.8  	- 17.03.06	first release of converted images in Forever7
+// - v0.9.b	- 10.04.06	implementation of interlace mode
+//				self modification of initial parametters for laced and non-laced images
+//==============================================================================
+
+// global variables
+
+var attrWidth, attrHeight, debug_; 
+var XBord	= 0;
+var YBord	= 0;
+var WBord	= 0.15;	// border w/h of the attr taken in account,  weight of the border colours
+var meanC;		// mean value of colors inside attribute
+var evnid, oddid;		// interlace image ids
+var laced = false;		// interlace tag ON/OFF
+var laced_pass = false;
+var newId, oldId, lace1, lace2, origid;
+	
+var Row		=	newArray(16);
+var d		= 	newArray(32); 	// dithering matrix 4x4
+var paper, ink;
+var mulTab	=	newArray( 1.75, 1.5, 1.25, 1, 1, 1.25, 1.5, 1.75 );
+
+while (true) {
+
+var startX	= 0;
+var startY	= 0;
+
+var maxX	=	getWidth();
+var maxY	=	getHeight();
+
+if(maxY > 192) {
+	laced = true;
+	XBord = 1;
+	YBord = 2;
+	WBord = 0.25;
+	}
+
+Dialog.create("Preferences")
+	Dialog.addNumber("Attr Width", 8);
+	Dialog.addNumber("Attr Height", 8);
+	Dialog.addNumber("X-Border", XBord);
+	Dialog.addNumber("Y-Border", YBord);
+	Dialog.addNumber("W-Border", WBord);
+	Dialog.addCheckbox("Interlaced", laced);
+	Dialog.addCheckbox("Use MulTab (experimental)", false);
+	Dialog.addCheckbox("Debug", false);
+Dialog.show();
+
+attrWidth	= Dialog.getNumber();
+attrHeight	= Dialog.getNumber();
+XBord	= Dialog.getNumber();
+YBord	= Dialog.getNumber();
+WBord	= Dialog.getNumber();
+laced	= Dialog.getCheckbox();
+mtsw	= Dialog.getCheckbox();
+debug_= Dialog.getCheckbox();
+
+// debug vars
+if(debug_) {
+	Dialog.create("Debug")
+		Dialog.addNumber("Start X", 0);
+		Dialog.addNumber("Start Y", 0);
+		Dialog.addNumber("Loop X", 1);
+		Dialog.addNumber("Loop Y", 1);
+	Dialog.show();
+	startX	= Dialog.getNumber();
+	startY	= Dialog.getNumber();
+	maxX	= Dialog.getNumber() *  attrWidth + startX;
+	maxY	= Dialog.getNumber() *  attrHeight + startY;
+}
+
+origid =  getImageID();
+
+if (laced) {
+	vertical_split();
+	maxY = maxY/2;
+	selectImage(oddid);
+	convert();
+	lace1 = newId;
+	selectImage(evnid);
+	laced_pass = true;
+	convert();
+	lace2 = newId;
+	selectImage(oddid);
+	run("Close");
+	selectImage(evnid);
+	run("Close");
+
+// create preview image
+	selectImage(lace1);
+	run("Duplicate...", "title=lace1");
+	lace1 = getImageID();
+	run("RGB Color");
+	selectImage(lace2);
+	run("Duplicate...", "title=lace2");
+	lace2 = getImageID();
+	run("RGB Color");
+	imageCalculator("Average create", "lace1","lace2");
+	selectImage(lace1);
+	run("Close");
+	selectImage(lace2);
+	run("Close");
+} else {
+	convert();
+}
+showStatus("Conversion finished");
+beep();
+showMessageWithCancel("Restart","Next image?");
+if(laced) {
+	selectImage(lace1);
+	run("Close");
+	selectImage(lace2);
+	run("Close");
+}
+selectImage(origid);
+run("Open Next");
+}
+
+// ================ end of application ============
+
+function convert() {
+// ========= duplicate original image ===============
+
+oldId = getImageID();
+filename = "title=" + replace(getTitle()," ","_") + attrWidth + "x" + attrHeight;
+run("Select All");
+run("Duplicate...", filename);
+newId = getImageID();
+
+// ========== main code starts here ================
+
+//setupUndo();
+setBatchMode(true);
+
+dither();		// load dither matrix
+
+nBins	= 256; // histogram settings
+
+showStatus("Converting to multicolor...");
+
+for (x = startX;  x<maxX; x=x+attrWidth) {
+	showProgress(x, maxX);
+	for (y=startY; y<maxY; y=y+attrHeight) {
+
+		selectImage(oldId);
+
+		makeRectangle(x, y, attrWidth, attrHeight);
+//		getHistogram(attrValues, attrCount, nBins);
+		getStatistics(area, mean, min, max, std, attrCount);
+
+		if (std==0) { // = single color in attribute
+			ink 	= mean;
+			paper 	= 0;
+			meanC	= ink / 2;
+		} else {
+
+			makeRectangle(x-XBord, y-YBord, attrWidth+XBord+XBord, attrHeight+YBord+YBord);
+//			getHistogram(attrValuesB, attrCountB, nBins);
+			getStatistics(areaB, meanB, minB, maxB, stdB, attrCountB);
+
+			if(debug_) {
+				print("pos: "+x+","+y);
+				print("avg: "+mean);
+				print("min: "+min);
+				print("max: "+max);
+				print("std: "+std);
+				print("");
+
+				print("avgB: "+meanB);
+				print("minB: "+minB);
+				print("maxB: "+maxB);
+				print("stdB: "+stdB);
+				print("");
+			}
+
+			maxCnt 	= 0;
+			maxCol 	= 0;
+			meanC 	= 0;
+			sumC	= 0;
+
+			for (i=0; i<8; i++) {
+				attrCount[i] 	+= (attrCountB[i] - attrCount[i])*WBord;
+				meanC	+= attrCount[i] * i;
+				sumC	+= attrCount[i];
+				Row[i] = i; Row[i+8] = attrCount[i] * ((mtsw  * mulTab[i]) + (mtsw == 0));
+
+//				if(attrCount[i] > maxCnt) {
+//					maxCnt = attrCount[i];
+//					maxCol = i;
+//				} // endif
+			} //endfor
+
+			meanC	=	meanC / sumC;
+
+//			print(maxCol + "_" + maxCnt);
+
+			if(debug_) {
+				for (i=0; i<8; i++) print( i + " - " + attrCount[i]);
+				print("meanC:"+meanC);
+			}
+			
+			sort(Row);
+
+			if(debug_) for (i=0; i<8; i++) print(Row[i] + " - " + Row[i+8]);
+
+			col1	= Row[0];
+			i 	= 1;
+
+			if(Row[0] <= meanC) 	
+				m	= 0; // hledam ink
+			else
+				m	= 1; // hledam paper
+						
+			do {
+				if(m==0) {
+					if(Row[i] > meanC) {
+						if(debug_) print("> mean:"+Row[i]);
+//						if(Row[i+8]>=Row[9]) {
+							col2 = Row[i];
+//						} else {
+//							col2 = Row[1];
+//						}
+						i=555; //exit do
+					}
+				}
+				if(m==1) {
+					if(Row[i] < meanC) {
+						if(debug_) print("< mean:"+Row[i]);
+//						if(Row[i+8]>=Row[9]) {
+							col2 = Row[i];
+//						} else {
+//							col2 = Row[1];
+//						}
+						i=555; //exit do
+					}
+				}
+				i++;
+			} while (i<8);
+
+			if (col1 > col2) {
+				paper 	= col2;
+				ink	= col1;
+			} else {
+				paper 	= col1;
+				ink	= col2;
+			} // endif
+
+		} // end if std
+
+		if(debug_) print("ink:"+ink+" paper:"+paper);
+		pixeldither( x, y );
+
+	 } // endfor
+} // endfor
+
+setBatchMode(false);
+autoUpdate(true);
+updateDisplay();
+
+} // end of convert function
+
+function dither() {
+	a=0;			// dummy
+	d[a+0] = 0; d[a+1] = 0;	// dummy
+	d[a+2] = 0; d[a+3] = 0;	// dummy
+	a+=4;			// real start is here, diff 1 is ommited
+	d[a+0] = 0; d[a+1] = 0;
+	d[a+2] = 0; d[a+3] = 0;
+	a+=4;
+	d[a+0] = 0; d[a+1] = 1;
+	d[a+2] = 0; d[a+3] = 0;
+	a+=4;
+	d[a+0] = 0; d[a+1] = 1;
+	d[a+2] = 1; d[a+3] = 0;
+	a+=4;
+	d[a+0] = 1; d[a+1] = 1;
+	d[a+2] = 1; d[a+3] = 0;
+	a+=4;
+	d[a+0] = 1; d[a+1] = 1;
+	d[a+2] = 1; d[a+3] = 1;
+	a+=4;
+	d[a+0] = 1; d[a+1] = 1;
+	d[a+2] = 1; d[a+3] = 1;
+	a+=4;
+	d[a+0] = 1; d[a+1] = 1;
+	d[a+2] = 1; d[a+3] = 1;
+}
+
+function pixelavg(xx, yy, mean) {
+	if(debug_) print("here!");
+	selectImage(newId);
+	makeRectangle(xx, yy, attrWidth, attrHeight);
+	changeValues(mean, 7, ink);
+	changeValues(0, mean - 1, paper);
+	selectImage(oldId);
+	beep();
+}
+
+function pixeldither(xx,yy) {
+
+//	print("dither region");
+
+	for (x=xx; x<(xx+attrWidth); x++) {
+		for (y=yy; y<(yy+attrHeight); y++) {
+
+			selectImage(oldId);
+
+			px = getPixel(x,y);
+
+			selectImage(newId);
+		
+			if (px >= ink) {
+				setPixel(x,y,ink);
+//				print(x+","+y+":"+px+" ink:"+ink);
+			} else if (px <= paper) {
+				setPixel(x,y,paper);
+//				print(x+","+y+":"+px+" pap:"+paper);
+			} else {
+
+				dm 	= 4*(ink - px) + x%2 + 2*(y%2);
+
+				if(laced_pass) {
+					setPixel(x,y,(d[dm]==0)*paper + (d[dm]==1)*ink);
+				} else {	
+					setPixel(x,y,(d[dm]==1)*paper + (d[dm]==0)*ink);
+				}
+
+//				print("ink:"+ink+" pap:"+paper+" act:"+px);
+//				print("col:"+px+" dth:"+4*(floor(ink - px)/2));
+//				print("dx:"+x%2+" dy:"+y%2+" dth:"+dm);
+
+			} //endif
+		} //endfor
+	} // endfor
+} // end function
+
+function sort(array) {
+
+	size = array.length;
+	siz2	 = size / 2;
+	sz21 = siz2 -1;
+
+//	for (i=0; i<siz2; i++) print("item: "+i+" index: "+array[i]+" value: "+array[i+siz2]);
+
+	// silly buble sorting of rows
+
+	for (j=0; j<siz2; j++) {
+		for (i=0;i<sz21; i++) {
+			if (array[i+siz2] < array [i+1+siz2]) {
+				row		= array[i];
+				value	= array[i+siz2];
+				array[i] = array[i+1];
+				array[i+siz2] = array[i+1+siz2];
+				array[i+1] = row;
+				array[i+1+siz2] = value;
+			} //endif
+		} // endfor
+	} // endfor
+
+//	for(i=0; i<siz2; i++) print("item: "+i+" index: "+array[i]+" value: "+array[i+siz2]);
+
+} // end function
+ 
+function vertical_split() {
+	showStatus("Converting to interlace");
+
+	curid = getImageID();	// current image ID
+
+	makeRectangle(0,0,maxX,maxY / 2);
+	title = getTitle();
+	filename = "title=1_" +  title;
+	
+	run("Duplicate...", filename);
+	run("Select All");
+	run("Clear");
+	oddid = getImageID();
+
+	filename = "title=2_" + title;
+	run("Duplicate...", filename);
+	run("Select All");
+	run("Clear");
+	evnid = getImageID();
+
+	setBatchMode(true);
+
+	for(y=0; y<maxY; y+=4) {
+		selectImage(curid);
+		makeRectangle(0,y,maxX,1);
+		run("Copy");
+		selectImage(oddid);
+		makeRectangle(0,y/2,maxX,1);
+		run("Paste");
+
+		selectImage(curid);
+		makeRectangle(0,y+1,maxX,2);
+		run("Copy");
+		selectImage(evnid);
+		makeRectangle(0,y/2,maxX,2);
+		run("Paste");
+
+		selectImage(curid);
+		makeRectangle(0,y+3,maxX,1);
+		run("Copy");
+		selectImage(oddid);
+		makeRectangle(0,y/2+1,maxX,1);
+		run("Paste");
+	}
+	setBatchMode(false);
+}

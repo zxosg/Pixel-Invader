@@ -1,0 +1,76 @@
+// Import ZX screens into ImageJ
+// (C) 2007 osg^patisoners
+
+run("Raw...", "image=8-bit width=6912 height=1 offset=0 number=1 gap=0");
+imageID0	= getImageID();
+info = split(getImageInfo(),"\n");
+imageName = info[1];
+
+if (endsWith(info[9],"000")) {
+	close();
+	run("Raw...", "open="+substring(info[9],6,lengthOf(info[9]))+" image=8-bit width=6912 height=1 offset=21 number=1 gap=0");
+	imageID0	= getImageID();
+}			
+
+newImage(imageName, "RGB White", 256, 192, 1);
+imageID4 	= getImageID();
+
+setBatchMode(true);
+
+// base RGB values for non bright colors
+blue 	= 192;
+red	= 192<<16;
+green	= 192<<8;
+
+// bright color addition to base color
+bBlu	= 63;
+bRed	= 63<<16;
+bGrn	= 63<<8;
+
+pixAddr	= 0;
+curAddr	= 0;
+
+for (y=0; y<192; y++) {
+	showProgress(y,192);
+	for (x=0; x<32; x++) {
+		selectImage(imageID0);
+		atrAddr = 6144+(y>>3)<<5;
+		pix = getPixel(curAddr+x,0);
+		atb = getPixel(atrAddr+x,0);
+		for (i=0; i<8; i++) {
+			pnt = 128&(pix<<i);
+			selectImage(imageID4);
+			brg = (atb>>6)&1;
+			atr = (atb>>((pnt!=128)*3))&7;
+			blu = (brg*bBlu+blue)*(atr&1);
+			rde = (brg*bRed+red)*(atr>>1&1);
+			grn = (brg*bGrn+green)*(atr>>2&1);
+			setPixel(x*8+i,y,grn+rde+blu);
+			}
+		}
+	curAddr = down(curAddr);
+}
+
+setBatchMode(false);
+selectImage(imageID0);
+close();
+autoUpdate(true);
+updateDisplay();
+
+// end of application
+
+// typical asm calculation to get down address
+function down(addr) {
+laddr	= addr&255;
+haddr	= addr>>8;
+
+haddr	= haddr+1;
+if (haddr&7 != 0) {
+	return haddr<<8+laddr;
+	}
+laddr	+=32;
+if (laddr>255) {
+	return haddr<<8+(laddr&255);
+	}
+return (haddr-8)<<8+laddr;
+}

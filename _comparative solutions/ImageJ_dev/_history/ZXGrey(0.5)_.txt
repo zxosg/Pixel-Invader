@@ -1,0 +1,62 @@
+var wdth		=	getWidth();
+var hght		=	getHeight();
+var imageName		=	getTitle();
+var imageID0		=	getImageID();	// source image
+var col1, col2, p;
+newImage(imageName+"_1", "8-bit White", wdth, hght, 1);
+var imageID1 	= getImageID();
+newImage(imageName+"_2", "8-bit White", wdth, hght, 1);
+var imageID2	= getImageID();
+var i1, i2, tmp;
+
+col1 = 0; col2=255;
+
+setBatchMode(true);
+
+i1 = imageID1;
+i2 = imageID2;
+
+for(y=0; y<hght; y+=2) {
+	showProgress(y, hght);
+	selectImage(imageID0);
+	for(x=0;x<wdth; x+=2) {
+		i1 = imageID1;
+		i2 = imageID2;
+	
+		// tmp = i1;
+		// i1 = i2;
+		// i2 = tmp;
+
+		selectImage(imageID0); putPixel(x  ,y  ,getPixel(x  ,y  ));
+		selectImage(imageID0); putPixel(x+1,y  ,getPixel(x+1,y  ));
+		selectImage(imageID0); putPixel(x+1,y+1,getPixel(x+1,y+1));	
+		selectImage(imageID0); putPixel(x  ,y+1,getPixel(x  ,y+1));
+	}
+	//i1 = imageID1;
+	//i2 = imageID2;
+
+	tmp = i1;
+	i1 = i2;
+	i2 = tmp;
+}
+
+setBatchMode(false);
+
+selectImage(imageID1); updateDisplay();
+selectImage(imageID2); updateDisplay();
+
+function putPixel(xx,yy,pp) {
+	if(pp==0) {
+		selectImage(i1); setPixel(xx,yy,col1);
+		selectImage(i2); setPixel(xx,yy,col1);
+	} else if(pp==1) {
+		selectImage(i1); setPixel(xx,yy,col1);
+		selectImage(i2); setPixel(xx,yy,col2);
+		tmp = i1;
+		i1 = i2;
+		i2 = tmp;
+	} else if(pp==2) {
+		selectImage(i1); setPixel(xx,yy,col2);
+		selectImage(i2); setPixel(xx,yy,col2);
+	}
+}

@@ -1,0 +1,257 @@
+/*
+ * ZX_Spectrum_Converter6.java
+ */
+
+//package plugin;
+
+import ij.*;
+import ij.gui.*;
+import ij.plugin.filter.PlugInFilter;
+import ij.process.*;
+
+import java.awt.*;
+import java.util.*;
+import java.util.List;
+
+public class ZX_Spectrum_Converter6 implements PlugInFilter {
+    private ImagePlus imp;
+
+    private static final String[] DITHERING_MODES = {
+        "None", "Floyd-Steinberg", "Bayer 2x2", "Bayer 4x4", "Bayer 8x8", "Interlace"
+    };
+
+    private int blockWidth = 8;
+    private int blockHeight = 8;
+    private int ditheringMode = 0;
+    private boolean useBright = false;
+
+    private static final int[][] ZX_PALETTE = {
+        {0, 0, 0}, {0, 0, 192}, {192, 0, 0}, {192, 0, 192},
+        {0, 192, 0}, {0, 192, 192}, {192, 192, 0}, {192, 192, 192},
+        {0, 0, 0}, {0, 0, 255}, {255, 0, 0}, {255, 0, 255},
+        {0, 255, 0}, {0, 255, 255}, {255, 255, 0}, {255, 255, 255}
+    };
+
+    private static final int[][] BAYER_2x2 = {
+        {0, 2},
+        {3, 1}
+    };
+
+    private static final int[][] BAYER_4x4 = {
+        {0, 8, 2, 10},
+        {12, 4, 14, 6},
+        {3, 11, 1, 9},
+        {15, 7, 13, 5}
+    };
+
+    private static final int[][] BAYER_8x8 = {
+        {0,32,8,40,2,34,10,42},
+        {48,16,56,24,50,18,58,26},
+        {12,44,4,36,14,46,6,38},
+        {60,28,52,20,62,30,54,22},
+        {3,35,11,43,1,33,9,41},
+        {51,19,59,27,49,17,57,25},
+        {15,47,7,39,13,45,5,37},
+        {63,31,55,23,61,29,53,21}
+    };
+
+    @Override
+    public int setup(String arg, ImagePlus imp) {
+        this.imp = imp;
+        return DOES_RGB;
+    }
+
+    @Override
+    public void run(ImageProcessor ip) {
+        showDialog();
+        if (imp == null) return;
+
+        if (DITHERING_MODES[ditheringMode].equals("Interlace")) {
+            runInterlaceMode(ip);
+        } else {
+            IJ.showMessage("Dithering mode not implemented yet.");
+        }
+    }
+
+    private void showDialog() {
+        GenericDialog gd = new GenericDialog("ZX Spectrum Converter 6");
+        gd.addChoice("Dithering Method:", DITHERING_MODES, DITHERING_MODES[ditheringMode]);
+        gd.addNumericField("Block Width:", blockWidth, 0);
+        gd.addNumericField("Block Height:", blockHeight, 0);
+        gd.addCheckbox("Use Bright Colors:", useBright);
+        gd.addStringField("Frame A Paper Colors (comma separated):", "0,1,2");
+        gd.addStringField("Frame A Ink Colors (comma separated):", "5,6,7");
+        gd.addStringField("Frame B Paper Colors (comma separated):", "0,1");
+        gd.addStringField("Frame B Ink Colors (comma separated):", "4,5,6");
+        gd.showDialog();
+
+        if (gd.wasCanceled()) {
+            imp = null;
+            return;
+        }
+
+        ditheringMode = gd.getNextChoiceIndex();
+        blockWidth = (int) gd.getNextNumber();
+        blockHeight = (int) gd.getNextNumber();
+        useBright = gd.getNextBoolean();
+    }
+
+    private void runInterlaceMode(ImageProcessor original) {
+        int w = original.getWidth();
+        int h = original.getHeight();
+        ImageProcessor frameA = new ColorProcessor(w, h);
+        ImageProcessor frameB = new ColorProcessor(w, h);
+        ImageProcessor avg = new ColorProcessor(w, h);
+
+        List<Color> palette = getPalette();
+
+        for (int y = 0; y < h; y += blockHeight) {
+            for (int x = 0; x < w; x += blockWidth) {
+                processInterlaceBlock(original, frameA, frameB, avg, x, y, blockWidth, blockHeight, palette);
+            }
+        }
+
+        new ImagePlus("Interlace - Average", avg).show();
+        new ImagePlus("Interlace - Frame A", frameA).show();
+        new ImagePlus("Interlace - Frame B", frameB).show();
+    }
+
+    private void processInterlaceBlock(ImageProcessor source, ImageProcessor a, ImageProcessor b, ImageProcessor avg, int bx, int by, int bw, int bh, List<Color> palette) {
+        double bestError = Double.MAX_VALUE;
+        Color bestA1 = null, bestA2 = null, bestB1 = null, bestB2 = null;
+
+        for (Color a1 : palette) {
+            for (Color a2 : palette) {
+                if (a1.equals(a2)) continue;
+                Color[][] aPixels = ditherBlock(source, bx, by, bw, bh, a1, a2);
+
+                for (Color b1 : palette) {
+                    for (Color b2 : palette) {
+                        if (b1.equals(b2)) continue;
+                        Color[][] bPixels = ditherBlock(source, bx, by, bw, bh, b1, b2);
+
+                        double err = blockError(source, aPixels, bPixels, bx, by);
+                        if (err < bestError) {
+                            bestError = err;
+                            bestA1 = a1; bestA2 = a2;
+                            bestB1 = b1; bestB2 = b2;
+                        }
+                    }
+                }
+            }
+        }
+
+        Color[][] aPixels = ditherBlock(source, bx, by, bw, bh, bestA1, bestA2);
+        Color[][] bPixels = ditherBlock(source, bx, by, bw, bh, bestB1, bestB2);
+
+        for (int dy = 0; dy < bh; dy++) {
+            for (int dx = 0; dx < bw; dx++) {
+                int x = bx + dx;
+                int y = by + dy;
+                if (x >= source.getWidth() || y >= source.getHeight()) continue;
+
+                Color ca = aPixels[dx][dy];
+                Color cb = bPixels[dx][dy];
+                Color avgColor = new Color(
+                        (ca.getRed() + cb.getRed()) / 2,
+                        (ca.getGreen() + cb.getGreen()) / 2,
+                        (ca.getBlue() + cb.getBlue()) / 2
+                );
+
+                a.set(x, y, ca.getRGB());
+                b.set(x, y, cb.getRGB());
+                avg.set(x, y, avgColor.getRGB());
+            }
+        }
+    }
+
+    private Color[][] ditherBlock(ImageProcessor source, int bx, int by, int bw, int bh, Color c1, Color c2) {
+        Color[][] result = new Color[bw][bh];
+        int[][] matrix = getDitherMatrix();
+        int mw = matrix[0].length;
+        int mh = matrix.length;
+        int levels = mw * mh;
+
+        for (int dy = 0; dy < bh; dy++) {
+            for (int dx = 0; dx < bw; dx++) {
+                int x = bx + dx;
+                int y = by + dy;
+                if (x >= source.getWidth() || y >= source.getHeight()) continue;
+
+                Color orig = new Color(source.getPixel(x, y));
+                int threshold = matrix[dy % mh][dx % mw];
+
+                Color chosen;
+                if (levels > 1) {
+                    int dist1 = colorDistanceSquared(orig, c1);
+                    int dist2 = colorDistanceSquared(orig, c2);
+
+                    double mixRatio = dist1 + dist2 > 0 ? (double) dist2 / (dist1 + dist2) : 0.5;
+                    double bayerRatio = threshold / (double)(levels - 1);
+
+                    chosen = (mixRatio < bayerRatio) ? c1 : c2;
+                } else {
+                    chosen = colorDistanceSquared(orig, c1) < colorDistanceSquared(orig, c2) ? c1 : c2;
+                }
+                result[dx][dy] = chosen;
+            }
+        }
+        return result;
+    }
+
+    private int[][] getDitherMatrix() {
+        switch (ditheringMode) {
+            case 2:
+                return BAYER_2x2;
+            case 3:
+                return BAYER_4x4;
+            case 4:
+                return BAYER_8x8;
+            default:
+                return new int[][]{{0}};
+        }
+    }
+
+    private int colorDistanceSquared(Color a, Color b) {
+        int dr = a.getRed() - b.getRed();
+        int dg = a.getGreen() - b.getGreen();
+        int db = a.getBlue() - b.getBlue();
+        return dr * dr + dg * dg + db * db;
+    }
+
+    private double blockError(ImageProcessor original, Color[][] a, Color[][] b, int bx, int by) {
+        double total = 0;
+        for (int dy = 0; dy < a[0].length; dy++) {
+            for (int dx = 0; dx < a.length; dx++) {
+                int x = bx + dx;
+                int y = by + dy;
+                if (x >= original.getWidth() || y >= original.getHeight()) continue;
+
+                Color ca = a[dx][dy];
+                Color cb = b[dx][dy];
+
+                int r = (ca.getRed() + cb.getRed()) / 2;
+                int g = (ca.getGreen() + cb.getGreen()) / 2;
+                int bVal = (ca.getBlue() + cb.getBlue()) / 2;
+
+                Color avg = new Color(r, g, bVal);
+                Color orig = new Color(original.getPixel(x, y));
+
+                total += colorDistanceSquared(avg, orig);
+            }
+        }
+        return total;
+    }
+
+    private List<Color> getPalette() {
+        List<Color> result = new ArrayList<>();
+        int start = useBright ? 8 : 0;
+        int end = useBright ? 16 : 8;
+
+        for (int i = start; i < end; i++) {
+            int[] rgb = ZX_PALETTE[i];
+            result.add(new Color(rgb[0], rgb[1], rgb[2]));
+        }
+        return result;
+    }
+}

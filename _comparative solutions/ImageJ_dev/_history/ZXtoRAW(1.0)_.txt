@@ -1,0 +1,57 @@
+var stepY		=	2
+var wdth		=	getWidth();
+var hght		=	getHeight();
+var imageName	=	getTitle();
+var imageID0		=	getImageID();	// source image
+var imageID1		=	0;		// ZX RAW (linear; pixels, attrs)
+var attrPos		=	hght*32;
+
+
+	init();	
+
+	setBatchMode(true);
+
+//	print(stepY);
+
+	for(y=0; y<hght; y+=stepY) {
+		for(x=0;x<wdth; x+=8) {
+//			print("x:"+x);print("y:"+y);
+
+			selectImage(imageID0); 
+
+			makeRectangle(x, y, 8, stepY);
+			getStatistics(area, mean, pap, ink, std, attrCount);
+
+			if (std==0) { // = single color in attribute
+				paper 	= 0;
+			}
+
+//			print("ink:"+ink+" pap:"+pap);
+
+			for(j=0;j<stepY;j++) {
+				byte = 0;
+				selectImage(imageID0);
+				for(i=0;i<8;i++) {
+					col = getPixel(x+i,y+j);
+					byte = byte<<1+(col==ink);
+//					print(i+" col:"+col+" ink:"+"ink"+" tst:"+(col==ink)+" byte:"+byte);	
+				}
+				selectImage(imageID1);
+				setPixel(x>>3,y+j,byte);
+			}
+			setPixel(x>>3,y/stepY+hght,pap<<3+ink);
+		}
+	}
+
+setBatchMode(false);
+			
+		
+function init() {
+	Dialog.create("8 col Indexed to ZX Raw")
+		Dialog.addNumber("Attribute height", stepY);
+	Dialog.show();
+	stepY = Dialog.getNumber();
+
+	newImage(imageName+"_zx", "8-bit White", 32, hght+hght/stepY, 1); 
+	imageID1 = getImageID();
+}

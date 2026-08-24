@@ -1,0 +1,369 @@
+/* 
+Sinclair QL hi-color convertor
+ (C) 2007 omega of patisoners
+
+Allowed modes: 
+	- lo-res:     64col palette (32 unique colors)
+	- hi-res:     16col palette ( 8 unique colors)
+	- mixed-res: 128col palette (64 unique colors)
+
+Version 0.2 (080809) - initial limited release
+*/
+
+ver		=	"0.2"
+reds		=	newArray(256);
+greens	=	newArray(256);
+blues		=	newArray(256);
+var pal1	=	newArray(128);
+var pal2	=	newArray(128);
+var pal3	=	newArray(128);
+var ZXRed	=	newArray(8);
+var ZXGrn	=	newArray(8);
+var ZXBlu	=	newArray(8);
+var wdth	=	getWidth();
+var hght	=	getHeight();
+
+var imageName	=	getTitle();
+var imageID0	=	getImageID();
+var imageID1	=	0;
+var imageID2	=	0;
+var imageID3	=	0;
+var imageID4	=	0;
+
+	getLut(reds, greens, blues);
+	// print(reds.length);
+
+	if(reds.length==64)
+		mode=0;
+	else if(reds.length==16)
+		mode=1;
+	else if(reds.length==128)
+		mode=2;
+	else print("error, wrong palette");
+
+	init(mode);
+
+	setBatchMode(true);
+	for(x=0;x<wdth;x++) {
+		for(y=0;y<hght;y++) {
+			selectImage(imageID0); col = getPixel(x,y);
+			if(mode==2) {
+				selectImage(imageID1); setPixel(x,y,pal1[col]);
+				selectImage(imageID2);
+				if(y%2) {
+					setPixel(x<<1,y,pal2[col]);setPixel(1+x<<1,y,pal3[col]);
+				} else {
+					setPixel(x<<1,y,pal3[col]);setPixel(1+x<<1,y,pal2[col]);
+				}
+			} else if((x+y)&1) {
+				selectImage(imageID1); setPixel(x,y,pal1[col]);
+				selectImage(imageID2); setPixel(x,y,pal2[col]);
+			} else {
+				selectImage(imageID1); setPixel(x,y,pal2[col]);
+				selectImage(imageID2); setPixel(x,y,pal1[col]);
+			}
+
+		}
+	}
+
+	setBatchMode(false);
+
+	selectImage(imageID1); updateDisplay();
+		run("Duplicate...", "title=temp1"); t1=getImageID(); run("RGB Color");
+		if(mode==2) run("Size...", "width="+wdth*2+" height="+hght);
+	selectImage(imageID2); updateDisplay();
+		run("Duplicate...", "title=temp2"); t2=getImageID(); run("RGB Color");
+		imageCalculator("Average create", "temp1","temp2");
+		updateDisplay();
+		selectImage(t1); close();
+		selectImage(t2); close();
+
+	if(mode==0) {
+		imageID3 = createQLLores(imageID1,"LR1");
+		imageID4 = createQLLores(imageID2,"LR2");
+	} else if(mode==1) {
+		imageID3 = createQLHires(imageID1,"HR1");
+		imageID4 = createQLHires(imageID2,"HR2");
+	} else {
+		imageID3 = createQLLores(imageID1,"LR1");
+		imageID4 = createQLHires(imageID2,"HR2");
+	}
+	selectImage(imageID3); rename(imageName+getTitle()); updateDisplay();
+	selectImage(imageID4); rename(imageName+getTitle()); updateDisplay();
+// end program
+
+function createQLLores(img,name) {
+	newImage(name, "8-bit White", 128, hght, 1); id = getImageID();
+	setBatchMode(true);
+	for(x=0;x<wdth;x+=4) {
+		for(y=0;y<hght;y++) {
+			selectImage(img);
+			loByte = 0 ; hiByte = 0;
+			p = getPixel(x  ,y); r = (ZXRed[p]>0); g = (ZXGrn[p]>0); b = (ZXBlu[p]>0); loByte += (g<<7); hiByte += (r<<7 + b<<6); // print("0_p:"+p+" r:"+r+" g:"+g+" b:"+b+" lo:"+loByte+" hi:"+hiByte);
+			p = getPixel(x+1,y); r = (ZXRed[p]>0); g = (ZXGrn[p]>0); b = (ZXBlu[p]>0); loByte += (g<<5); hiByte += (r<<5 + b<<4); // print("1_p:"+p+" r:"+r+" g:"+g+" b:"+b+" lo:"+loByte+" hi:"+hiByte);
+			p = getPixel(x+2,y); r = (ZXRed[p]>0); g = (ZXGrn[p]>0); b = (ZXBlu[p]>0); loByte += (g<<3); hiByte += (r<<3 + b<<2); // print("2_p:"+p+" r:"+r+" g:"+g+" b:"+b+" lo:"+loByte+" hi:"+hiByte);
+			p = getPixel(x+3,y); r = (ZXRed[p]>0); g = (ZXGrn[p]>0); b = (ZXBlu[p]>0); loByte += (g<<1); hiByte += (r<<1 + b   ); // print("3_p:"+p+" r:"+r+" g:"+g+" b:"+b+" lo:"+loByte+" hi:"+hiByte);
+			selectImage(id); setPixel(x>>1,y,loByte); setPixel(x>>1+1,y,hiByte);
+		}
+	}
+	setBatchMode(false);
+	updateDisplay();
+	return id;
+}
+
+function createQLHires(img,name) {
+	newImage(name, "8-bit White", 128, hght, 1); id = getImageID();
+	setBatchMode(true);
+	for(x=0;x<wdth<<1;x+=8) {
+		for(y=0;y<hght;y++) {
+			selectImage(img);
+			loByte = 0 ; hiByte = 0;
+			p = getPixel(x  ,y); r = (ZXRed[p]>0); g = (ZXGrn[p]>0); loByte += (g<<7); hiByte += (r<<7); 
+			p = getPixel(x+1,y); r = (ZXRed[p]>0); g = (ZXGrn[p]>0); loByte += (g<<6); hiByte += (r<<6); 
+			p = getPixel(x+2,y); r = (ZXRed[p]>0); g = (ZXGrn[p]>0); loByte += (g<<5); hiByte += (r<<5); 
+			p = getPixel(x+3,y); r = (ZXRed[p]>0); g = (ZXGrn[p]>0); loByte += (g<<4); hiByte += (r<<4); 
+			p = getPixel(x+4,y); r = (ZXRed[p]>0); g = (ZXGrn[p]>0); loByte += (g<<3); hiByte += (r<<3); 
+			p = getPixel(x+5,y); r = (ZXRed[p]>0); g = (ZXGrn[p]>0); loByte += (g<<2); hiByte += (r<<2);
+ 			p = getPixel(x+6,y); r = (ZXRed[p]>0); g = (ZXGrn[p]>0); loByte += (g<<1); hiByte += (r<<1); 
+			p = getPixel(x+7,y); r = (ZXRed[p]>0); g = (ZXGrn[p]>0); loByte += (g   ); hiByte += (r   ); 
+			selectImage(id); setPixel(x>>2,y,loByte); setPixel(x>>2+1,y,hiByte);
+		}
+	}
+	setBatchMode(false);
+	updateDisplay();
+	return id;
+}
+
+function init(mode) {
+	ZXRed[0]=0 ; ZXGrn[0]=0 ; ZXBlu[0]=0;
+	ZXRed[1]=0 ; ZXGrn[1]=0 ; ZXBlu[1]=140;
+	ZXRed[2]=153 ; ZXGrn[2]=0 ; ZXBlu[2]=0;
+	ZXRed[3]=166 ; ZXGrn[3]=0 ; ZXBlu[3]=166;
+	ZXRed[4]=0 ; ZXGrn[4]=179 ; ZXBlu[4]=0;
+	ZXRed[5]=0 ; ZXGrn[5]=191 ; ZXBlu[5]=191;
+	ZXRed[6]=204 ; ZXGrn[6]=204 ; ZXBlu[6]=0;
+	ZXRed[7]=217 ; ZXGrn[7]=217 ; ZXBlu[7]=217;
+
+	if(mode==0) {				// 0=low res. mode
+		// print("low res mode");
+		newImage(imageName+"_1", "8-bit White", wdth, hght, 1); setLut(ZXRed, ZXGrn, ZXBlu); imageID1	= getImageID();
+		newImage(imageName+"_2", "8-bit White", wdth, hght, 1); setLut(ZXRed, ZXGrn, ZXBlu); imageID2	= getImageID();
+		pal1[0]=0 ; pal2[0]=0;
+		pal1[16]=0 ; pal2[16]=1;
+		pal1[1]=0 ; pal2[1]=2;
+		pal1[24]=0 ; pal2[24]=3;
+		pal1[4]=0 ; pal2[4]=4;
+		pal1[32]=0 ; pal2[32]=5;
+		pal1[8]=0 ; pal2[8]=6;
+		pal1[40]=0 ; pal2[40]=7;
+		pal1[17]=1 ; pal2[17]=0;
+		pal1[48]=1 ; pal2[48]=1;
+		pal1[18]=1 ; pal2[18]=2;
+		pal1[49]=1 ; pal2[49]=3;
+		pal1[20]=1 ; pal2[20]=4;
+		pal1[51]=1 ; pal2[51]=5;
+		pal1[22]=1 ; pal2[22]=6;
+		pal1[56]=1 ; pal2[56]=7;
+		pal1[2]=2 ; pal2[2]=0;
+		pal1[19]=2 ; pal2[19]=1;
+		pal1[3]=2 ; pal2[3]=2;
+		pal1[26]=2 ; pal2[26]=3;
+		pal1[6]=2 ; pal2[6]=4;
+		pal1[34]=2 ; pal2[34]=5;
+		pal1[10]=2 ; pal2[10]=6;
+		pal1[42]=2 ; pal2[42]=7;
+		pal1[25]=3 ; pal2[25]=0;
+		pal1[50]=3 ; pal2[50]=1;
+		pal1[27]=3 ; pal2[27]=2;
+		pal1[53]=3 ; pal2[53]=3;
+		pal1[28]=3 ; pal2[28]=4;
+		pal1[54]=3 ; pal2[54]=5;
+		pal1[30]=3 ; pal2[30]=6;
+		pal1[59]=3 ; pal2[59]=7;
+		pal1[5]=4 ; pal2[5]=0;
+		pal1[21]=4 ; pal2[21]=1;
+		pal1[7]=4 ; pal2[7]=2;
+		pal1[29]=4 ; pal2[29]=3;
+		pal1[12]=4 ; pal2[12]=4;
+		pal1[36]=4 ; pal2[36]=5;
+		pal1[13]=4 ; pal2[13]=6;
+		pal1[44]=4 ; pal2[44]=7;
+		pal1[33]=5 ; pal2[33]=0;
+		pal1[52]=5 ; pal2[52]=1;
+		pal1[35]=5 ; pal2[35]=2;
+		pal1[55]=5 ; pal2[55]=3;
+		pal1[37]=5 ; pal2[37]=4;
+		pal1[58]=5 ; pal2[58]=5;
+		pal1[38]=5 ; pal2[38]=6;
+		pal1[61]=5 ; pal2[61]=7;
+		pal1[9]=6 ; pal2[9]=0;
+		pal1[23]=6 ; pal2[23]=1;
+		pal1[11]=6 ; pal2[11]=2;
+		pal1[31]=6 ; pal2[31]=3;
+		pal1[14]=6 ; pal2[14]=4;
+		pal1[39]=6 ; pal2[39]=5;
+		pal1[15]=6 ; pal2[15]=6;
+		pal1[46]=6 ; pal2[46]=7;
+		pal1[41]=7 ; pal2[41]=0;
+		pal1[57]=7 ; pal2[57]=1;
+		pal1[43]=7 ; pal2[43]=2;
+		pal1[60]=7 ; pal2[60]=3;
+		pal1[45]=7 ; pal2[45]=4;
+		pal1[62]=7 ; pal2[62]=5;
+		pal1[47]=7 ; pal2[47]=6;
+		pal1[63]=7 ; pal2[63]=7;
+	} else if(mode==1) {			// 1=hires mode
+		// print("high res mode");
+		newImage(imageName+"_1", "8-bit White", wdth, hght, 1); setLut(ZXRed, ZXGrn, ZXBlu); imageID1	= getImageID();
+		newImage(imageName+"_2", "8-bit White", wdth, hght, 1); setLut(ZXRed, ZXGrn, ZXBlu); imageID2	= getImageID();
+		pal1[0]=0 ; pal2[0]=0;
+		pal1[1]=0 ; pal2[1]=2;
+		pal1[4]=0 ; pal2[4]=4;
+		pal1[9]=0 ; pal2[9]=7;
+		pal1[2]=2 ; pal2[2]=0;
+		pal1[3]=2 ; pal2[3]=2;
+		pal1[6]=2 ; pal2[6]=4;
+		pal1[11]=2 ; pal2[11]=7;
+		pal1[5]=4 ; pal2[5]=0;
+		pal1[7]=4 ; pal2[7]=2;
+		pal1[8]=4 ; pal2[8]=4;
+		pal1[13]=4 ; pal2[13]=7;
+		pal1[10]=7 ; pal2[10]=0;
+		pal1[12]=7 ; pal2[12]=2;
+		pal1[14]=7 ; pal2[14]=4;
+		pal1[15]=7 ; pal2[15]=7;
+	} else if(mode==2) {			// 2=mixed mode
+		// print("mixed res mode");
+		newImage(imageName+"_1", "8-bit White", wdth, hght, 1); setLut(ZXRed, ZXGrn, ZXBlu); imageID1	= getImageID();
+		newImage(imageName+"_2", "8-bit White", wdth<<1, hght, 1); setLut(ZXRed, ZXGrn, ZXBlu); imageID2	= getImageID();
+		pal1[0]=0 ; pal2[0]=0 ; pal3[0]=0;
+		pal1[1]=0 ; pal2[1]=0 ; pal3[1]=2;
+		pal1[8]=0 ; pal2[8]=0 ; pal3[8]=4;
+		pal1[36]=0 ; pal2[36]=0 ; pal3[36]=7;
+		pal1[2]=0 ; pal2[2]=2 ; pal3[2]=0;
+		pal1[3]=0 ; pal2[3]=2 ; pal3[3]=2;
+		pal1[10]=0 ; pal2[10]=2 ; pal3[10]=4;
+		pal1[38]=0 ; pal2[38]=2 ; pal3[38]=7;
+		pal1[9]=0 ; pal2[9]=4 ; pal3[9]=0;
+		pal1[11]=0 ; pal2[11]=4 ; pal3[11]=2;
+		pal1[16]=0 ; pal2[16]=4 ; pal3[16]=4;
+		pal1[44]=0 ; pal2[44]=4 ; pal3[44]=7;
+		pal1[37]=0 ; pal2[37]=7 ; pal3[37]=0;
+		pal1[39]=0 ; pal2[39]=7 ; pal3[39]=2;
+		pal1[45]=0 ; pal2[45]=7 ; pal3[45]=4;
+		pal1[87]=0 ; pal2[87]=7 ; pal3[87]=7;
+		pal1[60]=1 ; pal2[60]=0 ; pal3[60]=0;
+		pal1[61]=1 ; pal2[61]=0 ; pal3[61]=2;
+		pal1[64]=1 ; pal2[64]=0 ; pal3[64]=4;
+		pal1[100]=1 ; pal2[100]=0 ; pal3[100]=7;
+		pal1[62]=1 ; pal2[62]=2 ; pal3[62]=0;
+		pal1[63]=1 ; pal2[63]=2 ; pal3[63]=2;
+		pal1[66]=1 ; pal2[66]=2 ; pal3[66]=4;
+		pal1[102]=1 ; pal2[102]=2 ; pal3[102]=7;
+		pal1[65]=1 ; pal2[65]=4 ; pal3[65]=0;
+		pal1[67]=1 ; pal2[67]=4 ; pal3[67]=2;
+		pal1[68]=1 ; pal2[68]=4 ; pal3[68]=4;
+		pal1[104]=1 ; pal2[104]=4 ; pal3[104]=7;
+		pal1[101]=1 ; pal2[101]=7 ; pal3[101]=0;
+		pal1[103]=1 ; pal2[103]=7 ; pal3[103]=2;
+		pal1[105]=1 ; pal2[105]=7 ; pal3[105]=4;
+		pal1[124]=1 ; pal2[124]=7 ; pal3[124]=7;
+		pal1[3]=2 ; pal2[3]=0 ; pal3[3]=0;
+		pal1[5]=2 ; pal2[5]=0 ; pal3[5]=2;
+		pal1[12]=2 ; pal2[12]=0 ; pal3[12]=4;
+		pal1[40]=2 ; pal2[40]=0 ; pal3[40]=7;
+		pal1[6]=2 ; pal2[6]=2 ; pal3[6]=0;
+		pal1[7]=2 ; pal2[7]=2 ; pal3[7]=2;
+		pal1[14]=2 ; pal2[14]=2 ; pal3[14]=4;
+		pal1[42]=2 ; pal2[42]=2 ; pal3[42]=7;
+		pal1[13]=2 ; pal2[13]=4 ; pal3[13]=0;
+		pal1[15]=2 ; pal2[15]=4 ; pal3[15]=2;
+		pal1[20]=2 ; pal2[20]=4 ; pal3[20]=4;
+		pal1[46]=2 ; pal2[46]=4 ; pal3[46]=7;
+		pal1[41]=2 ; pal2[41]=7 ; pal3[41]=0;
+		pal1[43]=2 ; pal2[43]=7 ; pal3[43]=2;
+		pal1[47]=2 ; pal2[47]=7 ; pal3[47]=4;
+		pal1[91]=2 ; pal2[91]=7 ; pal3[91]=7;
+		pal1[69]=3 ; pal2[69]=0 ; pal3[69]=0;
+		pal1[70]=3 ; pal2[70]=0 ; pal3[70]=2;
+		pal1[73]=3 ; pal2[73]=0 ; pal3[73]=4;
+		pal1[106]=3 ; pal2[106]=0 ; pal3[106]=7;
+		pal1[71]=3 ; pal2[71]=2 ; pal3[71]=0;
+		pal1[72]=3 ; pal2[72]=2 ; pal3[72]=2;
+		pal1[75]=3 ; pal2[75]=2 ; pal3[75]=4;
+		pal1[108]=3 ; pal2[108]=2 ; pal3[108]=7;
+		pal1[74]=3 ; pal2[74]=4 ; pal3[74]=0;
+		pal1[76]=3 ; pal2[76]=4 ; pal3[76]=2;
+		pal1[77]=3 ; pal2[77]=4 ; pal3[77]=4;
+		pal1[110]=3 ; pal2[110]=4 ; pal3[110]=7;
+		pal1[107]=3 ; pal2[107]=7 ; pal3[107]=0;
+		pal1[109]=3 ; pal2[109]=7 ; pal3[109]=2;
+		pal1[111]=3 ; pal2[111]=7 ; pal3[111]=4;
+		pal1[125]=3 ; pal2[125]=7 ; pal3[125]=7;
+		pal1[16]=4 ; pal2[16]=0 ; pal3[16]=0;
+		pal1[18]=4 ; pal2[18]=0 ; pal3[18]=2;
+		pal1[26]=4 ; pal2[26]=0 ; pal3[26]=4;
+		pal1[48]=4 ; pal2[48]=0 ; pal3[48]=7;
+		pal1[19]=4 ; pal2[19]=2 ; pal3[19]=0;
+		pal1[20]=4 ; pal2[20]=2 ; pal3[20]=2;
+		pal1[28]=4 ; pal2[28]=2 ; pal3[28]=4;
+		pal1[50]=4 ; pal2[50]=2 ; pal3[50]=7;
+		pal1[27]=4 ; pal2[27]=4 ; pal3[27]=0;
+		pal1[29]=4 ; pal2[29]=4 ; pal3[29]=2;
+		pal1[34]=4 ; pal2[34]=4 ; pal3[34]=4;
+		pal1[56]=4 ; pal2[56]=4 ; pal3[56]=7;
+		pal1[49]=4 ; pal2[49]=7 ; pal3[49]=0;
+		pal1[51]=4 ; pal2[51]=7 ; pal3[51]=2;
+		pal1[57]=4 ; pal2[57]=7 ; pal3[57]=4;
+		pal1[97]=4 ; pal2[97]=7 ; pal3[97]=7;
+		pal1[78]=5 ; pal2[78]=0 ; pal3[78]=0;
+		pal1[79]=5 ; pal2[79]=0 ; pal3[79]=2;
+		pal1[82]=5 ; pal2[82]=0 ; pal3[82]=4;
+		pal1[112]=5 ; pal2[112]=0 ; pal3[112]=7;
+		pal1[80]=5 ; pal2[80]=2 ; pal3[80]=0;
+		pal1[81]=5 ; pal2[81]=2 ; pal3[81]=2;
+		pal1[84]=5 ; pal2[84]=2 ; pal3[84]=4;
+		pal1[114]=5 ; pal2[114]=2 ; pal3[114]=7;
+		pal1[83]=5 ; pal2[83]=4 ; pal3[83]=0;
+		pal1[85]=5 ; pal2[85]=4 ; pal3[85]=2;
+		pal1[86]=5 ; pal2[86]=4 ; pal3[86]=4;
+		pal1[116]=5 ; pal2[116]=4 ; pal3[116]=7;
+		pal1[113]=5 ; pal2[113]=7 ; pal3[113]=0;
+		pal1[115]=5 ; pal2[115]=7 ; pal3[115]=2;
+		pal1[117]=5 ; pal2[117]=7 ; pal3[117]=4;
+		pal1[126]=5 ; pal2[126]=7 ; pal3[126]=7;
+		pal1[22]=6 ; pal2[22]=0 ; pal3[22]=0;
+		pal1[23]=6 ; pal2[23]=0 ; pal3[23]=2;
+		pal1[30]=6 ; pal2[30]=0 ; pal3[30]=4;
+		pal1[52]=6 ; pal2[52]=0 ; pal3[52]=7;
+		pal1[24]=6 ; pal2[24]=2 ; pal3[24]=0;
+		pal1[25]=6 ; pal2[25]=2 ; pal3[25]=2;
+		pal1[32]=6 ; pal2[32]=2 ; pal3[32]=4;
+		pal1[54]=6 ; pal2[54]=2 ; pal3[54]=7;
+		pal1[31]=6 ; pal2[31]=4 ; pal3[31]=0;
+		pal1[33]=6 ; pal2[33]=4 ; pal3[33]=2;
+		pal1[35]=6 ; pal2[35]=4 ; pal3[35]=4;
+		pal1[58]=6 ; pal2[58]=4 ; pal3[58]=7;
+		pal1[53]=6 ; pal2[53]=7 ; pal3[53]=0;
+		pal1[55]=6 ; pal2[55]=7 ; pal3[55]=2;
+		pal1[59]=6 ; pal2[59]=7 ; pal3[59]=4;
+		pal1[99]=6 ; pal2[99]=7 ; pal3[99]=7;
+		pal1[87]=7 ; pal2[87]=0 ; pal3[87]=0;
+		pal1[89]=7 ; pal2[89]=0 ; pal3[89]=2;
+		pal1[93]=7 ; pal2[93]=0 ; pal3[93]=4;
+		pal1[118]=7 ; pal2[118]=0 ; pal3[118]=7;
+		pal1[90]=7 ; pal2[90]=2 ; pal3[90]=0;
+		pal1[91]=7 ; pal2[91]=2 ; pal3[91]=2;
+		pal1[95]=7 ; pal2[95]=2 ; pal3[95]=4;
+		pal1[120]=7 ; pal2[120]=2 ; pal3[120]=7;
+		pal1[94]=7 ; pal2[94]=4 ; pal3[94]=0;
+		pal1[96]=7 ; pal2[96]=4 ; pal3[96]=2;
+		pal1[97]=7 ; pal2[97]=4 ; pal3[97]=4;
+		pal1[122]=7 ; pal2[122]=4 ; pal3[122]=7;
+		pal1[119]=7 ; pal2[119]=7 ; pal3[119]=0;
+		pal1[121]=7 ; pal2[121]=7 ; pal3[121]=2;
+		pal1[123]=7 ; pal2[123]=7 ; pal3[123]=4;
+		pal1[127]=7 ; pal2[127]=7 ; pal3[127]=7;
+	} else
+		print("error, wrong mode");
+}

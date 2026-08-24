@@ -1,0 +1,41 @@
+var wdth		=	getWidth();
+var hght		=	getHeight();
+var imageName		=	getTitle();
+var imageID0		=	getImageID();	// source image
+var col1, col2;
+newImage(imageName+"_1", "8-bit White", wdth, hght, 1);
+var imageID1 	= getImageID();
+newImage(imageName+"_2", "8-bit White", wdth, hght, 1);
+var imageID2	= getImageID();
+
+col1 = 0; col2=255;
+
+setBatchMode(true);
+
+for(y=0; y<hght; y++) {
+	showProgress(y, hght);
+	for(x=0;x<wdth; x++) {
+		selectImage(imageID0);
+		p = getPixel(x,y);
+		if(p==0) {
+			selectImage(imageID1); setPixel(x,y,col1);
+			selectImage(imageID2); setPixel(x,y,col1);
+
+		} else if(p==1) {
+			if((x+y)&1) {
+				selectImage(imageID1); setPixel(x,y,col1);
+				selectImage(imageID2); setPixel(x,y,col2);
+			} else	{
+				selectImage(imageID1); setPixel(x,y,col2);
+				selectImage(imageID2); setPixel(x,y,col1);
+			}
+		} else if(p==2) {
+				selectImage(imageID1); setPixel(x,y,col2);
+				selectImage(imageID2); setPixel(x,y,col2);
+		}	
+	}
+}
+setBatchMode(false);
+
+selectImage(imageID1); updateDisplay();
+selectImage(imageID2); updateDisplay();

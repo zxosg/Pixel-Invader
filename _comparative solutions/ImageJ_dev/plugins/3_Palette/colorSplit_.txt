@@ -1,0 +1,25 @@
+var imageName	=	getTitle();
+var imageID0	=	getImageID();	// source imageID
+imgID 		=	newArray(8);
+width		=	getWidth()
+height		=	getHeight()
+
+for(i=0;i<8;i++) {
+	newImage(imageName+i, "8-bit White", width, height, 1); 
+	imgID[i] = getImageID();
+}
+
+selectImage(imageID0); 
+
+setBatchMode(true);
+for(y=0;y<height;y++) {
+	for(x=0;x<width;x++) {
+		selectImage(imageID0);
+		col = getPixel(x,y);
+		selectImage(imgID[col]);
+		setPixel(x,y,1);
+	}
+}
+setBatchMode(false);
+selectImage(imageID0);
+

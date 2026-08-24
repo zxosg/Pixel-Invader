@@ -1,0 +1,1757 @@
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <jpeglib.h>
+#include <unistd.h>
+#include <X11/Xlib.h>
+#include <X11/Xutil.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/mman.h>
+
+#define	OK 0
+#define VERSION "pix"
+#define LABEL	"DithvIDE"
+#define USAGE	\
+"[-aATTRHEIGHT] [-lMINSAT] [-hMAXSAT] [-mMODEL] [-fFLATTEN] -rgbtest\n\
+[-cP1,I1,P2,I2[,B1,B2]] [-pPENALTY] [-oOUTFILE] [-bBRIGHTRATIO]\
+[-tDITHER] [-single] [-grey] [-dark] [-vic] file1.jpg [file2.jpg ...]\n\
+[-epixelblur] [-xGAMMA]\n\n\
+Click on the image to change selection [left button, right button, enter, space]"
+
+#define	HR_X	320
+#define	HR_Y	200
+#define HR_L	15
+#define HR_M	2
+#define ZX_X	256
+#define ZX_Y	192
+#define ZX_L	7
+#define ZX_M	2
+
+#define VR_X	320
+#define VR_Y	200
+#define	PA_X	8
+#define	PA_Y	8
+#define MAXVAL	255
+#define BRIGHTR 66
+#define BRIGHT	64
+
+#define TVGAMMA	1
+
+#define OUTTAP	"dithvide.tap"
+#define OUTVIC	"dithvide.vic"
+#define ZX_P	40000
+#define HR_P	1000
+#define GR_P	10
+
+#define	ENDKEY	36
+#define ORIGKEY	65
+#define LBUTTON	1
+#define RBUTTON	3
+#define XORVAL	0xff
+#define MAXDIST 0xfffffff
+
+#define O_PEN	0x20
+#define O_DISP	0x40
+#define O_HIGH	4
+#define O_LOW	3
+#define O_SAT	0x100
+#define O_FLAT	0x08
+#define O_AMP	0x80
+
+#define N_DITH	9
+#define D_DITH	0
+
+#define LOSATUR	0
+#define HISATUR 255
+
+#define RI	45875
+#define GI	-38666
+#define BI	-7209
+
+#define RG	299
+#define GG	587
+#define BG	114
+#define SH	1000
+
+///static unsigned char lcgrand; //////////////
+
+static unsigned char tapprefix[24]={0x13,0x0,0x0,0x3,'D','i','t','h','v','I','D','E',' ',0xaa,0x0,0x0,0x0,0x40,0x0,0x80,0x46,0x02,0x0,0xff};
+
+struct rgbpixel {int r, g, b;};
+
+typedef enum {F_NONE,F_BMP,F_PNG, F_JPEG} e_format;
+
+struct matrix { int w; int h; int *m;};
+
+static char *zx_models[ZX_M]={"RGB saturated","PAL measured"};
+
+static char *dithers[N_DITH]={"Dual F-S","None","Sparse 2x2","Sparse 4x4","Grid 4x4","Triangle 4x4","Cluster 4x4","Oblique 4x4","Ordered 8x8"};
+
+static int m_none[1][1]={
+{0}
+};
+
+static int m_small[2][2]={
+{0,2},
+{3,1}
+};
+
+static int m_sparse[4][4]={
+{0,8,2,10},
+{12,4,14,6},
+{3,11,1,9},
+{15,7,0xd,5}
+};
+
+static int m_grid[4][4]={
+{0,1,2,3},
+{11,12,0xd,4},
+{10,15,14,5},
+{9,8,7,6}
+};
+
+static int m_triangle[4][4]={
+{0,1,3,6},
+{2,4,7,10},
+{5,8,11,0xd},
+{9,12,14,15}
+};
+
+static int m_cluster[4][4]={
+{15,14,0xd,12},
+{4,3,2,11},
+{5,0,1,10},
+{6,7,8,9}
+};
+
+static int m_oblique[4][4]={
+{0xd,5,11,0},
+{3,15,7,9},
+{10,1,12,4},
+{6,8,2,14}
+};
+
+static struct matrix matrixes[N_DITH-1]={
+{1,1,(int *)m_none},
+{2,2,(int *)m_small},
+{4,4,(int *)m_sparse},
+{4,4,(int *)m_grid},
+{4,4,(int *)m_triangle},
+{4,4,(int *)m_cluster},
+{4,4,(int *)m_oblique},
+{8,8}
+};
+
+static struct rgbpixel zx_palls[ZX_M][2*(ZX_L+1)]=
+{
+{
+{0x00,0x00,0x00},
+{0x00,0x00,0xff},
+{0xff,0x00,0x00},
+{0xff,0x00,0xff},
+{0x00,0xff,0x00},
+{0x00,0xff,0xff},
+{0xff,0xff,0x00},
+{0xff,0xff,0xff}
+},
+{
+{0x00,0x00,0x00},
+{0x10,0x10,0xb0},
+{0xb0,0x00,0x00},
+{0xb0,0x30,0xe0},
+{0x20,0xa0,0x20},
+{0x30,0xd0,0xff},
+{0xd0,0xd0,0x40},
+{0xff,0xff,0xff}
+}
+};
+
+static char *hr_models[HR_M]={"CCS64 default","VIC-II by Pepto"};
+
+static struct rgbpixel hr_palls[HR_M][HR_L+1]=
+{
+{
+{0x00,0x00,0x00},
+{0xff,0xff,0xff},
+{0x68,0x37,0x2b},
+{0x70,0xa4,0xb2},
+{0x6f,0x3d,0x86},
+{0x58,0x8d,0x43},
+{0x35,0x28,0x79},
+{0xb8,0xc7,0x6f},
+{0x6f,0x4f,0x25},
+{0x43,0x39,0x00},
+{0x9a,0x67,0x59},
+{0x44,0x44,0x44},
+{0x6c,0x6c,0x6c},
+{0x9a,0xd2,0x84},
+{0x6c,0x5e,0xb5},
+{0x95,0x95,0x95}
+},
+{
+{0x19,0x1d,0x19},
+{0xfc,0xf9,0xfc},
+{0x93,0x3a,0x4c},
+{0xb6,0xfa,0xfa},
+{0xd2,0x7d,0xed},
+{0x6a,0xcf,0x6f},
+{0x4f,0x44,0xd8},
+{0xfb,0xfb,0x8b},
+{0xd8,0x9c,0x5b},
+{0x7f,0x53,0x07},
+{0xef,0x83,0x9f},
+{0x57,0x57,0x53},
+{0xa3,0xa7,0xa7},
+{0xb7,0xfb,0xbf},
+{0xa3,0x97,0xff},
+{0xef,0xf9,0xe7}
+}
+};
+
+static struct rgbpixel zx_pall[2*(ZX_L+1)];
+static struct rgbpixel hr_pall[HR_L+1];
+
+struct multiatr {unsigned char b[2][PA_Y], a[2]; struct rgbpixel base[4];};
+
+int main(int argc, char **argv)
+{
+struct jpeg_decompress_struct jdecs;
+struct jpeg_error_mgr jerr;
+
+static float tvgamma=TVGAMMA;
+static int dither=D_DITH;
+static int flatten=O_FLAT;
+static int grey=0;
+static int modno=0;
+static int actarg=0;
+static int vrams=2;
+static int vrx=ZX_X;
+static int vry=ZX_Y;
+static int los=LOSATUR;
+static int his=HISATUR;
+static char *ofn=OUTTAP;
+static char *cls="automatic";
+static int pen=ZX_P;
+static int col=0;
+static int brt=BRIGHT;
+static int ay=PA_Y;
+static int vic=0;
+static int of=1;
+static int pns=1;
+static int pixb=0;
+static int pls=ZX_L;
+static int brr=0;
+static int bri=BRIGHTR;
+static int rgbtest=0;
+static struct rgbpixel *pall=zx_pall;
+
+char t[1024]=LABEL;
+char u[1024];
+char *modname;
+
+int i, j, k, l, m, n, o, p, q, r, s;
+
+JSAMPARRAY buff;
+JSAMPLE *btmp;
+FILE	*file, *tap;
+
+Display *dis;
+Window win, root;
+XEvent xev;
+XImage *xim;
+XSetWindowAttributes wattr;
+GC gc;
+int scr, dpt;
+unsigned long wmask;
+unsigned long *data, *dtmp;
+unsigned char *vram, *bram, *vtmp;
+
+int wx, wy, wlong;
+
+unsigned char c, d;
+struct rgbpixel rgb[VR_Y+1][VR_X+2], *ptmp;
+struct multiatr atr[VR_Y][VR_X/PA_X];
+
+struct rgbpixel base[4], pure[4];
+int cols[6];
+
+unsigned char tvg[256];
+unsigned char tvd[256];
+
+void err(char *s)
+{
+printf("\nERROR: %s\n",s);
+exit(1);
+}
+
+void ban(char * s)
+{
+t[sizeof(LABEL)-1]=0;
+strcat(t," ");
+strcat(t,VERSION);
+strcat(t,": ");
+strcat(t,s);
+XStoreName(dis,win,t);
+}
+
+void conv16(unsigned char *p, int r, int g, int b)
+{
+	*(unsigned short *)p=((r>>3)<<11) + ((g>>2)<<5) + (b>>3);
+}
+
+void conv32(unsigned char *p, int r, int g, int b)
+{
+	*(unsigned long *)p=(r<<16)+(g<<8)+b;
+}    
+
+static void (*conv)(unsigned char *, int, int, int);
+static int bpp=4;
+
+void fill_ordered(int l, int b, int s, int d, int * p)
+    {
+    if(s>1)
+	{
+	s/=2;
+	if(l)
+	    l*=4;
+	else
+	    l=1;
+	fill_ordered(l,b,s,d,p);
+	fill_ordered(l,b+3*l,s,d,p+s);
+	fill_ordered(l,b+2*l,s,d,p+s*d);
+	fill_ordered(l,b+l,s,d,p+s*(1+d));
+	}
+    else
+      *p = b;
+    }
+
+void __inline__ purecols(int a, int b, int c, int d, int e, int f)
+	{
+	memcpy(pure,pall+a+e,sizeof(struct rgbpixel));
+	memcpy(pure+1,pall+b+e,sizeof(struct rgbpixel));
+	memcpy(pure+2,pall+c+f,sizeof(struct rgbpixel));
+	memcpy(pure+3,pall+d+f,sizeof(struct rgbpixel));
+	for(f=0;f<12;f++)
+	  ((int *)pure)[f] = tvg[((int *)pure)[f]];
+	}
+
+void __inline__ greyscale(struct rgbpixel *p, int i)
+    {
+    while(i--)
+	{
+	p->r=p->g=p->b=(RG*p->r+GG*p->g+BG*p->b)/SH;
+	p++;
+	}
+    }
+
+void __inline__ basecols(int g)
+	  {
+	  int i, j, k=0;
+	  for(i=0;i<2;i++)
+	    for(j=2;j<4;j++,k++)
+	      {
+	      base[k].r=(pure[i].r+pure[j].r)>>1;
+	       base[k].g=(pure[i].g+pure[j].g)>>1;
+	        base[k].b=(pure[i].b+pure[j].b)>>1;
+	      }
+	  if(g)
+	    greyscale(base,4);
+	  }
+
+void decodeatr(int y, int x)
+{
+int a1=atr[y][x].a[0], a2=atr[y][x].a[1];
+if(vic)
+purecols(HR_L&a1,HR_L&(a1>>4),HR_L&a2,HR_L&(a2>>4),0,0);
+else
+purecols(ZX_L&(a1>>3),ZX_L&a1,ZX_L&(a2>>3),ZX_L&a2,(BRIGHT&~a1)>>3,(BRIGHT&~a2)>>3);
+}
+	
+void cmpatr(int y, int x)
+{
+	int i,j;
+	long h[256];
+	int rr,rg,rb;
+	int a,b,c,d, e=0, f=0;
+	struct rgbpixel *rtmp;
+	long suma, diff=MAXDIST;
+	int offset=0;
+
+
+	void savecols(int a, int b, int c, int d, int e, int f)
+	{
+		memcpy(atr[y][x].base,base,sizeof(base));
+	if(vic)
+	    {
+	    	atr[y][x].a[0]=(b<<4)+a;
+		atr[y][x].a[1]=(d<<4)+c;
+	    }
+	else
+	    {
+		atr[y][x].a[0]=(a<<3)+b+(brr?(e?0:BRIGHT):brt);
+		atr[y][x].a[1]=(c<<3)+d+(brr?(f?0:BRIGHT):brt);
+	    }
+	}
+
+	int __inline__ checkcols(struct rgbpixel *p, unsigned long *l)
+	  {
+
+	  return (((O_HIGH*(O_DISP+((unsigned long *)p)[l[0]]) > O_LOW*((unsigned long *)p)[l[1]])) &&
+		    ((O_HIGH*(O_DISP+((unsigned long *)p)[l[1]]) > O_LOW*((unsigned long *)p)[l[2]])));
+/*
+	  return (((l[0] == 4) || (O_DISP+(O_HIGH*((unsigned long *)p)[l[0]]) > O_LOW*((unsigned long *)p)[l[1]])) &&
+		    ((l[1] == 4) || (O_DISP+(O_HIGH*((unsigned long *)p)[l[1]]) > O_LOW*((unsigned long *)p)[l[2]])));
+*/		
+	  }
+
+	void __inline__ ordercols(unsigned long *l)
+	{
+	  unsigned long r[3];
+	  unsigned long p=0;
+///////////
+
+//	l[2] = 10;
+//	l[1] = 0;
+//	l[0] = 0;
+
+//////////
+	  for(a=3; a--; )
+	    {
+	    suma=MAXDIST;
+	    for(b=3;b--;)
+	      if( l[b] < suma )
+	        {
+		r[a] = b;
+		suma = l[b];
+		}
+	    l[r[a]]=MAXDIST;
+//	    if((W_HIGH *  p) > (W_LOW * suma))
+//	      r[a]=4;
+	    p=suma;
+	    }
+	 memcpy(l,r,sizeof(r));
+	 }
+
+	long __inline__ ratepair(void)
+	{
+	
+	  int dist, pick, p=0, k;
+	  int r,g,b;
+	  long s=0, ran=(-flatten*O_SAT)/100;
+	  dist=MAXDIST;
+			    if(grey)
+			      {
+				rg+=rtmp->g;
+				if(rg<los) {rg=los; s+=pen;}
+				if(rg>his) {rg=his; s+=pen;}
+				for(k=2;k--;)
+				{
+				  g=pure[k].g-rg;
+					pick=g*g;
+					if(pick<dist)
+					{
+						p=k;
+						dist=pick;
+					}
+				}
+				rg-=pure[p].g;
+			      }
+			    else
+			      {
+			      if(flatten > -100)		//flatten -100% means no distort
+				rr=rg=rb=offset-(ran>>1);
+
+				rr+=rtmp->r;
+				rg+=rtmp->g;
+				rb+=rtmp->b;
+				if(rr<los) {rr=los; s+=pen;}
+				if(rr>his) {rr=his; s+=pen;}
+				if(rg<los) {rg=los; s+=pen;}
+				if(rg>his) {rg=his; s+=pen;}
+				if(rb<los) {rb=los; s+=pen;}
+				if(rb>his) {rb=his; s+=pen;}
+				
+				for(k=2;k--;)
+				{
+				  r=pure[k].r-rr;
+				  g=pure[k].g-rg;
+				  b=pure[k].b-rb;
+					pick=r*r+g*g+b*b;;
+					if(pick<dist)
+					{
+						p=k;
+						dist=pick;
+					}
+				}
+//				if(!dither)
+//				{
+				rr-=pure[p].r;
+				rg-=pure[p].g;
+				rb-=pure[p].b;
+//				}
+//				else
+//				{
+//				r=base[p].r-rtmp->r;
+//				g=base[p].g-rtmp->g;
+//				b=base[p].b-rtmp->b;
+//				dist=r*r+g*g+b*b;
+//				}
+			      }
+				
+				offset = (offset + ((3*ran)/5)) % ran;
+//				printf("X%d %dX",offset,dist);
+				return dist+s;
+	}
+
+	long __inline__ ratecols(void)
+	{
+	
+	  int dist, pick, p=0, k;
+	  int r,g,b;
+	  long s=0;
+	  dist=MAXDIST;
+			    if(grey)
+			      {
+				rg+=rtmp->g;
+				if(rg<los) {rg=los; s+=pen;}
+				if(rg>his) {rg=his; s+=pen;}
+				for(k=4;k--;)
+				{
+				  g=base[k].g-rg;
+					pick=g*g;
+					if(pick<dist)
+					{
+						p=k;
+						dist=pick;
+					}
+				}
+				rg-=base[p].g;
+			      }
+			    else
+			      {
+			      if(dither)
+				rr=rg=rb=offset-(O_AMP/2);
+
+				rr+=rtmp->r;
+				rg+=rtmp->g;
+				rb+=rtmp->b;
+				if(rr<los) {rr=los; s+=pen;}
+				if(rr>his) {rr=his; s+=pen;}
+				if(rg<los) {rg=los; s+=pen;}
+				if(rg>his) {rg=his; s+=pen;}
+				if(rb<los) {rb=los; s+=pen;}
+				if(rb>his) {rb=his; s+=pen;}
+				
+				for(k=4;k--;)
+				{
+				  r=base[k].r-rr;
+				  g=base[k].g-rg;
+				  b=base[k].b-rb;
+					pick=r*r+g*g+b*b;;
+					if(pick<dist)
+					{
+						p=k;
+						dist=pick;
+					}
+				}
+//				if(!dither)
+//				{
+				rr-=base[p].r;
+				rg-=base[p].g;
+				rb-=base[p].b;
+//				}
+//				else
+//				{
+//				r=base[p].r-rtmp->r;
+//				g=base[p].g-rtmp->g;
+//				b=base[p].b-rtmp->b;
+//				dist=r*r+g*g+b*b;
+//				}
+			      }
+				s+=dist;
+				offset = (offset + ((3*O_AMP)/5)) & (O_AMP-1);
+				return s;
+	}
+	
+	if(col)
+	{
+	if(vrams == 1)
+	  {
+	  purecols(cols[0],cols[1],cols[0],cols[1],cols[3],cols[3]);
+	  memcpy(base,pure,sizeof(base));
+	  if(grey)
+	    greyscale(base,4);
+	  savecols(cols[0],cols[1],cols[0],cols[1],cols[2],cols[2]);
+	  }
+	else
+	  {
+	  purecols(cols[0],cols[1],cols[2],cols[3],cols[4],cols[5]);
+	  basecols(grey);
+	  savecols(cols[0],cols[1],cols[2],cols[3],cols[4],cols[5]);
+	  }
+	return;
+	}
+//e=255;f=0;
+
+	if(vrams == 1)
+	  if(flatten<0)
+	    {
+////// new matcher
+	do{
+	for(a=0;a<pls;a++)
+	for(b=pls;b>a;b--)
+	{
+		purecols(a,b,a,b,e,e);
+		if(grey) greyscale(pure,4);
+		suma=0;
+		rr=rg=rb=0;
+
+		for(i=ay*y;i<ay*(y+1);i++)
+		{
+			rtmp=((PA_X-1)*(i&1))+rgb[i]+PA_X*x+1;
+			for(j=PA_X;j--;)
+			{
+				suma+=ratepair();
+				if(suma>=diff) break;
+				rtmp+=1-2*(i&1);
+			}		
+			if(suma>=diff) break;
+		}
+
+		for(j=PA_X*x;j++<PA_X*x+PA_X;)
+		{
+			rtmp=rgb[ay*y+(ay-1)*(j&1)]+j;
+			for(i=ay;i--;)
+			{
+				suma+=ratepair();
+				if(suma>=diff) break;
+				rtmp+=(VR_X+2)*(1-2*(j&1));
+			}		
+			if(suma>=diff) break;
+		}	
+		if(suma<diff)
+		{
+
+	      purecols(a,b,a,b,e,e);
+	      memcpy(base,pure,sizeof(pure));
+	      if(grey)
+	        greyscale(base,4);
+	      savecols(a,b,a,b,e,e);
+	      diff=suma;	
+		}
+	}
+	if(e) break;
+		e=pls+1;
+	}while(brr);
+
+	return;
+/////	    
+	    }
+	else{
+	  diff=0;
+	  bzero(h,sizeof(h));
+	  for(i=ay*y;i<ay*(y+1);i++)
+	    {
+	    rtmp=rgb[i]+PA_X*x+1;
+	    for(j=PA_X;j--;rtmp++)
+	      if(grey)
+	        {
+	    	h[rtmp->g]++;
+		diff += rtmp->g;
+//		printf("(%d)",rtmp->g);
+//		if(rtmp->g > f) f=rtmp->g;
+//		if(rtmp->g < e) e=rtmp->g;
+		}
+	      else
+		{
+///////////////////////////uprava
+		h[(RG*rtmp->r+GG*rtmp->g+BG*rtmp->b)/SH]++;
+		diff += (RG*rtmp->r+GG*rtmp->g+BG*rtmp->b)/SH;
+//		diff += tvd[(RG*rtmp->r+GG*rtmp->g+BG*rtmp->b)/SH];
+//		h[tvd[(RG*rtmp->r+GG*rtmp->g+BG*rtmp->b)/SH]]++;
+//		printf("(%d)",rtmp->g);
+//		if(((RG*rtmp->r+GG*rtmp->g+BG*rtmp->b)/SH) > f) f=(RG*rtmp->r+GG*rtmp->g+BG*rtmp->b)/SH;
+//		if(((RG*rtmp->r+GG*rtmp->g+BG*rtmp->b)/SH) < e) e=(RG*rtmp->r+GG*rtmp->g+BG*rtmp->b)/SH;
+		}
+	    }
+//	suma=0;
+	//pen-kvantily z histogramu jako zdroje minima/maxima
+	a=0; b=0; e=0; f=255; c=((PA_X*ay)*pen)/100;
+	diff /= (PA_X*ay);
+	for(i=0;i<256;i++)
+	  {
+	  if(a<=c)
+	    e=i;
+	  if(b<=c)
+	    f=255-i;
+//	  if((diff == O_SAT) && (a>=((PA_X*ay)>>1)))
+//	    diff=i;
+	  a+=h[i];
+	  b+=h[255-i];  
+	  }
+//if((x==28) && (y==23))
+//    printf("y: %d LOW: %d AVG: %d HIGH: %d\n",y,e,diff,f);
+/*
+	diff=0;
+	for(i=0;i<256;i++)
+	  {
+	  diff+=i*h[i];
+	  suma+=h[i];
+	  }
+	diff/=suma;
+*/
+/*
+	  diff=-1;
+
+	  do{
+	    diff++;
+	    suma += h[diff];
+	    }while(suma <= ((PA_X*ay)>>1));
+*/	    
+	  a=0; b=0; c=0; d=0; //e=0; f=O_SAT;
+	  bzero(h,sizeof(long)*6);
+	  for(i=ay*y;i<ay*(y+1);i++)
+	    {
+	    rtmp=rgb[i]+PA_X*x+1;
+	    for(j=PA_X;j--;rtmp++)
+	      {
+	      if(grey)
+	        suma=rtmp->g;
+	      else
+/////uprava
+		suma=(RG*rtmp->r+GG*rtmp->g+BG*rtmp->b)/SH;
+//		suma=tvd[(RG*rtmp->r+GG*rtmp->g+BG*rtmp->b)/SH];
+//	      if( suma > e ) e=suma;
+//	      if( suma < f ) f=suma;
+//	      if(suma >= diff)
+	      if(suma >= diff)
+		{ h[0]+=rtmp->r; h[1]+=rtmp->g; h[2]+=rtmp->b; }
+	      if(suma >= f)
+		{ c+=suma; a++; }
+//	      if(suma <= diff)
+	      if(suma <= diff)
+		{ h[3]+=rtmp->r; h[4]+=rtmp->g; h[5]+=rtmp->b;}
+	      if(suma <= e)
+		{ d+=suma; b++; }
+	      }
+	    }
+//	  c = ((pen*c)/a + (100-pen)*e)/100;
+//	  d = ((pen*d)/b + (100-pen)*f)/100;
+
+	    c /= a;
+	    d /= b;
+//	    c = f;//
+//	    d = e;//
+//printf("\n[ %d %d ]",x,y);
+//printf("\n< %d %d (%d,%d)>\n",c,d,e,f);fflush(stdout); //c=0; d=190;
+//if((x==28 ) && (y==23))
+//printf("COLS: %d,%d,%d %d,%d,%d\n",h[0],h[1],h[2],h[3],h[4],h[5]);
+	    diff = (flatten*O_SAT)/100;
+	    if( (c+diff > d) && (d+diff >c))
+		c=d=(c+d)>>1;
+		
+//	    if(flatten<0)	//negative flattening means "extend luminance range"
+//	      {
+//	      c=c-(flatten*O_SAT)/100;
+//	      d=d+(flatten*O_SAT)/100;
+//	      if(c<0) c=0;
+//	      if(d>O_SAT) d=O_SAT;
+//	      }
+	  ordercols(h);
+	  ordercols(h+3);
+	  
+	  diff=MAXDIST;
+	  for(f=(brr?pls+1:0);f>=0;f-=pls+1)
+	    {
+	    a=O_SAT;
+	    b=O_SAT;
+	    i=7;
+	    j=0;
+	    for(e=pls+1;e--;)
+	      {
+/////////////uprava
+//	      suma=(RG*tvg[pall[e+f].r]+GG*tvg[pall[e+f].g]+BG*tvg[pall[e+f].b])/SH;
+	      suma=(RG*tvg[pall[e+f].r]+GG*tvg[pall[e+f].g]+BG*tvg[pall[e+f].b])/SH;
+	      if( (suma>=c) && (suma-c<a) && (grey || checkcols(pall+e+f,h)) )
+	        { a=suma-c; i=e; }
+	      if( (suma<=d) && (d-suma<b) && (grey || checkcols(pall+e+f,h+3)) )
+	        { b=d-suma; j=e; }
+	      }
+//printf("// %d %d //\n",i,j);
+	    suma = a*a + b*b;
+	    if( suma < diff )
+	      {
+	      purecols(i,j,i,j,f,f);
+	      memcpy(base,pure,sizeof(pure));
+	      if(grey)
+	        greyscale(base,4);
+	      savecols(i,j,i,j,f,f);
+	      diff=suma;
+	      }
+	    }
+	  return;
+	  }
+
+	do{
+	for(a=0;a<pls;a++)
+	for(c=0;c<pls;c++)
+	for(b=pls;b>a;b--)
+	for(d=pls;d>c;d--)
+	{
+		purecols(a,b,c,d,e,f);
+		basecols(grey);
+		suma=0;
+		rr=rg=rb=0;
+
+		for(i=ay*y;i<ay*(y+1);i++)
+		{
+			rtmp=((PA_X-1)*(i&1))+rgb[i]+PA_X*x+1;
+			for(j=PA_X;j--;)
+			{
+				suma+=ratecols();
+				if(suma>=diff) break;
+				rtmp+=1-2*(i&1);
+			}		
+			if(suma>=diff) break;
+		}
+
+		for(j=PA_X*x;j++<PA_X*x+PA_X;)
+		{
+			rtmp=rgb[ay*y+(ay-1)*(j&1)]+j;
+			for(i=ay;i--;)
+			{
+				suma+=ratecols();
+				if(suma>=diff) break;
+				rtmp+=(VR_X+2)*(1-2*(j&1));
+			}		
+			if(suma>=diff) break;
+		}		  
+		if(suma<diff)
+		{
+			diff=suma;
+			savecols(a,b,c,d,e,f);
+		}
+	}
+		if(e&f) break;
+		if(f) e=f;
+		f=pls+1;
+	}while(brr);
+}
+
+void rgbadd(unsigned long *d, int x, int y, int m, int n)
+{
+	int c;
+	if(m>=0)
+	{
+		m=wlong-m;
+		if(m>vrx) m=vrx;
+	}
+	else
+	{
+		m+=vrx;
+		if(m<0)
+			m=0;
+	}
+	if(n>=0)
+	{
+		n=wlong-n;
+		if(n>vrx) n=vrx;
+	}
+	else
+	{
+		n+=vrx;
+		if(n<0)
+			n=0;
+	}    
+	c=m*n;
+	rgb[y][x].r+=c*((unsigned char *)d)[2]/(vrx*vrx);
+	rgb[y][x].g+=c*((unsigned char *)d)[1]/(vrx*vrx);
+	rgb[y][x].b+=c*((unsigned char *)d)[0]/(vrx*vrx);
+}
+
+void xorme(unsigned char *t)
+{
+	int c=bpp;
+	while(c--)
+		t[c]^=XORVAL;
+}
+
+void wtoggle(void)
+{
+	int i, h=jdecs.output_width-wx, v=vry*wlong/vrx-2;
+	unsigned char *t=bram+bpp*(jdecs.output_width*wy+wx), *d;
+
+	if(h>wlong)
+		h=wlong;
+	d=t;
+	for(i=h;i--;d+=bpp)
+	xorme(d);
+	d=t+bpp*jdecs.output_width;
+	i=wy+1;
+	while(v-- && i<jdecs.output_height)
+	{
+		xorme(d);
+		if(h==wlong)
+			xorme(d+bpp*(h-1));
+		d+=bpp*jdecs.output_width;
+		i++;
+	}
+	if(i<jdecs.output_height)
+		for(i=h;i--;d+=bpp)
+	xorme(d);
+}
+
+void popwindow(unsigned char *d, int a, int b, char *s)
+{
+	wattr.border_pixel=BlackPixel(dis,scr);
+	wattr.background_pixel=BlackPixel(dis,scr);
+	wmask=CWBackPixel|CWBorderPixel;
+	win=XCreateWindow(dis,root,0,0,a,b,0,dpt,InputOutput,CopyFromParent,wmask,&wattr);
+	XMapWindow(dis,win);
+	gc=XCreateGC(dis,win,0,0);
+	xim=XCreateImage(dis,CopyFromParent,dpt,ZPixmap,0,d,a,b,8*bpp,a*bpp);
+	ban(s);
+	
+}
+
+void killwindow(void)
+{
+	XDestroyImage(xim);
+	XFreeGC(dis,gc);
+	XUnmapWindow(dis,win);
+	XDestroyWindow(dis,win);
+	XFlush(dis);
+}
+
+bzero(cols,sizeof(cols));
+
+while(++actarg<argc && *argv[actarg]=='-')
+switch(argv[actarg][1])
+{
+	case 'c':
+	case 'C': 
+	  k=1; c=0;
+	  do{
+	    k++;
+	    d=argv[actarg][k];
+	    if(d>='0' && d<='9')
+		c=10*c+d-'0';
+	    else
+	      {cols[col]=c;col++;c=0;}
+	  }while(d && col<6);
+		cls=argv[actarg]+2;
+		break;
+	case 'b':
+	case 'B': brr=atoi(argv[actarg]+2); if(brr==0) brr=bri; if(brr<0 || brr>100) err("Bad bright %-ratio in -b switch"); else bri=brr; break;
+	case 'a':
+	case 'A': ay=atoi(argv[actarg]+2); n=ay; while(n && n<0x100) n<<=1; if(!n || n>0x100 || ay>PA_Y) err("Bad attribut height in -a switch"); break;
+	case 'e':
+	case 'E': pixb=atoi(argv[actarg]+2); if(pixb<0 || pixb>100) err("Bad pixel-blur %-ratio in -e switch"); break;
+	case 'v':
+	case 'V': vic=1; vrx=HR_X; vry=HR_Y; pall=hr_pall; pls=HR_L; if(of) ofn=OUTVIC; break;
+	case 'd':
+	case 'D': brt=0; break;
+	case 'o':
+	case 'O': of=0; ofn=argv[actarg]+2; break;
+	case 'l':
+	case 'L': los=atoi(argv[actarg]+2); break;
+	case 'h':
+	case 'H': his=atoi(argv[actarg]+2); break;
+	case 'p':
+	case 'P': pns=0; pen=atoi(argv[actarg]+2); break;
+	case 'm':
+	case 'M': modno=atoi(argv[actarg]+2); break;
+	case 'g':
+	case 'G': grey=1; break;
+	case 's':
+	case 'S': vrams=1; break;
+	case 'f':
+	case 'F': flatten=atoi(argv[actarg]+2); if( (flatten<-100) || (flatten>100)) err("Bad flattening %-ratio in -f switch"); break;
+	case 'x':
+	case 'X': sscanf(argv[actarg]+2,"%f",&tvgamma); break;
+	case 't':
+	case 'T': dither=atoi(argv[actarg]+2); if( (dither<0) || (dither>=N_DITH)) err("Undefined dithering type in -x switch"); break;
+	case 'r':
+	case 'R': rgbtest=1; break;
+	default: printf("Unknown switch '%s' ignored\n",argv[actarg]);
+}
+
+if(pns)
+    {
+    if(grey)
+	pen=GR_P;
+    else
+	if(dither && (vrams==2))
+	    pen=0;
+	else
+	    if(vrams==1)
+		pen=O_PEN;
+	    else
+		if(vic)
+		    pen=HR_P;
+		else
+		    pen=ZX_P;
+    }
+
+if(modno<0)
+  err("Negative model number in -m switch");
+if(vic)
+  {
+  brr=0;
+  if(modno>=HR_M)
+    err("Undefined C-64 palette variation in -m switch");
+  memcpy(hr_pall,hr_palls[modno],sizeof(hr_pall));
+  modname=hr_models[modno];
+  }
+else
+  {
+  if(modno>=ZX_M)
+    err("Undefined ZX palette variation");
+  memcpy(zx_pall,zx_palls[modno],sizeof(zx_pall));
+  modname=zx_models[modno];
+  }  
+if((vrams == 1) && ((pen<0) || (pen>100)))
+  err("Penalty value out of 0..100 range in -p switch");
+if(!rgbtest && actarg>=argc)
+{
+	printf("USAGE: %s %s",*argv,USAGE);
+	err("Not enough arguments");
+}
+if(col)
+     {
+       if(col!=((vrams == 1)?(brr?3:2):(brr?6:4)))
+  err("Bad number of colors in -c switch");
+       for(c=4;c--;)
+	 if(cols[c]>pls) err("Color out of palette range in -c switch");
+if(brr)
+  {
+  for(i=5;i>3;i--)
+    if(cols[i]) cols[i]=0;
+    else cols[i]=ZX_L+1;
+  }
+  }
+for(k=ZX_L+1;k--;)
+	    {
+	      zx_pall[k+ZX_L+1].r=bri*zx_pall[k].r/100;
+	       zx_pall[k+ZX_L+1].g=bri*zx_pall[k].g/100;
+	        zx_pall[k+ZX_L+1].b=bri*zx_pall[k].b/100;
+		}
+dis=XOpenDisplay(NULL);
+scr=DefaultScreen(dis);
+conv=conv32;
+if((dpt=DefaultDepth(dis,scr))<16)
+	err("Insufficient display depth, use at least 16 bits");
+if(dpt==16)
+{
+	bpp=2;
+	conv=conv16;
+}
+
+printf("Version: %s\nDisplay depth: %d (%d Bpp)\n%s output file: %s\n",VERSION,dpt,bpp,vic?"C-64 VRAM":"ZX Spectrum",ofn);
+if(!(tap=fopen(ofn,"ab")))
+	err("Cannot open output file");
+
+c=0x18+((vry*vrx)/(PA_X*0x100))/ay;
+tapprefix[15]=tapprefix[22]=c;
+tapprefix[20]^=c;
+root=DefaultRootWindow(dis);
+
+for(k=0; k<256; k++)
+  {
+  tvg[k] = 256 * pow((k / 256.f), tvgamma);
+  tvd[k] = 256 * pow((k / 256.f), 1 / tvgamma);
+  }
+
+matrixes[7].m=(int *)malloc(sizeof(int)*8*8);
+fill_ordered(0,0,8,8,(int *)matrixes[7].m);
+
+if(rgbtest)
+    {
+    actarg=argc-1;
+    argv[actarg]="RGB Test";
+    }
+
+while(actarg<argc)
+{
+		struct _bmfh {char bfType[2]; unsigned long bfSize; unsigned short bfp1, bfp2; unsigned long bfoff;} __attribute__ ((__packed__)) bmfh; 
+		struct _bmih {unsigned long biSize, biWidth, biHeight; unsigned short biPlanes, biBitCount; unsigned long biCompression, biSizeImage, biXPelsPerMeter, biYPelsPerMeter, biClrUsed, biClrImportant;} __attribute__((__packed__)) bmih;
+		e_format format=F_NONE;
+
+	if(rgbtest || (file=fopen(argv[actarg],"rb")))
+	{
+		printf("\nImage: %s\n",argv[actarg]);
+		if(rgbtest)
+		{
+		jdecs.output_width=vrx;
+		jdecs.output_height=vry;
+		}
+		else
+		{
+
+		struct stat lst;
+
+///try BMP		
+		printf("Type: ");
+		if(!lstat(argv[actarg],&lst))
+		{
+
+		if( (1 == fread((void *)&bmfh,sizeof(bmfh),1,file)) && !strncmp(bmfh.bfType,"BM",2) && ( bmfh.bfSize == lst.st_size) && (bmfh.bfoff < lst.st_size) && (!bmfh.bfp1) && (!bmfh.bfp2)
+		 && (1 == fread((void *)&bmih,sizeof(bmih),1,file))
+		)
+		    {
+		    //probably BMP
+		    jdecs.output_width=bmih.biWidth;
+		    jdecs.output_height=bmih.biHeight;
+		    printf("BMP %d bpp, compression 0x%08X\n",bmih.biBitCount,bmih.biCompression);
+		    format=F_BMP;
+		    }
+		
+		}
+		
+		if(format==F_NONE)	//use jpeg
+		{
+		fseek(file,0,SEEK_SET);
+		jpeg_create_decompress(&jdecs);
+		jpeg_stdio_src(&jdecs,file);
+		jdecs.err=jpeg_std_error(&jerr);
+		jpeg_read_header(&jdecs,FALSE);
+		jpeg_start_decompress(&jdecs);
+		printf("JPG %s, %s coding\n",jdecs.progressive_mode?"progressive":"plain",jdecs.arith_code?"arithmetic":"huffman");
+		format=F_JPEG;
+		}
+		}
+		printf("Size: %d x %d\nGamma: %.2f\nPixelblur: %d%%\nVrams: %d\nAttribut: %d x %d\nDithering: %s\nSaturation: %d..%d\nPenalty: %d\nFlattening: %d%%\nColors: %s\nBright: %d%%, %s\nPalette: %s, %s\n",jdecs.output_width,jdecs.output_height,tvgamma,pixb,vrams,PA_X,ay,dithers[dither],los,his,pen,flatten,cls,bri,vic?"not used":(brr?"computed":(brt?"light":"dark")),modname,grey?"grey":"color");
+		if((data=(unsigned long *)malloc(jdecs.output_width*jdecs.output_height*sizeof(unsigned long)))
+			&& (bram=(unsigned char *)malloc(jdecs.output_width*jdecs.output_height*bpp))
+			&& (vram=(unsigned char *)malloc(vrx*vry*bpp)))
+		{
+
+			dtmp=data;
+			vtmp=bram;
+			if(rgbtest)
+			{
+			int b1, b2;
+
+
+			memset(dtmp,sizeof(unsigned long)*vrx*vry,0x80);
+			dtmp += (vrx-(28*8))/2;
+			
+			for(b1=0; b1<7; b1++)
+			  for(b2=b1+1; b2<8; b2++)
+			    {
+			    int i, j=vry, v=vry-1;
+			    unsigned int ab[3];
+			    unsigned int ai[3];
+			    unsigned long word;
+			    unsigned long *tdtmp;
+			    
+			    i=3; while(i--)
+			      {
+			      ab[i]=(b1 & 1<<i)?0xff:0x00;
+			      ai[i]=((b2 & 1<<i)?0xff:0x00) - ab[i];
+			      ab[i]*=v;
+			      }
+			    tdtmp = dtmp;
+			    dtmp += 8;
+			    
+			    while(j--)
+			      {
+			      word = ((ab[1]/v)<<16) + ((ab[2]/v)<<8) + ab[0]/v;
+			      i=8;
+			      while(i--)
+			        *tdtmp++ = word;
+				
+			      tdtmp += (vrx - 8);
+			      ab[0] += ai[0];
+			      ab[1] += ai[1];
+			      ab[2] += ai[2];
+			      }
+			    }
+			///i=0 here, used later
+			}
+			else
+			{
+			popwindow(bram,jdecs.output_width,jdecs.output_height,argv[actarg]);
+			//////////////////zacateknacteni
+			switch(format)
+			{
+			case F_BMP:	{
+				    i=bmih.biHeight;
+				    void *pmmap;
+				    unsigned char *ulp;
+				    struct _rgbquad {unsigned char b,g,r,a;} *pquad;
+				    if(((int) (pmmap = mmap(NULL,bmfh.bfSize,PROT_READ, MAP_SHARED,fileno(file) ,0)) != -1))
+				      {
+				      pquad = (struct _rgbquad *)((char *)pmmap + sizeof(bmfh) + bmih.biSize);
+				      ulp = ((unsigned char *)pmmap + bmfh.bfoff);
+				      
+				      while(i--)
+				        {
+					unsigned long j = bmih.biWidth;
+					dtmp = data + i*bmih.biWidth;
+					vtmp = bram + i*bmih.biWidth*bpp;
+					switch(bmih.biBitCount)
+					 {
+					 case 24: {
+						  unsigned char r,g,b;
+						  while(j--)
+						    {
+						    b=*ulp++; g=*ulp++; r=*ulp++;
+						    //printf("%02x %02x %02x ",r,g,b);
+						    *dtmp++=(r<<16) + (g<<8) + b;
+						    conv(vtmp,r,g,b);
+						    vtmp+=bpp;
+						    };
+						  } 
+					//ulp = (unsigned char *)(((unsigned long)(ulp + 3)) & ~3)
+					; break;
+					 case 16: {
+						  unsigned char r,g,b;
+						  unsigned short s;
+						  while(j--)
+						    {
+						    s = *((unsigned short *)ulp)++;
+						    b=s >> 10; g=(s >> 5) & 0x01f; r=s & 0x01f;
+						    *dtmp++=(r<<16) + (g<<8) + b;
+						    conv(vtmp,r,g,b);
+						    vtmp+=bpp;
+						    };
+						  } 
+					ulp = (unsigned char *)(((unsigned long)(ulp + 3)) & ~3); break;
+					default:	//paletted modes
+						{
+						struct _rgbquad q;
+						int eaten=32;
+						int rbitcount = bmih.biBitCount;
+						int ralign = 32 - bmih.biBitCount;
+						unsigned long stuff;
+						  while(j--)
+						    {
+						    if(eaten>=32)
+						      {
+						      eaten=0;
+						      stuff=*(((unsigned long *)ulp)++);
+						      }
+						    q=pquad[(stuff >> ralign)];
+						    stuff <<= rbitcount;
+						    eaten += rbitcount;
+						    *dtmp++=(q.r << 16) + (q.g << 8) + q.b;
+						    conv(vtmp,q.r,q.g,q.b);
+						    vtmp+=bpp;
+						    }; 
+						}; break;
+					 }
+				        }
+				      munmap(pmmap,bmfh.bfSize);
+				      }
+				    
+				    }; break;
+			case F_JPEG:	{
+			buff=jdecs.mem->alloc_sarray((j_common_ptr)&jdecs,JPOOL_IMAGE,jdecs.output_width*jdecs.output_components,1);
+			while(jdecs.output_scanline<jdecs.output_height)
+			{
+				jpeg_read_scanlines(&jdecs,buff,1);
+				btmp=buff[0];
+				for(i=0;i<jdecs.output_width;i++)
+				{
+					*dtmp++=(*btmp<<16) + (btmp[1]<<8) + btmp[2];
+					conv(vtmp,*btmp,btmp[1],btmp[2]);
+					btmp+=jdecs.output_components;
+					vtmp+=bpp;
+				}
+			}
+			};
+			}////////////////konec nacteni
+			}
+			wx=0; wy=0; wlong=vrx;
+			if(!rgbtest)
+			{
+			wtoggle();
+			XPutImage(dis,win,gc,xim,0,0,0,0,jdecs.output_width,jdecs.output_height);
+			XFlush(dis);
+			XSelectInput(dis,win,ExposureMask|KeyPressMask|ButtonPressMask);
+			
+			while(i)
+			{
+				XNextEvent(dis,&xev);
+				switch(xev.type)
+				{
+					case Expose:
+						XPutImage(dis,win,gc,xim,0,0,0,0,jdecs.output_width,jdecs.output_height);
+						XFlush(dis);
+						break;
+					case KeyPress:
+						i=(xev.xkey.keycode!=ENDKEY);
+						if(xev.xkey.keycode==ORIGKEY)
+						{
+							wtoggle();
+							wlong=vrx;
+							wtoggle();
+							XPutImage(dis,win,gc,xim,0,0,0,0,jdecs.output_width,jdecs.output_height);
+							XFlush(dis);
+						}
+						break;
+					case ButtonPress:
+						wtoggle();
+						switch(xev.xbutton.button)
+						{
+							case LBUTTON: wx=xev.xbutton.x; wy=xev.xbutton.y; break;
+							case RBUTTON: wlong=(xev.xbutton.x-wx>(j=vrx*(xev.xbutton.y-wy)/vry))?xev.xbutton.x-wx:j;
+								if(wlong<vrx)
+									wlong=vrx;
+						}
+						wtoggle();
+						XPutImage(dis,win,gc,xim,0,0,0,0,jdecs.output_width,jdecs.output_height);
+						XFlush(dis);
+				}
+			}
+			
+			wtoggle();
+			XPutImage(dis,win,gc,xim,0,0,0,0,jdecs.output_width,jdecs.output_height);
+			XFlush(dis);
+			}
+			bzero(rgb,sizeof(rgb));
+			bzero(atr,sizeof(atr));
+			i=0; j=0; m=wy;
+			while(i<vry && m<jdecs.output_height)
+			{
+				dtmp=data+jdecs.output_width*m+wx;
+				k=0; l=0; n=wx;
+				while(k<vrx && n<jdecs.output_width)
+				{
+					rgbadd(dtmp,k+1,i,l,j);
+					rgbadd(dtmp,k+2,i,l-wlong,j);
+					rgbadd(dtmp,k+1,i+1,l,j-wlong);
+					rgbadd(dtmp,k+2,i+1,l-wlong,j-wlong);
+					l+=vrx;
+					if(l>=wlong)
+					{
+						l-=wlong;
+						k++;
+					}
+					dtmp++;
+					n++;
+				}
+				j+=vrx;
+				if(j>=wlong)
+				{
+					j-=wlong;
+					i++;
+				}
+				m++;
+			}
+			vtmp=vram; ptmp=(struct rgbpixel *)rgb+1;
+			for(i=vry;i--;ptmp+=2+VR_X-vrx)
+			for(j=vrx;j--;)
+			{
+				k=tvg[(vrx*vrx)*ptmp->r/wlong/wlong];
+				l=tvg[(vrx*vrx)*ptmp->g/wlong/wlong];
+				m=tvg[(vrx*vrx)*ptmp->b/wlong/wlong];
+				if(grey)
+				  {
+				  l=(RG*k+GG*l+BG*m)/SH;
+				  conv(vtmp,tvd[l],tvd[l],tvd[l]);
+				  }
+				else
+				  {
+				  conv(vtmp,tvd[k],tvd[l],tvd[m]);
+				  ptmp->r=k;
+				  ptmp->b=m;
+				  }
+				ptmp->g=l;
+				vtmp+=bpp;
+				ptmp++;
+			}
+			if(!rgbtest) killwindow();
+			free(data);
+			printf("Selection: %d..%d x %d..%d\nScaling: %d%% to %d x %d\n",wx,wx+wlong-1,wy,wy-1+(wlong*vry)/vrx,100*vrx/wlong,vrx,vry);
+			sprintf(u,"Scaled to %d x %d",vrx,vry);
+			popwindow(vram,vrx,vry,u);
+			XPutImage(dis,win,gc,xim,0,0,0,0,vrx,vry);
+			XSelectInput(dis,win,ExposureMask|KeyPressMask);
+			XFlush(dis);
+			n=1; m=1;
+			while(n)
+			{
+				XNextEvent(dis,&xev);
+				switch(xev.type)
+				{
+					case Expose:
+						XPutImage(dis,win,gc,xim,0,0,0,0,vrx,vry);
+						XFlush(dis);
+						break;
+					case KeyPress:
+						if(xev.xkey.keycode==ENDKEY && !m)
+							n=0;
+						if(xev.xkey.keycode==ORIGKEY && !m)
+						{
+						if(vrams == 1)
+							switch(l)
+							  {
+							  case 0:
+							  case 1: ban("Color picture");
+								  l=1;
+								  break;
+							  case 2:
+							  case 3: ban("Picture bitmap");
+								  l=3;
+								  break;
+							  default: ban("Greyscale picture");
+								   l=6;
+							  }
+						else
+							switch(l)
+							  {
+							  case 0: ban("Even VRAM"); break;
+							  case 1: ban("Odd VRAM"); break;
+							  case 2: ban("Even bitmap"); break;
+							  case 3: ban("Odd bitmap"); break;
+							  case 4: ban("Bitmap contents"); break;
+							  case 5: ban("Average picture"); break;
+							  default: ban("Greyscale picture");
+							  }
+							vtmp=vram;
+							for(i=0;i<vry;i++)
+							for(j=0;j<vrx/PA_X;j++)
+							{
+								    decodeatr(i/ay,j);
+								    if(vrams == 1)
+								      {
+								      memcpy(base,pure,sizeof(base));
+								      greyscale(base,4);
+								      }
+								    else
+								      basecols(l == 6);
+								    r=atr[i/ay][j].b[0][i%ay];
+								    s=atr[i/ay][j].b[1][i%ay];
+								    o=(l&1)?s:r;
+								  
+							      for(k=8;k--;)
+								{
+								  switch(l)
+								    {
+								    case 0:
+								    case 1: r=(1&(o>>7))+(2&(l<<1));
+								      conv(vtmp,tvd[pure[r].r],tvd[pure[r].g],tvd[pure[r].b]); break;
+								    case 2:
+								    case 3: r=(o&128)?0:MAXVAL; conv(vtmp,r,r,r); break;
+								    case 4: o=((MAXVAL*(3-((2&(r>>6))+(1&(s>>7)))))/3); conv(vtmp,tvd[o],tvd[o],tvd[o]); break;
+								    default: o=(2&(r>>6))+(1&(s>>7)); conv(vtmp,tvd[base[o].r],tvd[base[o].g],tvd[base[o].b]);
+								    }
+								  r<<=1;
+								  s<<=1; 
+								  o<<=1;
+								  vtmp+=bpp;
+								}
+							}
+							XPutImage(dis,win,gc,xim,0,0,0,0,vrx,vry);
+							XFlush(dis);
+							l++;
+							if(l>6) l=0;
+						}	
+						if(xev.xkey.keycode==ORIGKEY && m)
+						{
+							ban("Color matching...");
+							for(i=vry/ay;i--;)
+							{
+							  XFlush(dis);
+								for(j=vrx/PA_X;j--;)
+								cmpatr(i,j);
+								vtmp=vram+bpp*ay*vrx*i;
+								for(p=ay;p--;)
+								  for(l=0;l<vrx/PA_X;l++)
+								    {
+								      memcpy(base,atr[i][l].base,sizeof(base));
+								for(o=0;o<PA_X;vtmp+=bpp,o++)
+								  if(vrams == 1)
+								    conv(vtmp,tvd[base[o>>2].r],tvd[base[o>>2].g],tvd[base[o>>2].b]);
+								  else
+								    conv(vtmp,tvd[base[o>>1].r],tvd[base[o>>1].g],tvd[base[o>>1].b]);
+								    }							
+								XPutImage(dis,win,gc,xim,0,0,0,0,vrx,vry);
+								
+							}
+							//getchar();
+							printf("Mapped, ");
+							ban("Dithering...");
+							XFlush(dis);
+							fflush(stdout);
+							vtmp=vram; ptmp=(struct rgbpixel *)rgb;
+							if(vrams == 1 && !grey )
+							  greyscale((struct rgbpixel *)rgb,sizeof(rgb)/sizeof(struct rgbpixel));
+							for(i=0;i<vry;i++)
+							{
+							struct rgbpixel prevp={0,0,0};
+							
+								if((i&1) && (!dither))
+									ptmp--;
+								else
+									ptmp++;
+								for(j=0;j<vrx;j++)
+								{
+									if(!(j%PA_X))
+										{
+										if((i&1) && (!dither))
+										memcpy(base,atr[i/ay][(vrx-1-j)/PA_X].base,sizeof(base));
+										    else
+										memcpy(base,atr[i/ay][j/PA_X].base,sizeof(base));
+										if(!grey && (vrams == 1))
+										  greyscale(base,2);
+										  
+										if(dither)
+										    {
+										    if(vrams == 1 || grey)
+											{
+											m=O_SAT; p=0;
+											for(k=((vrams == 1)?2:4);k--;)
+											    {
+											    //////////uprava
+											    l=(RG*base[k].r + GG*base[k].g + BG*base[k].b)/SH;
+											    //l=tvd[(RG*base[k].r + GG*base[k].g + BG*base[k].b)/SH];
+											    if(l<m) m=l;
+											    if(l>p) p=l;
+											    }
+											r=p-m;
+											}
+										    else
+											r=O_AMP;
+										    }
+										}
+									if(dither)
+									    {
+									    m=matrixes[dither-1].w;
+									    p=matrixes[dither-1].h;
+									    l=((*(matrixes[dither-1].m+m*(i%p) + (j%m)) - ((p*m)>>1))*r)/(p*m);
+									    ptmp->r+=l;
+									    ptmp->g+=l;
+									    ptmp->b+=l;
+									    }
+
+									if(ptmp->r<los) ptmp->r=los;
+									if(ptmp->r>his) ptmp->r=his;
+									if(ptmp->g<los) ptmp->g=los;
+									if(ptmp->g>his) ptmp->g=his;
+									if(ptmp->b<los) ptmp->b=los;
+									if(ptmp->b>his) ptmp->b=his;
+
+									l=MAXDIST;
+									for(k=((vrams == 1)?2:4);k--;)
+									{
+									int r, g, b;
+									m=100-pixb;
+									r = tvg[ (pixb*tvd[prevp.r] + m*tvd[base[k].r] ) / 100 ];
+									g = tvg[ (pixb*tvd[prevp.g] + m*tvd[base[k].g] ) / 100 ];
+									b = tvg[ (pixb*tvd[prevp.b] + m*tvd[base[k].b] ) / 100 ];
+									
+									    if(grey || (vrams == 1))
+										m=(g-ptmp->g)*(g-ptmp->g);
+									    else
+										m=(r-ptmp->r)*(r-ptmp->r)+(g-ptmp->g)*(g-ptmp->g)+(b-ptmp->b)*(b-ptmp->b);
+										if(m<l)
+										{
+											l=m;
+											p=k;
+										}
+									}
+									
+									k=100-pixb;
+									if(!dither)
+									{
+									prevp.r = ptmp->r - tvg[ (pixb*tvd[prevp.r] + k*tvd[base[p].r] ) / 100 ];
+									prevp.g = ptmp->g - tvg[ (pixb*tvd[prevp.g] + k*tvd[base[p].g] ) / 100 ];
+									prevp.b = ptmp->b - tvg[ (pixb*tvd[prevp.b] + k*tvd[base[p].b] ) / 100 ];
+									}
+									else
+									{
+									prevp.r = base[p].r - tvg[ (pixb*tvd[prevp.r] + k*tvd[base[p].r] ) / 100 ];
+									prevp.g = base[p].g - tvg[ (pixb*tvd[prevp.g] + k*tvd[base[p].g] ) / 100 ];
+									prevp.b = base[p].b - tvg[ (pixb*tvd[prevp.b] + k*tvd[base[p].b] ) / 100 ];
+									}
+
+									if((i&1) && (!dither))
+									{
+										atr[i/ay][(vrx-1-j)/PA_X].b[0][i%ay]=((p&2)<<6)+(atr[i/ay][(vrx-1-j)/PA_X].b[0][i%ay]>>1);
+										atr[i/ay][(vrx-1-j)/PA_X].b[1][i%ay]=((p&1)<<7)+(atr[i/ay][(vrx-1-j)/PA_X].b[1][i%ay]>>1);
+										o=prevp.r;
+										(ptmp-1)->r+=7*o/16;
+										(ptmp+VR_X+3)->r+=3*o/16;
+										(ptmp+VR_X+2)->r+=5*o/16;
+										(ptmp+VR_X+1)->r+=o/16;
+										o=prevp.g;
+										(ptmp-1)->g+=7*o/16;
+										(ptmp+VR_X+3)->g+=3*o/16;
+										(ptmp+VR_X+2)->g+=5*o/16;
+										(ptmp+VR_X+1)->g+=o/16;
+										o=prevp.b;
+										(ptmp-1)->b+=7*o/16;
+										(ptmp+VR_X+3)->b+=3*o/16;
+										(ptmp+VR_X+2)->b+=5*o/16;
+										(ptmp+VR_X+1)->b+=o/16;
+										vtmp-=bpp;
+										conv(vtmp,tvd[base[p].r],tvd[base[p].g],tvd[base[p].b] );
+										ptmp--;
+									}
+									else
+									{
+										atr[i/ay][j/PA_X].b[0][i%ay]=((p&2)>>1)+(atr[i/ay][j/PA_X].b[0][i%ay]<<1);
+										atr[i/ay][j/PA_X].b[1][i%ay]=(p&1)+(atr[i/ay][j/PA_X].b[1][i%ay]<<1);
+										//if(!dither)
+										//    {
+										o=prevp.r;
+										(ptmp+1)->r+=7*o/16;
+										(ptmp+VR_X+1)->r+=3*o/16;
+										(ptmp+VR_X+2)->r+=5*o/16;
+										(ptmp+VR_X+3)->r+=o/16;
+										o=prevp.g;
+										(ptmp+1)->g+=7*o/16;
+										(ptmp+VR_X+1)->g+=3*o/16;
+										(ptmp+VR_X+2)->g+=5*o/16;
+										(ptmp+VR_X+3)->g+=o/16;
+										o=prevp.b;
+										(ptmp+1)->b+=7*o/16;
+										(ptmp+VR_X+1)->b+=3*o/16;
+										(ptmp+VR_X+2)->b+=5*o/16;
+										(ptmp+VR_X+3)->b+=o/16;
+										//    }
+										conv(vtmp,tvd[base[p].r],tvd[base[p].g],tvd[base[p].b]);
+										vtmp+=bpp;
+										ptmp++;
+									}
+									
+								prevp=base[p];
+								
+								}
+								if(dither)
+								    ptmp+=VR_X+1-vrx;
+								else
+								{
+								ptmp+=VR_X+2;
+								vtmp+=vrx*bpp;
+								}
+							}
+							printf("dithered, ");
+							fflush(stdout);
+							
+							if(!col && (vrams == 2))
+							  {
+							ban("VRAM reordering...");
+							XFlush(dis); 
+							for(i=vry/ay;i--;)
+							for(j=vrx/PA_X;j--;)
+							{
+								
+								for(q=2;q--;)
+								  {
+								    r=s=0;
+								  for(k=ay;k--;)
+								    for(l=128;l;l>>=1)
+								      if(atr[i][j].b[q][k]&l) s++; else r++;
+								  if(s>r)
+								    {
+								      l=atr[i][j].a[q];
+								    if(vic)
+								      l=((HR_L&l)<<4) + ((l>>4)&HR_L);
+								    else
+								      l=((ZX_L&l)<<3) + ((l>>3)&ZX_L) + (l&BRIGHT);
+								    atr[i][j].a[q]=l;
+								      for(k=ay;k--;)
+									atr[i][j].b[q][k]=~atr[i][j].b[q][k];
+								    }
+								  }
+								r=s=0;
+								decodeatr(i,j);
+								m=RI*pure[1].r+GI*pure[1].g+BI*pure[1].b;
+								n=RI*pure[0].r+GI*pure[0].g+BI*pure[0].b;
+								o=RI*pure[3].r+GI*pure[3].g+BI*pure[3].b;
+								p=RI*pure[2].r+GI*pure[2].g+BI*pure[2].b;
+								for(k=ay;k--;)
+								for(l=128;l;l>>=1)
+								{
+									r+=atr[i][j].b[0][k]&l?m:n;
+									s+=atr[i][j].b[1][k]&l?o:p;
+								}
+								if(r>s)
+								{
+									q=atr[i][j].a[0];
+									atr[i][j].a[0]=atr[i][j].a[1];
+									atr[i][j].a[1]=q;
+									for(k=ay;k--;)
+									{
+										q=atr[i][j].b[0][k];
+										atr[i][j].b[0][k]=atr[i][j].b[1][k];
+										atr[i][j].b[1][k]=q;
+									}
+								}
+							}
+							printf("ordered, ");
+							  }
+							ban("Conversion finished");
+							XPutImage(dis,win,gc,xim,0,0,0,0,vrx,vry);
+							fflush(stdout);
+							XFlush(dis);
+							m=0; l=2; n=1;
+						}
+				}
+			}
+			killwindow();
+			for(m=2;m-- && ((m == 1) || (vrams == 2));)
+			{
+			if(vic)
+			  {
+			  for(j=0;j<vry/PA_Y;j++)
+			  for(i=0;i<vrx/PA_X;i++)
+			  for(l=0;l<PA_Y/ay;l++)
+			  for(k=0;k<ay;k++)
+			    fputc(atr[(PA_Y/ay)*j+l][i].b[m][k],tap);
+			  }
+			else
+			  {
+				c=0xff;
+				fwrite(tapprefix,sizeof(tapprefix),1,tap);
+				for(l=0;l<3;l++)
+				for(n=0;n<PA_Y/ay;n++)
+				for(k=0;k<ay;k++)
+				for(j=0;j<PA_Y;j++)
+				for(i=0;i<vrx/PA_X;i++)
+				{
+					d=atr[(vry/(3*ay))*l+(PA_Y/ay)*j+n][i].b[m][k];
+					fputc(d,tap);
+					c=c^d;
+				}
+			  }
+				for(j=0;j<vry/ay;j++)
+				for(i=0;i<vrx/PA_X;i++)
+				{
+					d=atr[j][i].a[m];
+					fputc(d,tap);
+					c^=d;
+				}
+				if(!vic) fputc(c,tap);
+			}
+			printf("saved.\n");
+		}
+		else
+			printf("Not enough memory for viewing\n");
+		if(!rgbtest)
+		{
+		if(format == F_JPEG)
+		{
+		jpeg_finish_decompress(&jdecs);
+		jpeg_destroy_decompress(&jdecs);
+		}
+		fclose(file);
+		}
+	}
+	else
+		printf("\nCannot open image: %s\n",argv[actarg]);
+	actarg++;
+}
+
+fclose(tap);
+
+free(matrixes[7].m);
+
+return OK;
+}

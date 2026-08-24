@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Pixel Invader">
+  <rect width="128" height="128" rx="20" fill="#11151c"/>
+  <path d="M20 32h88v64H20z" fill="#79b7ff"/>
+  <path d="M30 42h20v20H30zm24 0h20v20H54zm24 0h20v20H78zM30 66h20v20H30zm24 0h20v20H54zm24 0h20v20H78z" fill="#11151c"/>
+</svg>
