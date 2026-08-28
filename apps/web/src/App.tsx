@@ -11,6 +11,7 @@ import {
 } from "react";
 import {
   assertValidSoftwareScr,
+  zxBitmapOffset,
   zxSoftwareScrBytes,
 } from "@retro-converter/zx-spectrum";
 import { encodeRgbaPng } from "@retro-converter/image-codecs";
@@ -24,7 +25,7 @@ import {
   type Pmd85RgbColor,
 } from "@retro-converter/pmd-85";
 import {
-  APPLICATION_VERSION,
+  APPLICATION_DISPLAY_VERSION,
   buildConversionMetadata,
   sanitizeArtifactBaseName,
   sha256Hex,
@@ -63,10 +64,21 @@ import {
 } from "./worker/client.js";
 import type {
   CharsetConversionOptions,
+  CharsetAssignment,
   CharsetDistanceMetric,
   CharsetEncoding,
   CharsetSource,
   DerivedCharsetStrategy,
+} from "@retro-converter/zx-charset";
+import {
+  applyTileEdit,
+  encodeCharsetArtifact,
+  decodeCharsetArtifact,
+  renderCharsetPreview,
+  replaceTileInCharset,
+  appendBlankTile,
+  reorderCharsetTiles,
+  type TileEditOperation,
 } from "@retro-converter/zx-charset";
 import {
   ATTRIBUTE_OPTIMIZERS,
@@ -100,6 +112,7 @@ import {
   type StructuredConversionSettings,
   type TargetModeId,
 } from "@retro-converter/conversion-core";
+import { renderAttributeFrameRgba } from "@retro-converter/conversion-core";
 
 function pmdHardwareModeForTarget(mode: Pmd85TargetModeId): Pmd85ModeId {
   if (mode === "pmd85-2-rgb-vertical-spatial") return "pmd85-2-rgb";
@@ -126,6 +139,19 @@ function spatialSplitPreview(
     );
   }
   return output;
+}
+
+function unpackZxBitmap(encoded: Uint8Array): Uint8Array {
+  const pixels = new Uint8Array(256 * 192);
+  for (let y = 0; y < 192; y += 1) {
+    for (let xByte = 0; xByte < 32; xByte += 1) {
+      const packed = encoded[zxBitmapOffset(xByte, y)] ?? 0;
+      for (let bit = 0; bit < 8; bit += 1) {
+        pixels[y * 256 + xByte * 8 + bit] = (packed & (0x80 >> bit)) === 0 ? 0 : 1;
+      }
+    }
+  }
+  return pixels;
 }
 import {
   clampPixelCrop,
@@ -156,9 +182,20 @@ import {
   saveEnginePreferences,
 } from "./engine-preferences.js";
 import {
+  loadWorkspacePreferences,
+  saveWorkspacePreferences,
+  type WorkspaceLayoutId,
+  type WorkspacePreferences,
+} from "./workspace-preferences.js";
+import {
   mergeMonochromeRgba,
   zxBitmapToMonochromeRgba,
 } from "./monochrome-preview.js";
+import {
+  applyBitmapCellEdit,
+  type BitmapCell,
+  type BitmapCellEditOperation,
+} from "./bitmap-editor.js";
 import { resolvePreviewAspect } from "./preview-aspect.js";
 import { frameFallbackSourcePreview } from "./source-preview.js";
 import {
@@ -185,6 +222,12 @@ type CharsetState =
   | { readonly kind: "ready"; readonly result: WorkerCharsetResult }
   | { readonly kind: "error"; readonly message: string };
 
+interface TileEditorSnapshot {
+  readonly charset: Uint8Array;
+  readonly assignments: readonly CharsetAssignment[];
+  readonly encoding: CharsetEncoding;
+}
+
 interface SourceArtifactInfo {
   readonly sha256: string;
   readonly baseName: string;
@@ -193,9 +236,10 @@ interface SourceArtifactInfo {
 
 type ResultOrigin = "direct-import" | "converted";
 
-type ComparisonMode = "side-by-side" | "source" | "result";
 type PreviewSide = "source" | "result";
 type PreviewZoom = "fit" | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+type PreviewContent = "image" | "source-image" | "result-image" | "pre-attribute" | "screen-1" | "screen-2" | "merged-low" | "merged-high" | "palette-usage" | "tile-usage" | "tile-editor" | "bitmap-editor" | "inspector" | "difference";
+type SettingsSection = "all" | "geometry" | "adjustments" | "palette" | "dithering" | "tilemap";
 
 function gridPathForDimensions(
   width: number,
@@ -427,6 +471,59 @@ function glyphDataUrl(
     `<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 8 8">` +
     `<rect width="8" height="8" fill="#000"/><g fill="${active ? "#fff" : "#174a7e"}">${pixels.join("")}</g></svg>`;
   return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
+function rebuildCharsetResult(
+  result: WorkerCharsetResult,
+  charset: Uint8Array,
+  assignments = result.assignments,
+  encoding = result.encoding,
+): WorkerCharsetResult {
+  const characterIndices = Uint8Array.from(
+    assignments,
+    (assignment) => assignment.characterIndex,
+  );
+  const transforms = Uint8Array.from(
+    assignments,
+    (assignment) => assignment.transform,
+  );
+  const artifact = encodeCharsetArtifact({
+    encoding,
+    characterCount: charset.length / 8,
+    transformations: result.transformations,
+    characterIndices,
+    attributes: result.attributes,
+    transforms,
+    charset,
+  });
+  const decoded = decodeCharsetArtifact(artifact.bytes, {
+    encoding,
+    characterCount: charset.length / 8,
+    transformations: result.transformations,
+  });
+  return {
+    ...result,
+    encoding,
+    characterCount: charset.length / 8,
+    artifact: artifact.bytes,
+    decodedScr: decoded.scr,
+    previewRgba: renderCharsetPreview(decoded.screen),
+    charset: artifact.charset,
+    attributes: artifact.attributes,
+    assignments,
+    diagnostics: {
+      ...result.diagnostics,
+      edited: true,
+      usedCharacterCount: new Set(characterIndices).size,
+      memory: {
+        tilemapBytes: artifact.tilemap.length,
+        attributeBytes: artifact.attributes.length,
+        transformBytes: artifact.transforms.length,
+        charsetBytes: artifact.charset.length,
+        totalBytes: artifact.bytes.length,
+      },
+    },
+  };
 }
 
 function clampCharsetRange(
@@ -714,12 +811,25 @@ export function App() {
     readonly visited: Set<number>;
   } | null>(null);
   const charsetGlyphRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const tileEditorPointerRef = useRef<{ pointerId: number; visited: Set<string> } | null>(null);
+  const bitmapEditorPointerRef = useRef<{ pointerId: number; visited: Set<string> } | null>(null);
   const existingCharsetSelectionRef =
     useRef<readonly number[] | null>(null);
   const [state, setState] = useState<ConversionState>({ kind: "idle" });
+  const [storedWorkspacePreferences] = useState<WorkspacePreferences>(() =>
+    loadWorkspacePreferences(localStorage),
+  );
   const [draftState, setDraftState] = useState<DraftState>({ kind: "idle" });
   const [lastFinal, setLastFinal] = useState<WorkerConversionResult | null>(null);
   const [charsetState, setCharsetState] = useState<CharsetState>({ kind: "idle" });
+  const [tileEditorSelected, setTileEditorSelected] = useState(0);
+  const [tileEditorActive, setTileEditorActive] = useState(true);
+  const [tileEditorOriginals, setTileEditorOriginals] = useState<readonly (Uint8Array | null)[]>([]);
+  const [tileEditorUndo, setTileEditorUndo] = useState<readonly TileEditorSnapshot[]>([]);
+  const [tileEditorEdited, setTileEditorEdited] = useState(false);
+  const [bitmapEditorCell, setBitmapEditorCell] = useState<BitmapCell | null>(null);
+  const [bitmapEditorUndo, setBitmapEditorUndo] = useState<readonly BitmapCell[]>([]);
+  const [bitmapEditorSelection, setBitmapEditorSelection] = useState<InspectedAttribute | null>(null);
   const [workspaceMode, setWorkspaceMode] =
     useState<WorkspaceConversionMode>("palette");
   const [tilemapStale, setTilemapStale] = useState(false);
@@ -848,11 +958,11 @@ export function App() {
   const [errorDiffusionLineSuppression, setErrorDiffusionLineSuppression] = useState(
     DEFAULT_CONVERSION_SETTINGS.errorDiffusionLineSuppression,
   );
-  const [previewZoom, setPreviewZoom] = useState<PreviewZoom>("fit");
-  const [synchronizePan, setSynchronizePan] = useState(true);
-  const [showPixelGrid, setShowPixelGrid] = useState(false);
-  const [showAttributeGrid, setShowAttributeGrid] = useState(false);
-  const [hideAttributes, setHideAttributes] = useState(false);
+  const [previewZoom, setPreviewZoom] = useState<PreviewZoom>(storedWorkspacePreferences.previewZoom);
+  const [synchronizePan, setSynchronizePan] = useState(storedWorkspacePreferences.synchronizePan);
+  const [showPixelGrid, setShowPixelGrid] = useState(storedWorkspacePreferences.showPixelGrid);
+  const [showAttributeGrid, setShowAttributeGrid] = useState(storedWorkspacePreferences.showAttributeGrid);
+  const [hideAttributes, setHideAttributes] = useState(storedWorkspacePreferences.hideAttributes);
   const [scaleQlToDisplayAspect, setScaleQlToDisplayAspect] = useState(true);
   const [qlMixedDisplayResolution, setQlMixedDisplayResolution] =
     useState<QlMixedDisplayResolution>("high");
@@ -865,10 +975,16 @@ export function App() {
   const [pmd85GapPolicy, setPmd85GapPolicy] = useState<
     ConversionSettings["pmd85"]["gapPolicy"]
   >(DEFAULT_CONVERSION_SETTINGS.pmd85.gapPolicy);
-  const [comparisonMode, setComparisonMode] = useState<ComparisonMode>("side-by-side");
+  const [sourcePreviewContent, setSourcePreviewContent] = useState<PreviewContent>(storedWorkspacePreferences.sourceContent);
+  const [resultPreviewContent, setResultPreviewContent] = useState<PreviewContent>(storedWorkspacePreferences.resultContent);
+  const [selectedPaletteColor, setSelectedPaletteColor] = useState<number | null>(null);
+  const [paletteUsageFilter, setPaletteUsageFilter] = useState<"used" | "all">("used");
+  const [tileUsageFilter, setTileUsageFilter] = useState<"used" | "all">("used");
   const [inspection, setInspection] = useState<InspectedAttribute | null>(null);
   const [draggingSide, setDraggingSide] = useState<PreviewSide | null>(null);
-  const [inspectionDrawerOpen, setInspectionDrawerOpen] = useState(false);
+  const [inspectionDrawerOpen, setInspectionDrawerOpen] = useState(storedWorkspacePreferences.inspectionDrawerOpen);
+  const [workspaceLayout, setWorkspaceLayout] = useState<WorkspaceLayoutId>(storedWorkspacePreferences.layout);
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>("all");
   const [cropPointerMode, setCropPointerMode] = useState<"create" | "move">("create");
   const [cropSelectionActive, setCropSelectionActive] = useState(true);
   const [inputPreviewStage, setInputPreviewStage] =
@@ -947,6 +1063,68 @@ export function App() {
   }, [attributeOptimizerId, ditherEngineId]);
 
   useEffect(() => {
+    saveWorkspacePreferences(localStorage, {
+      layout: workspaceLayout,
+      sourceContent: sourcePreviewContent,
+      resultContent: resultPreviewContent,
+      previewZoom,
+      synchronizePan,
+      showPixelGrid,
+      showAttributeGrid,
+      hideAttributes,
+      inspectionDrawerOpen,
+    });
+  }, [workspaceLayout, sourcePreviewContent, resultPreviewContent,
+    previewZoom, synchronizePan, showPixelGrid, showAttributeGrid, hideAttributes,
+    inspectionDrawerOpen]);
+
+  useEffect(() => {
+    if (image === null) return;
+    setSourcePreviewContent("image");
+    setResultPreviewContent("image");
+    setWorkspaceLayout("conversion");
+    setInspection(null);
+    setBitmapEditorSelection(null);
+    setSelectedPaletteColor(null);
+  }, [image]);
+
+  useEffect(() => {
+    if (bitmapEditorSelection === null || workspaceMode !== "palette") {
+      setBitmapEditorCell(null);
+      setBitmapEditorUndo([]);
+      return;
+    }
+    const rows = new Uint8Array(8);
+    rows.set(bitmapEditorSelection.bitmapBytes.slice(0, 8));
+    setBitmapEditorCell({ rows, attribute: bitmapEditorSelection.attribute });
+    setBitmapEditorUndo([]);
+  }, [bitmapEditorSelection, workspaceMode]);
+
+  useEffect(() => {
+    setSelectedPaletteColor(null);
+  }, [targetModeId]);
+
+  useEffect(() => {
+    const mixedTarget = targetModeId === "zx48-mixed-256x192" ||
+      targetModeId === "mode8-mode4-mixed-512x256";
+    const unavailable = new Set<PreviewContent>();
+    if (workspaceMode !== "palette") unavailable.add("pre-attribute");
+    if (!mixedTarget) {
+      unavailable.add("screen-1");
+      unavailable.add("screen-2");
+      unavailable.add("merged-low");
+      unavailable.add("merged-high");
+    }
+    if (workspaceMode !== "tilemap") {
+      unavailable.add("tile-usage");
+      unavailable.add("tile-editor");
+    }
+    if (workspaceMode !== "palette") unavailable.add("bitmap-editor");
+    if (unavailable.has(sourcePreviewContent)) setSourcePreviewContent("image");
+    if (unavailable.has(resultPreviewContent)) setResultPreviewContent("image");
+  }, [workspaceMode, targetModeId, sourcePreviewContent, resultPreviewContent]);
+
+  useEffect(() => {
     if (!dirty) return;
     const warn = (event: BeforeUnloadEvent) => {
       event.preventDefault();
@@ -992,6 +1170,15 @@ export function App() {
       : displayResult?.height ?? fallbackPreview?.height ?? 192;
     const context = canvas.getContext("2d");
     if (context === null) return;
+    const showingOriginalSource = sourcePreviewContent === "source-image" ||
+      resultPreviewContent === "source-image";
+    if (showingOriginalSource && framing !== "crop") {
+      canvas.width = image.width;
+      canvas.height = image.height;
+      const pixels = new Uint8ClampedArray(Uint8Array.from(image.rgba).buffer);
+      context.putImageData(new ImageData(pixels, image.width, image.height), 0, 0);
+      return;
+    }
     if (workspaceMode === "tilemap" && displayResult !== null) {
       const frame = displayResult.frames[0];
       const rgba = hideAttributes &&
@@ -1043,7 +1230,8 @@ export function App() {
   }, [
     image, draftState, lastFinal, framing, rotation, mirrorHorizontal,
     mirrorVertical, resampling, fillOffsetX, fillOffsetY,
-    inputPreviewStage, workspaceMode, charsetState,
+    inputPreviewStage, workspaceMode, charsetState, sourcePreviewContent,
+    resultPreviewContent,
     tilemapStale, hideAttributes, selectedPlatformId, targetModeId,
     pmd85CrtAspect, isPmd,
   ]);
@@ -1138,6 +1326,7 @@ export function App() {
     );
   }, [
     draftState, lastFinal, outputPreviewStage, workspaceMode, charsetState,
+    sourcePreviewContent, resultPreviewContent,
     tilemapStale, hideAttributes, qlMixedDisplayResolution,
   ]);
 
@@ -1436,7 +1625,9 @@ export function App() {
       ? {
           verticalSpatialMix: {
             schemaVersion: 1 as const,
-            algorithmId: "vertical-spatial-uniform-v1" as const,
+            algorithmId: attributeOptimizerId === "zx-vertical-spatial-detail-v1"
+              ? "vertical-spatial-detail-v1" as const
+              : "vertical-spatial-uniform-v1" as const,
             calibrationId: "srgb-ideal-v1" as const,
           },
         }
@@ -2118,6 +2309,61 @@ export function App() {
     setPreviewZoom(next);
   }
 
+  function applyWorkspaceLayout(layout: WorkspaceLayoutId): void {
+    const tilemapViews = workspaceMode === "tilemap";
+    setWorkspaceLayout(layout);
+    if (layout === "palette") {
+      setSourcePreviewContent("image");
+      setResultPreviewContent("palette-usage");
+      setInspectionDrawerOpen(true);
+      return;
+    }
+    if (layout === "tilemap") {
+      setSourcePreviewContent(tilemapViews ? "tile-usage" : "image");
+      setResultPreviewContent("image");
+      setInspectionDrawerOpen(true);
+      return;
+    }
+    if (layout === "inspection") {
+      setSourcePreviewContent("inspector");
+      setResultPreviewContent("image");
+      setPreviewZoom(8);
+      setShowPixelGrid(true);
+      setShowAttributeGrid(true);
+      setInspectionDrawerOpen(true);
+      return;
+    }
+    setSourcePreviewContent("image");
+    setResultPreviewContent("image");
+    setPreviewZoom("fit");
+    setShowPixelGrid(false);
+    setShowAttributeGrid(false);
+    setInspectionDrawerOpen(false);
+  }
+
+  function selectPreviewContent(side: PreviewSide, content: PreviewContent): void {
+    if (side === "source") setSourcePreviewContent(content);
+    else setResultPreviewContent(content);
+    setWorkspaceLayout("custom");
+    if (content === "pre-attribute") setInputPreviewStage("pre-constraint");
+    if (content === "image" || content === "source-image") setInputPreviewStage("source");
+    if (content === "screen-1") setOutputPreviewStage("screen-1");
+    if (content === "screen-2") setOutputPreviewStage("screen-2");
+    if (content === "merged-low" || content === "merged-high") {
+      setOutputPreviewStage("merged");
+      setQlMixedDisplayResolution(content === "merged-low" ? "low" : "high");
+    }
+  }
+
+  function focusSettingsSection(section: SettingsSection): void {
+    setSettingsSection(section);
+    if (section === "all") return;
+    document.getElementById(`settings-${section}`)?.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest",
+    });
+  }
+
   function stepZoom(delta: -1 | 1) {
     const current = previewZoom === "fit" ? 0 : previewZoom;
     const next = Math.max(0, Math.min(8, current + delta));
@@ -2208,19 +2454,33 @@ export function App() {
     inspectActivePixel(pixelX, pixelY);
   }
 
-  function inspectActivePixel(pixelX: number, pixelY: number) {
+  function selectResultPixel(event: ReactPointerEvent<HTMLCanvasElement>) {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const pixelX = Math.max(0, Math.min(255, Math.floor(
+      (event.clientX - bounds.left) / bounds.width * 256,
+    )));
+    const pixelY = Math.max(0, Math.min(191, Math.floor(
+      (event.clientY - bounds.top) / bounds.height * 192,
+    )));
+    const selected = inspectActivePixel(pixelX, pixelY);
+    if (selected !== null) setBitmapEditorSelection(selected);
+  }
+
+  function inspectActivePixel(pixelX: number, pixelY: number): InspectedAttribute | null {
     const activeResult = draftPreviewResult(draftState) ?? lastFinal;
-    if (activeResult === null || activeResult.platformId !== "zx-spectrum") return;
+    if (activeResult === null || activeResult.platformId !== "zx-spectrum") return null;
     const frameIndex = outputPreviewStage === "screen-2" ? 1 : 0;
     const encoded = activeResult.frames[frameIndex]?.encoded ??
       activeResult.frames[0]?.encoded;
-    if (encoded === undefined) return;
-    setInspection(inspectSoftwareScr(
+    if (encoded === undefined) return null;
+    const nextInspection = inspectSoftwareScr(
       encoded,
       activeResult.attributeHeight ?? attributeHeight,
       Math.max(0, Math.min(255, pixelX)),
       Math.max(0, Math.min(191, pixelY)),
-    ));
+    );
+    setInspection(nextInspection);
+    return nextInspection;
   }
 
   function handleInspectorKey(event: ReactKeyboardEvent<HTMLCanvasElement>) {
@@ -2860,6 +3120,7 @@ export function App() {
     setTilemapBenchmarkOpen(true);
     setCharsetStrategy(row.strategy);
     setCharsetState({ kind: "ready", result: row.result });
+    initializeTileEditor(row.result);
     setTilemapStale(false);
   }
 
@@ -2912,6 +3173,7 @@ export function App() {
     const revision = revisionRef.current;
     const conversionMode = workspaceMode;
     finalRunningRef.current = true;
+    setBitmapEditorSelection(null);
     setState({ kind: "running" });
     try {
       const result = await worker.convertImage(
@@ -2965,6 +3227,297 @@ export function App() {
 
   function invalidateCharset(): void {
     setCharsetState({ kind: "idle" });
+  }
+
+  function initializeTileEditor(result: WorkerCharsetResult): void {
+    setTileEditorSelected(0);
+    setTileEditorActive(true);
+    setTileEditorOriginals(Array.from({ length: result.characterCount }, () => null));
+    setTileEditorUndo([]);
+    setTileEditorEdited(false);
+  }
+
+  function commitTileEditorResult(
+    result: WorkerCharsetResult,
+    charset: Uint8Array,
+    assignments = result.assignments,
+    encoding = result.encoding,
+  ): void {
+    const next = rebuildCharsetResult(result, charset, assignments, encoding);
+    setCharsetState({ kind: "ready", result: next });
+    setTilemapStale(false);
+    setDirty(true);
+    setTileEditorEdited(true);
+  }
+
+  function snapshotTileEditor(result: WorkerCharsetResult): TileEditorSnapshot {
+    return {
+      charset: result.charset.slice(),
+      assignments: result.assignments.map((assignment) => ({ ...assignment })),
+      encoding: result.encoding,
+    };
+  }
+
+  function applyEditorOperation(operation: TileEditOperation, pushHistory = true): void {
+    if (charsetState.kind !== "ready") return;
+    const result = charsetState.result;
+    const tile = result.charset.slice(tileEditorSelected * 8, tileEditorSelected * 8 + 8);
+    if (pushHistory) {
+      setTileEditorUndo((history) => [...history, snapshotTileEditor(result)]);
+      setTileEditorOriginals((originals) => {
+        const next = [...originals];
+        if (next[tileEditorSelected] === null) next[tileEditorSelected] = tile;
+        return next;
+      });
+    }
+    const editedTile = applyTileEdit(tile, operation);
+    commitTileEditorResult(
+      result,
+      replaceTileInCharset(result.charset, tileEditorSelected, editedTile),
+    );
+  }
+
+  function selectEditorTile(index: number): void {
+    if (charsetState.kind !== "ready") return;
+    if (index < 0 || index >= charsetState.result.characterCount) return;
+    setTileEditorSelected(index);
+  }
+
+  function selectUsedTile(index: number): void {
+    if (charsetState.kind !== "ready") return;
+    selectEditorTile(index);
+    setTileEditorActive(true);
+    charsetGlyphRefs.current[index]?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+
+  function exitTileEditor(): void {
+    if (charsetState.kind !== "ready") return;
+    const charset = charsetState.result.charset.slice();
+    const count = charset.length / 8;
+    setExistingCharset(charset);
+    setExistingCharsetName("generated-charset.chr");
+    setExistingCharsetStart(0);
+    setExistingCharsetLength(count);
+    setExistingCharsetStartEntry("1");
+    setExistingCharsetLengthEntry(String(count));
+    existingCharsetSelectionRef.current = null;
+    setExistingCharsetSelection(null);
+    setCharsetBudget(count);
+    if (count > 32) setCharsetEncoding("extended");
+    setCharsetSource("existing");
+    setTileEditorActive(false);
+    setTilemapStale(true);
+    setDirty(true);
+  }
+
+  function undoTileEditor(): void {
+    const snapshot = tileEditorUndo[tileEditorUndo.length - 1];
+    if (snapshot === undefined) return;
+    setTileEditorUndo((history) => history.slice(0, -1));
+    setCharsetEncoding(snapshot.encoding);
+    setCharsetState((current) => current.kind === "ready"
+      ? { kind: "ready", result: rebuildCharsetResult(current.result, snapshot.charset, snapshot.assignments, snapshot.encoding) }
+      : current);
+    setDirty(true);
+    setTileEditorEdited(true);
+  }
+
+  function revertSelectedTile(): void {
+    if (charsetState.kind !== "ready") return;
+    const original = tileEditorOriginals[tileEditorSelected];
+    if (original === null || original === undefined) return;
+    setTileEditorUndo((history) => [...history, snapshotTileEditor(charsetState.result)]);
+    commitTileEditorResult(
+      charsetState.result,
+      replaceTileInCharset(charsetState.result.charset, tileEditorSelected, original),
+    );
+  }
+
+  function createEditorTile(): void {
+    if (charsetState.kind !== "ready" || charsetState.result.characterCount >= 256) return;
+    setTileEditorUndo((history) => [...history, snapshotTileEditor(charsetState.result)]);
+    const nextCharset = appendBlankTile(charsetState.result.charset);
+    const nextEncoding = nextCharset.length / 8 > 32 ? "extended" : charsetState.result.encoding;
+    setCharsetEncoding(nextEncoding);
+    commitTileEditorResult(charsetState.result, nextCharset, charsetState.result.assignments, nextEncoding);
+    setTileEditorSelected(nextCharset.length / 8 - 1);
+    setTileEditorOriginals((originals) => [...originals, new Uint8Array(8)]);
+  }
+
+  function deleteEditorTile(): void {
+    if (charsetState.kind !== "ready" || charsetState.result.characterCount <= 1) return;
+    const result = charsetState.result;
+    const index = tileEditorSelected;
+    const used = result.assignments.filter((assignment) => assignment.characterIndex === index).length;
+    if (used > 0 && !window.confirm(`Tile ${index + 1} is used by ${used} cells. Delete it and remap those cells?`)) return;
+    setTileEditorUndo((history) => [...history, snapshotTileEditor(result)]);
+    const nextCharset = new Uint8Array(result.charset.length - 8);
+    nextCharset.set(result.charset.subarray(0, index * 8));
+    nextCharset.set(result.charset.subarray(index * 8 + 8), index * 8);
+    const replacement = index === 0 ? 0 : index - 1;
+    const assignments = result.assignments.map((assignment) => ({
+      ...assignment,
+      characterIndex: assignment.characterIndex === index
+        ? replacement
+        : assignment.characterIndex > index
+          ? assignment.characterIndex - 1
+          : assignment.characterIndex,
+    }));
+    const nextSelected = Math.min(index, nextCharset.length / 8 - 1);
+    const nextEncoding = charsetEncoding;
+    commitTileEditorResult(result, nextCharset, assignments, nextEncoding);
+    setTileEditorSelected(nextSelected);
+    setTileEditorOriginals((originals) => originals.filter((_, tileIndex) => tileIndex !== index));
+  }
+
+  function moveEditorTile(delta: -1 | 1): void {
+    if (charsetState.kind !== "ready") return;
+    const count = charsetState.result.characterCount;
+    const target = tileEditorSelected + delta;
+    if (target < 0 || target >= count) return;
+    setTileEditorUndo((history) => [...history, snapshotTileEditor(charsetState.result)]);
+    const order = Array.from({ length: count }, (_, index) => index);
+    [order[tileEditorSelected], order[target]] = [order[target]!, order[tileEditorSelected]!];
+    const reordered = reorderCharsetTiles(charsetState.result.charset, charsetState.result.assignments, order);
+    commitTileEditorResult(charsetState.result, reordered.charset, reordered.assignments);
+    setTileEditorSelected(target);
+    setTileEditorOriginals((originals) => {
+      const next = [...originals];
+      [next[tileEditorSelected], next[target]] = [next[target] ?? null, next[tileEditorSelected] ?? null];
+      return next;
+    });
+  }
+
+  function sortEditorTilesByUsage(): void {
+    if (charsetState.kind !== "ready") return;
+    const count = charsetState.result.characterCount;
+    const usage = new Array<number>(count).fill(0);
+    for (const assignment of charsetState.result.assignments) usage[assignment.characterIndex] = (usage[assignment.characterIndex] ?? 0) + 1;
+    const order = Array.from({ length: count }, (_, index) => index)
+      .sort((left, right) => (usage[right] ?? 0) - (usage[left] ?? 0) || left - right);
+    if (order.every((index, position) => index === position)) return;
+    setTileEditorUndo((history) => [...history, snapshotTileEditor(charsetState.result)]);
+    const reordered = reorderCharsetTiles(charsetState.result.charset, charsetState.result.assignments, order);
+    commitTileEditorResult(charsetState.result, reordered.charset, reordered.assignments);
+    setTileEditorSelected(order.indexOf(tileEditorSelected));
+    setTileEditorOriginals((originals) => order.map((oldIndex) => originals[oldIndex] ?? null));
+  }
+
+  function tileEditorPixelFromEvent(event: ReactPointerEvent<HTMLDivElement>): { readonly x: number; readonly y: number } | null {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = Math.floor((event.clientX - rect.left) / (rect.width / 8));
+    const y = Math.floor((event.clientY - rect.top) / (rect.height / 8));
+    return x >= 0 && x < 8 && y >= 0 && y < 8 ? { x, y } : null;
+  }
+
+  function beginTileEditorPaint(event: ReactPointerEvent<HTMLDivElement>): void {
+    if (charsetState.kind !== "ready") return;
+    const pixel = tileEditorPixelFromEvent(event);
+    if (pixel === null) return;
+    event.preventDefault();
+    tileEditorPointerRef.current = { pointerId: event.pointerId, visited: new Set() };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    tileEditorPointerRef.current.visited.add(`${pixel.x},${pixel.y}`);
+    applyEditorOperation({ kind: "xor-pixel", ...pixel });
+  }
+
+  function moveTileEditorPaint(event: ReactPointerEvent<HTMLDivElement>): void {
+    const drag = tileEditorPointerRef.current;
+    if (drag === null || drag.pointerId !== event.pointerId) return;
+    const pixel = tileEditorPixelFromEvent(event);
+    if (pixel === null || drag.visited.has(`${pixel.x},${pixel.y}`)) return;
+    drag.visited.add(`${pixel.x},${pixel.y}`);
+    applyEditorOperation({ kind: "xor-pixel", ...pixel }, false);
+  }
+
+  function endTileEditorPaint(event: ReactPointerEvent<HTMLDivElement>): void {
+    if (tileEditorPointerRef.current?.pointerId === event.pointerId) tileEditorPointerRef.current = null;
+  }
+
+  function applyBitmapEditorOperation(operation: BitmapCellEditOperation): void {
+    if (bitmapEditorCell === null) return;
+    setBitmapEditorUndo((history) => [...history, bitmapEditorCell]);
+    setBitmapEditorCell(applyBitmapCellEdit(bitmapEditorCell, operation));
+  }
+
+  function undoBitmapEditor(): void {
+    const previous = bitmapEditorUndo[bitmapEditorUndo.length - 1];
+    if (previous === undefined) return;
+    setBitmapEditorCell(previous);
+    setBitmapEditorUndo((history) => history.slice(0, -1));
+  }
+
+  function bitmapEditorPixelFromEvent(event: ReactPointerEvent<HTMLDivElement>): { readonly x: number; readonly y: number } | null {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const x = Math.floor((event.clientX - bounds.left) / (bounds.width / 8));
+    const y = Math.floor((event.clientY - bounds.top) / (bounds.height / 8));
+    return x >= 0 && x < 8 && y >= 0 && y < 8 ? { x, y } : null;
+  }
+
+  function beginBitmapEditorPaint(event: ReactPointerEvent<HTMLDivElement>): void {
+    const pixel = bitmapEditorPixelFromEvent(event);
+    if (pixel === null || bitmapEditorCell === null) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    bitmapEditorPointerRef.current = { pointerId: event.pointerId, visited: new Set([`${pixel.x},${pixel.y}`]) };
+    applyBitmapEditorOperation({ kind: "toggle-pixel", ...pixel });
+  }
+
+  function moveBitmapEditorPaint(event: ReactPointerEvent<HTMLDivElement>): void {
+    const drag = bitmapEditorPointerRef.current;
+    if (drag?.pointerId !== event.pointerId) return;
+    const pixel = bitmapEditorPixelFromEvent(event);
+    if (pixel === null) return;
+    const key = `${pixel.x},${pixel.y}`;
+    if (drag.visited.has(key)) return;
+    drag.visited.add(key);
+    applyBitmapEditorOperation({ kind: "toggle-pixel", ...pixel });
+  }
+
+  function endBitmapEditorPaint(event: ReactPointerEvent<HTMLDivElement>): void {
+    if (bitmapEditorPointerRef.current?.pointerId === event.pointerId) bitmapEditorPointerRef.current = null;
+  }
+
+  function setBitmapEditorAttribute(mask: number, value: number): void {
+    if (bitmapEditorCell === null) return;
+    applyBitmapEditorOperation({
+      kind: "set-attribute",
+      attribute: (bitmapEditorCell.attribute & ~mask) | (value & mask),
+    });
+  }
+
+  function applyBitmapEditorToResult(): void {
+    const activeResult = draftPreviewResult(draftState) ?? lastFinal;
+    if (bitmapEditorCell === null || bitmapEditorSelection === null || activeResult === null ||
+        activeResult.platformId !== "zx-spectrum" || activeResult.frames.length !== 1) return;
+    const frame = activeResult.frames[0];
+    const height = activeResult.attributeHeight ?? attributeHeight;
+    if (frame === undefined || height !== 8) return;
+    const encoded = Uint8Array.from(frame.encoded);
+    for (let row = 0; row < 8; row += 1) {
+      encoded[zxBitmapOffset(bitmapEditorSelection.cellX, bitmapEditorSelection.cellY * 8 + row)] =
+        bitmapEditorCell.rows[row] ?? 0;
+    }
+    encoded[6144 + bitmapEditorSelection.cellY * 32 + bitmapEditorSelection.cellX] =
+      bitmapEditorCell.attribute;
+    const previewRgba = renderAttributeFrameRgba(
+      unpackZxBitmap(encoded),
+      encoded.subarray(6144),
+      height,
+    );
+    const nextFrame = { ...frame, encoded, previewRgba };
+    const nextResult: WorkerConversionResult = {
+      ...activeResult,
+      artifact: encoded,
+      scr: encoded,
+      frames: [nextFrame],
+      mergedPreviewRgba: previewRgba,
+      previewRgba,
+    };
+    setLastFinal(nextResult);
+    setDraftState({ kind: "idle" });
+    setState({ kind: "ready", result: nextResult });
+    setDirty(true);
+    setBitmapEditorUndo([]);
   }
 
   function markCharsetSelectionChanged(indices: readonly number[]): void {
@@ -3240,6 +3793,7 @@ export function App() {
       );
       if (charsetWorkerRef.current !== worker) return null;
       setCharsetState({ kind: "ready", result });
+      initializeTileEditor(result);
       setTilemapStale(false);
       setExportError(null);
       return result;
@@ -3801,6 +4355,7 @@ export function App() {
         setExistingCharset(projectCharset);
         setExistingCharsetName("project-charset.bin");
         setCharsetState({ kind: "ready", result: verifiedTilemap });
+        initializeTileEditor(verifiedTilemap);
         setTilemapStale(false);
       } else {
         setCharsetState({ kind: "idle" });
@@ -3832,6 +4387,11 @@ export function App() {
       charsetState.kind === "ready" && !tilemapStale
     ? lastFinal
     : draftPreviewResult(draftState) ?? lastFinal;
+  const bitmapEditorResult = draftPreviewResult(draftState) ?? lastFinal;
+  const bitmapEditorCanApply = bitmapEditorResult !== null &&
+    bitmapEditorResult.platformId === "zx-spectrum" &&
+    bitmapEditorResult.frames.length === 1 &&
+    (bitmapEditorResult.attributeHeight ?? attributeHeight) === 8;
   const displayedAttributeHeight = displayedResult?.attributeHeight ?? attributeHeight;
   const displayedWidth = displayedResult?.verticalSpatialDiagnostics === undefined
     ? displayedResult?.width ?? 256
@@ -3877,6 +4437,18 @@ export function App() {
         inspectedScr,
         displayedResult.attributeHeight ?? attributeHeight,
       );
+  const paletteUsageSlotTotal = paletteUsage === null
+    ? 0
+    : (paletteUsage.normalCells + paletteUsage.brightCells) * 2;
+  const paletteUsagePercent = (count: number): string =>
+    paletteUsageSlotTotal === 0
+      ? "0.0%"
+      : `${(count / paletteUsageSlotTotal * 100).toFixed(1)}%`;
+  const visiblePaletteUsageColors = paletteUsage === null || paletteUsageFilter === "all"
+    ? ZX_BASE_COLORS
+    : ZX_BASE_COLORS.filter((color) =>
+        (paletteUsage.normalColorCounts[color.code] ?? 0) > 0 ||
+        (paletteUsage.brightColorCounts[color.code] ?? 0) > 0);
   const cropEditorFrame = cropSourceSize === null
     ? null
     : fitCropPreviewFrame(cropSourceSize);
@@ -3897,9 +4469,12 @@ export function App() {
   const artifactsReady = workspaceMode === "tilemap"
     ? tilemapArtifactsReady
     : paletteArtifactsReady;
-  const glyphCharset = charsetSource === "existing" && existingCharset !== null
-    ? existingCharset
-    : charsetState.kind === "ready" ? charsetState.result.charset : null;
+  const resultSaveReady = state.kind === "ready" && lastFinal !== null && sourceArtifact !== null;
+  const glyphCharset = charsetState.kind === "ready"
+    ? charsetState.result.charset
+    : charsetSource === "existing" && existingCharset !== null
+      ? existingCharset
+      : null;
   const glyphCount = glyphCharset === null
     ? 0
     : Math.floor(glyphCharset.length / 8);
@@ -3929,6 +4504,83 @@ export function App() {
     charsetState.kind !== "ready"
     ? null
     : charsetState.result.assignments[inspectedTileIndex] ?? null;
+  const tileUsage = charsetState.kind !== "ready"
+    ? []
+    : (() => {
+        const counts = charsetState.result.assignments.reduce((result, assignment) => {
+          result.set(assignment.characterIndex, (result.get(assignment.characterIndex) ?? 0) + 1);
+          return result;
+        }, new Map<number, number>());
+        return Array.from({ length: charsetState.result.characterCount }, (_, characterIndex) => ({
+          characterIndex,
+          count: counts.get(characterIndex) ?? 0,
+        })).sort((first, second) => second.count - first.count || first.characterIndex - second.characterIndex);
+      })();
+  const visibleTileUsage = tileUsageFilter === "used"
+    ? tileUsage.filter((tile) => tile.count > 0)
+    : tileUsage;
+  const tileEditorPreview = charsetState.kind !== "ready"
+    ? <p>Run Tilemap High to open the tile editor.</p>
+    : <>
+        <p><strong>Tile {tileEditorSelected + 1}</strong> · {charsetState.result.assignments.filter((assignment) => assignment.characterIndex === tileEditorSelected).length} cells use this tile</p>
+        <div className="tile-editor-grid tile-editor-grid-main" role="grid" aria-label={`Tile ${tileEditorSelected + 1} bitmap, 8 by 8 pixels`} onPointerDown={beginTileEditorPaint} onPointerMove={moveTileEditorPaint} onPointerUp={endTileEditorPaint} onPointerCancel={endTileEditorPaint}>
+          {Array.from({ length: 64 }, (_, pixelIndex) => {
+            const x = pixelIndex % 8;
+            const y = Math.floor(pixelIndex / 8);
+            const row = charsetState.result.charset[tileEditorSelected * 8 + y] ?? 0;
+            const on = (row & (0x80 >> x)) !== 0;
+            return <span className={`tile-editor-pixel${on ? " on" : ""}`} key={pixelIndex} role="gridcell" aria-label={`${x}, ${y}${on ? ": on" : ": off"}`} />;
+          })}
+        </div>
+        <p className="control-help">Click or drag pixels to toggle them. The existing tile editor controls remain available in the side panel.</p>
+      </>;
+  const bitmapEditorPreview = bitmapEditorCell === null
+    ? <p>Point at a converted cell first, then open the Bitmap editor.</p>
+    : <>
+        <p><strong>Cell {bitmapEditorSelection?.cellX ?? 0}, {bitmapEditorSelection?.cellY ?? 0}</strong> · Attribute 0x{bitmapEditorCell.attribute.toString(16).padStart(2, "0")}</p>
+        <div className="bitmap-editor-layout">
+          <div className="tile-editor-grid tile-editor-grid-main bitmap-editor-grid" role="grid" aria-label="Selected cell bitmap, 8 by 8 pixels" onPointerDown={beginBitmapEditorPaint} onPointerMove={moveBitmapEditorPaint} onPointerUp={endBitmapEditorPaint} onPointerCancel={endBitmapEditorPaint}>
+            {Array.from({ length: 64 }, (_, pixelIndex) => {
+              const x = pixelIndex % 8;
+              const y = Math.floor(pixelIndex / 8);
+              const on = ((bitmapEditorCell.rows[y] ?? 0) & (0x80 >> x)) !== 0;
+              return <span className={`tile-editor-pixel${on ? " on" : ""}`} key={pixelIndex} role="gridcell" aria-label={`${x}, ${y}${on ? ": on" : ": off"}`} />;
+            })}
+          </div>
+          <div className="bitmap-editor-side">
+            <div className="bitmap-editor-attributes">
+              <div className="bitmap-editor-color-group" role="group" aria-label="INK color">
+                <span>INK</span>
+                <div className="palette-options">
+                  {ZX_BASE_COLORS.map((color) => {
+                    const selected = (bitmapEditorCell.attribute & 7) === color.code;
+                    return <button className={`palette-option${selected ? " selected" : ""}`} type="button" key={color.code} aria-label={`Set INK to ${color.name}`} aria-pressed={selected} title={color.name} onClick={() => setBitmapEditorAttribute(7, color.code)}><span className="palette-swatch" style={{ background: (bitmapEditorCell.attribute & 0x40) !== 0 ? color.bright : color.normal }} aria-hidden="true" /></button>;
+                  })}
+                </div>
+              </div>
+              <div className="bitmap-editor-color-group" role="group" aria-label="PAPER color">
+                <span>PAPER</span>
+                <div className="palette-options">
+                  {ZX_BASE_COLORS.map((color) => {
+                    const selected = ((bitmapEditorCell.attribute >> 3) & 7) === color.code;
+                    return <button className={`palette-option${selected ? " selected" : ""}`} type="button" key={color.code} aria-label={`Set PAPER to ${color.name}`} aria-pressed={selected} title={color.name} onClick={() => setBitmapEditorAttribute(0x38, color.code << 3)}><span className="palette-swatch" style={{ background: (bitmapEditorCell.attribute & 0x40) !== 0 ? color.bright : color.normal }} aria-hidden="true" /></button>;
+                  })}
+                </div>
+              </div>
+              <label className="check-control"><input type="checkbox" checked={(bitmapEditorCell.attribute & 0x40) !== 0} onChange={(event) => setBitmapEditorAttribute(0x40, event.target.checked ? 0x40 : 0)} /><span>BRIGHT</span></label>
+            </div>
+            <div className="bitmap-editor-actions">
+          <button className="secondary compact" type="button" onClick={() => applyBitmapEditorOperation({ kind: "invert" })}>Invert</button>
+          <button className="secondary compact" type="button" onClick={() => applyBitmapEditorOperation({ kind: "shift", dx: -1, dy: 0 })}>←</button>
+          <button className="secondary compact" type="button" onClick={() => applyBitmapEditorOperation({ kind: "shift", dx: 1, dy: 0 })}>→</button>
+          <button className="secondary compact" type="button" onClick={() => applyBitmapEditorOperation({ kind: "shift", dx: 0, dy: -1 })}>↑</button>
+          <button className="secondary compact" type="button" onClick={() => applyBitmapEditorOperation({ kind: "shift", dx: 0, dy: 1 })}>↓</button>
+          <button className="secondary compact" type="button" onClick={undoBitmapEditor} disabled={bitmapEditorUndo.length === 0}>Undo</button>
+          <button className="primary compact" type="button" onClick={applyBitmapEditorToResult} disabled={bitmapEditorCell === null || bitmapEditorSelection === null || !bitmapEditorCanApply}>Apply to result</button>
+            </div>
+          </div>
+        </div>
+      </>;
   const qlVerticalPixelScale = isQl && (
       targetModeId === "mode4-512x256" ||
       targetModeId === "mode4-plain-512x256" ||
@@ -3941,6 +4593,23 @@ export function App() {
       outputPreviewStage === "merged"
     ? 2
     : 1;
+  const inspectionCellHeight = workspaceMode === "tilemap" ? 8 : displayedAttributeHeight;
+  const inspectionCellOverlay = inspection === null
+    ? null
+    : {
+        x: inspection.cellX * 8,
+        y: inspection.cellY * inspectionCellHeight,
+        width: 8,
+        height: inspectionCellHeight,
+      };
+  const bitmapEditorSelectionOverlay = bitmapEditorSelection === null
+    ? null
+    : {
+        x: bitmapEditorSelection.cellX * 8,
+        y: bitmapEditorSelection.cellY * inspectionCellHeight,
+        width: 8,
+        height: inspectionCellHeight,
+      };
   const previewAspect = resolvePreviewAspect(
     displayedWidth,
     displayedHeight,
@@ -3955,6 +4624,18 @@ export function App() {
   const previewStageWidth = previewZoom === "fit"
     ? undefined
     : `${previewAspect.width * previewZoom}px`;
+  const sourceStageAspectRatio = sourcePreviewContent === "source-image" && image !== null
+    ? `${image.width} / ${image.height}`
+    : previewAspectRatio;
+  const sourceStageWidth = sourcePreviewContent === "source-image" && image !== null && previewZoom !== "fit"
+    ? `${image.width * previewZoom}px`
+    : previewStageWidth;
+  const resultStageAspectRatio = resultPreviewContent === "source-image" && image !== null
+    ? `${image.width} / ${image.height}`
+    : previewAspectRatio;
+  const resultStageWidth = resultPreviewContent === "source-image" && image !== null && previewZoom !== "fit"
+    ? `${image.width * previewZoom}px`
+    : previewStageWidth;
   const selectedModePalette =
     selectedProfile.palette.modes[targetModeId] ??
     selectedProfile.palette.modes[
@@ -4020,6 +4701,56 @@ export function App() {
           }];
         });
       })();
+  const differencePreviewDataUrl = useMemo(() => {
+    const frame = displayedResult?.frames[0];
+    if (displayedResult === null || frame === undefined) return null;
+    return rgbaPngDataUrl(
+      previewDifferenceHeatmap(displayedResult.sourcePreviewRgba, frame.previewRgba),
+      displayedResult.width,
+      displayedResult.height,
+    );
+  }, [displayedResult]);
+  const mixedScreenWindowImages = useMemo(() => {
+    if (displayedResult === null) return null;
+    const first = displayedResult.frames[0];
+    const second = displayedResult.frames[1];
+    if (first === undefined || second === undefined) return null;
+    const width = displayedResult.width;
+    const height = displayedResult.height;
+    const encode = (rgba: Uint8Array) => rgbaPngDataUrl(rgba, width, height);
+    const mergedLow = displayedResult.platformId === "sinclair-ql" &&
+      displayedResult.modeId === "mode8-mode4-mixed-512x256"
+      ? renderQlMixedDisplayPreview(first.previewRgba, second.previewRgba, width, "low")
+      : displayedResult.mergedPreviewRgba;
+    const mergedHigh = displayedResult.platformId === "sinclair-ql" &&
+      displayedResult.modeId === "mode8-mode4-mixed-512x256"
+      ? renderQlMixedDisplayPreview(first.previewRgba, second.previewRgba, width, "high")
+      : displayedResult.mergedPreviewRgba;
+    return {
+      "screen-1": encode(first.previewRgba),
+      "screen-2": encode(second.previewRgba),
+      "merged-low": encode(mergedLow),
+      "merged-high": encode(mergedHigh),
+    };
+  }, [displayedResult]);
+  const preAttributePreviewDataUrl = displayedResult === null
+    ? null
+    : rgbaPngDataUrl(
+        displayedResult.preConstraintPreviewRgba,
+        displayedResult.width,
+        displayedResult.height,
+      );
+  const windowImageFor = (content: PreviewContent) => {
+    if (content === "pre-attribute") {
+      return preAttributePreviewDataUrl === null
+        ? <p>Convert an image to view the pre-attribute dither stage.</p>
+        : <img className="preview-difference-image" src={preAttributePreviewDataUrl} alt="Pre-attribute dither preview" />;
+    }
+    if (mixedScreenWindowImages === null || !(content in mixedScreenWindowImages)) {
+      return <p>Convert a mixed two-screen target to view this stage.</p>;
+    }
+    return <img className="preview-difference-image" src={mixedScreenWindowImages[content as keyof typeof mixedScreenWindowImages]} alt={`${content} preview`} />;
+  };
   const retainedDraftVisible = draftPreviewResult(draftState) !== null;
   const platformLabel = isQl ? "Sinclair QL" : isPmd ? "Tesla PMD 85" : "ZX Spectrum";
   const paletteResultLabel = draftState.kind === "ready"
@@ -4034,9 +4765,11 @@ export function App() {
     ? `Tilemap reconstruction${
         tilemapStale ? " · stale" :
         charsetState.kind === "running" ? " · converting" :
-        charsetState.kind === "ready" ? " · current" : ""
+        charsetState.kind === "ready" ? tileEditorEdited ? " · edited" : " · current" : ""
       }`
-    : paletteResultLabel;
+      : paletteResultLabel;
+  const hasMixedScreenTarget = targetModeId === "zx48-mixed-256x192" ||
+    targetModeId === "mode8-mode4-mixed-512x256";
   const paletteConversionStatusText = state.kind === "idle" ? image === null
     ? "Import an image to begin."
     : draftState.kind === "scheduled" ? "Draft preview scheduled…"
@@ -4085,7 +4818,7 @@ export function App() {
         <p className="eyebrow">{platformLabel} · conversion laboratory</p>
         <h1>Pixel Invader</h1>
         <p>
-          Image Convertor · powered by Void Engine · Version {APPLICATION_VERSION} · OSG^Invaders
+          Image Convertor · powered by Void Engine · Version {APPLICATION_DISPLAY_VERSION} · OSG^Invaders
         </p>
       </header>
 
@@ -4297,7 +5030,7 @@ export function App() {
             <button className="secondary compact destructive-profile" type="button" disabled={BUILT_IN_PROFILES.some((profile) => profile.id === selectedProfile.id)} onClick={deleteSelectedProfile}>Delete Profile</button>
             <button className="secondary compact delete-retained" type="button" disabled={profiles.length === BUILT_IN_PROFILES.length} onClick={deleteAllImportedProfiles}>Delete retained profiles ({profiles.length - BUILT_IN_PROFILES.length})</button>
           </fieldset>
-          <fieldset className="control-group geometry-group">
+          <fieldset id="settings-geometry" className="control-group geometry-group">
             <legend>Geometry</legend>
           <label>
             <span>Framing</span>
@@ -4422,7 +5155,7 @@ export function App() {
             </label>
           </fieldset>
           </fieldset>
-          <fieldset className="adjustment-control control-group">
+          <fieldset id="settings-adjustments" className="adjustment-control control-group">
             <legend>Image adjustments</legend>
             <RangeNumberControl id="brightness" label="Brightness" value={brightness} min={-100} max={100} onChange={(value) => { setBrightness(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
             <RangeNumberControl id="contrast" label="Contrast" value={contrast} min={-100} max={100} onChange={(value) => { setContrast(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
@@ -4442,7 +5175,7 @@ export function App() {
           </fieldset>
           {workspaceMode === "palette" ? (
           <>
-          <fieldset className="control-group palette-group">
+          <fieldset id="settings-palette" className="control-group palette-group">
             <legend>{isQl ? "QL palette" : isPmd ? "PMD 85 legal foregrounds" : "ZX palette and attributes"}</legend>
           {isZx ? (
           <>
@@ -4592,7 +5325,7 @@ export function App() {
             </label>
           ) : null}
           </fieldset>
-          <fieldset className="control-group dithering-group">
+          <fieldset id="settings-dithering" className="control-group dithering-group">
             <legend>Dithering</legend>
           <details className="engine-controls dithering-wide">
             <summary>Advanced conversion engines</summary>
@@ -5015,7 +5748,7 @@ export function App() {
           </>
           ) : (
           <>
-          <fieldset className="control-group tilemap-settings-group">
+          <fieldset id="settings-tilemap" className="control-group tilemap-settings-group">
             <legend>Tilemap conversion</legend>
             <div className="tilemap-source-inline">
             <div className="tilemap-source-summary">
@@ -5691,10 +6424,10 @@ export function App() {
                   <button className="secondary" type="button" onClick={exportCharsetPreview}>Decoder preview PNG</button>
                   <button className="secondary" type="button" onClick={exportCharsetDiagnostics}>Diagnostics JSON</button>
                 </>
-              ) : artifactsReady ? (
+              ) : resultSaveReady ? (
                 <>
-                  <span className="action-label">Download</span>
-                  <button className="secondary" type="button" onClick={exportPreviewPng}>Preview PNG</button>
+                  <span className="action-label">Save</span>
+                  <button className="secondary" type="button" onClick={exportPreviewPng}>PNG</button>
                   <button className="secondary" type="button" onClick={exportScr}>
                     {isPmd
                       ? "PMD binary"
@@ -5704,8 +6437,10 @@ export function App() {
                         : "Two screen binaries"
                       : "Binary .scr"}
                   </button>
-                  <button className="secondary" type="button" onClick={() => void exportMetadata()}>Metadata JSON</button>
-                  {isZx ? <button className="secondary" type="button" onClick={exportInspectionReport}>Inspection JSON</button> : null}
+                  {artifactsReady ? <>
+                    <button className="secondary" type="button" onClick={() => void exportMetadata()}>Metadata JSON</button>
+                    {isZx ? <button className="secondary" type="button" onClick={exportInspectionReport}>Inspection JSON</button> : null}
+                  </> : null}
                 </>
               ) : null}
               <span className="action-spacer" aria-hidden="true" />
@@ -5770,11 +6505,30 @@ export function App() {
           <div className="inspection-controls">
             <h3>Tools</h3>
             <label>
-              <span>Before/After</span>
-              <select value={comparisonMode} onChange={(event) => setComparisonMode(event.target.value as ComparisonMode)}>
-                <option value="side-by-side">Side by side</option>
-                <option value="source">Source only</option>
-                <option value="result">Result only</option>
+              <span>Configuration focus</span>
+              <select
+                value={settingsSection}
+                onChange={(event) => focusSettingsSection(event.target.value as SettingsSection)}
+              >
+                <option value="all">All controls</option>
+                <option value="geometry">Geometry</option>
+                <option value="adjustments">Image adjustments</option>
+                <option value="palette">Palette controls</option>
+                <option value="dithering">Dithering controls</option>
+                {workspaceMode === "tilemap" ? <option value="tilemap">Tilemap controls</option> : null}
+              </select>
+            </label>
+            <label>
+              <span>Workspace layout</span>
+              <select
+                value={workspaceLayout}
+                onChange={(event) => applyWorkspaceLayout(event.target.value as WorkspaceLayoutId)}
+              >
+                <option value="conversion">Conversion</option>
+                <option value="palette">Palette tuning</option>
+                <option value="tilemap" disabled={workspaceMode !== "tilemap"}>Tilemap cleanup</option>
+                <option value="inspection">Pixel inspection</option>
+                <option value="custom">Custom</option>
               </select>
             </label>
             {isZx ? <label>
@@ -5872,13 +6626,6 @@ export function App() {
               />
               <span>Hide attributes</span>
             </label> : null}
-            {isZx ? <button
-              className="secondary compact inspector-toggle"
-              type="button"
-              onClick={() => setInspectionDrawerOpen((open) => !open)}
-            >
-              {inspectionDrawerOpen ? "Close inspector" : "Open inspector"}
-            </button> : null}
             {workspaceMode === "palette" ? (
               <button
                 className="secondary compact inspector-toggle"
@@ -6015,8 +6762,11 @@ export function App() {
           ) : (
           <aside className="tilemap-charset-panel" aria-label="Charset selector">
             <div className="tilemap-charset-heading">
-              <strong>Charset selector</strong>
-              <span>{glyphCount} available · {glyphActiveCount} active</span>
+              <strong>{tileEditorActive ? "Tile editor" : "Tile selection"}</strong>
+              <span>{glyphCount} available · {glyphActiveCount} active{tileEditorEdited ? " · Edited" : ""}</span>
+              {tileEditorActive && charsetState.kind === "ready" ? (
+                <button className="secondary compact tile-editor-exit" type="button" onClick={exitTileEditor}>Exit editor</button>
+              ) : null}
             </div>
             <div
               className="tilemap-glyph-grid"
@@ -6029,12 +6779,12 @@ export function App() {
                 <span className="control-help">No charset loaded.</span>
               ) : Array.from({ length: glyphCount }, (_, characterIndex) => {
                 const active = glyphActiveIndexSet.has(characterIndex);
-                const selectable = charsetSource === "existing" &&
-                  existingCharset !== null;
+                const editorReady = charsetState.kind === "ready" && tileEditorActive;
+                const selectable = editorReady || (charsetSource === "existing" && existingCharset !== null);
                 return (
                   <button
                     type="button"
-                    className={`glyph-item ${active ? "active" : "inactive"}`}
+                    className={`glyph-item ${active ? "active" : "inactive"}${editorReady && characterIndex === tileEditorSelected ? " editor-selected" : ""}`}
                     key={characterIndex}
                     data-character-index={characterIndex}
                     title={`Tile ${characterIndex + 1} (index ${characterIndex}) · ${active ? "Active" : "Unused"}`}
@@ -6044,10 +6794,19 @@ export function App() {
                     ref={(element) => {
                       charsetGlyphRefs.current[characterIndex] = element;
                     }}
-                    onPointerDown={(event) =>
-                      beginCharsetSelection(characterIndex, event)}
-                    onKeyDown={(event) =>
-                      handleCharsetGlyphKey(characterIndex, event)}
+                    onClick={() => editorReady
+                      ? selectEditorTile(characterIndex)
+                      : undefined}
+                    onPointerDown={(event) => editorReady
+                      ? undefined
+                      : beginCharsetSelection(characterIndex, event)}
+                    onKeyDown={(event) => editorReady
+                      ? (event.key === "ArrowLeft" || event.key === "ArrowRight" || event.key === "ArrowUp" || event.key === "ArrowDown"
+                        ? handleCharsetGlyphKey(characterIndex, event)
+                        : event.key === "Enter" || event.key === " "
+                          ? (event.preventDefault(), selectEditorTile(characterIndex))
+                          : undefined)
+                      : handleCharsetGlyphKey(characterIndex, event)}
                     onDragStart={(event) => event.preventDefault()}
                   >
                     <img
@@ -6061,6 +6820,50 @@ export function App() {
                 );
               })}
             </div>
+            {charsetState.kind === "ready" && tileEditorActive ? (
+              <section className="tile-editor" aria-label="Tile editor">
+                <div className="tile-editor-heading">
+                  <strong>Tile {tileEditorSelected + 1}</strong>
+                  <span>{charsetState.result.assignments.filter((assignment) => assignment.characterIndex === tileEditorSelected).length} cells use this tile</span>
+                </div>
+                <div className="tile-editor-order-actions">
+                  <button className="secondary compact" type="button" aria-label="Move tile left" title="Move tile left" disabled={tileEditorSelected === 0} onClick={() => moveEditorTile(-1)}>←</button>
+                  <button className="secondary compact" type="button" aria-label="Move tile right" title="Move tile right" disabled={tileEditorSelected >= charsetState.result.characterCount - 1} onClick={() => moveEditorTile(1)}>→</button>
+                  <button className="secondary compact tile-editor-sort-button" type="button" aria-label="Sort tiles by usage count" title="Sort tiles by usage count" onClick={sortEditorTilesByUsage}>⇵ Usage</button>
+                </div>
+                <div
+                  className="tile-editor-grid"
+                  role="grid"
+                  aria-label={`Tile ${tileEditorSelected + 1} bitmap, 8 by 8 pixels`}
+                  onPointerDown={beginTileEditorPaint}
+                  onPointerMove={moveTileEditorPaint}
+                  onPointerUp={endTileEditorPaint}
+                  onPointerCancel={endTileEditorPaint}
+                >
+                  {Array.from({ length: 64 }, (_, pixelIndex) => {
+                    const x = pixelIndex % 8;
+                    const y = Math.floor(pixelIndex / 8);
+                    const row = charsetState.result.charset[tileEditorSelected * 8 + y] ?? 0;
+                    const on = (row & (0x80 >> x)) !== 0;
+                    return <span className={`tile-editor-pixel${on ? " on" : ""}`} key={pixelIndex} role="gridcell" aria-label={`${x}, ${y}${on ? ": on" : ": off"}`} />;
+                  })}
+                </div>
+                <div className="tile-editor-toolbar">
+                  <button className="secondary compact tile-editor-icon-button" type="button" aria-label="Rotate tile left" title="Rotate left" onClick={() => applyEditorOperation({ kind: "rotate-left" })}>←</button>
+                  <button className="secondary compact tile-editor-icon-button" type="button" aria-label="Rotate tile right" title="Rotate right" onClick={() => applyEditorOperation({ kind: "rotate-right" })}>→</button>
+                  <button className="secondary compact tile-editor-icon-button" type="button" aria-label="Rotate tile up" title="Rotate up" onClick={() => applyEditorOperation({ kind: "rotate-up" })}>↑</button>
+                  <button className="secondary compact tile-editor-icon-button" type="button" aria-label="Rotate tile down" title="Rotate down" onClick={() => applyEditorOperation({ kind: "rotate-down" })}>↓</button>
+                  <button className="secondary compact tile-editor-icon-button" type="button" aria-label="Clear tile" title="Clear tile" onClick={() => applyEditorOperation({ kind: "clear" })}>×</button>
+                  <button className="secondary compact tile-editor-icon-button" type="button" aria-label="Invert tile" title="Invert tile" onClick={() => applyEditorOperation({ kind: "invert" })}>◐</button>
+                  <button className="secondary compact tile-editor-icon-button" type="button" aria-label="Undo last tile edit" title="Undo" disabled={tileEditorUndo.length === 0} onClick={undoTileEditor}>↶</button>
+                  <button className="secondary compact tile-editor-icon-button" type="button" aria-label="Revert selected tile" title="Revert selected tile" disabled={tileEditorOriginals[tileEditorSelected] === null} onClick={revertSelectedTile}>↺</button>
+                </div>
+                <div className="tile-editor-structure-actions">
+                  <button className="secondary compact" type="button" aria-label="Create blank tile" title="Create blank tile" disabled={charsetState.result.characterCount >= 256} onClick={createEditorTile}>＋ Tile</button>
+                  <button className="secondary compact destructive-profile" type="button" aria-label="Delete tile" title="Delete tile" disabled={charsetState.result.characterCount <= 1} onClick={deleteEditorTile}>⌫ Tile</button>
+                </div>
+              </section>
+            ) : null}
             {charsetSource === "existing" && existingCharset !== null ? (
               <div className="tilemap-charset-actions">
                 <button
@@ -6084,22 +6887,61 @@ export function App() {
           </aside>
           )}
 
-          <div className={`comparison comparison-${comparisonMode}`} aria-label="Source and converted image comparison">
+          <div className="comparison" aria-label="Configurable preview panes">
             <section className={`preview-panel source-panel ${workspaceMode === "tilemap" ? "tilemap-preview-panel" : ""}`} aria-labelledby="source-preview-title">
               <div className="preview-panel-heading">
                 <h3 id="source-preview-title">
-                  {workspaceMode === "tilemap"
-                    ? "Palette source"
-                    : "Conversion input"}
+                  {sourcePreviewContent === "image" || sourcePreviewContent === "source-image"
+                    ? workspaceMode === "tilemap" ? "Palette source" : "Conversion input"
+                      : sourcePreviewContent === "result-image"
+                        ? resultLabel
+                    : sourcePreviewContent === "pre-attribute"
+                      ? "Pre-attribute dither"
+                    : sourcePreviewContent === "screen-1"
+                      ? "Screen 1"
+                    : sourcePreviewContent === "screen-2"
+                      ? "Screen 2"
+                    : sourcePreviewContent === "merged-low"
+                      ? "Merged · low resolution"
+                    : sourcePreviewContent === "merged-high"
+                      ? "Merged · high resolution"
+                    : sourcePreviewContent === "palette-usage"
+                      ? "Palette usage"
+                      : sourcePreviewContent === "tile-usage"
+                        ? "Used tiles"
+                        : sourcePreviewContent === "tile-editor"
+                          ? "Tile editor"
+                        : sourcePreviewContent === "bitmap-editor"
+                          ? "Bitmap editor"
+                        : sourcePreviewContent === "difference"
+                          ? "Difference heatmap"
+                        : "Inspector"}
                 </h3>
-                {workspaceMode === "palette" ? (
-                <div className="preview-tabs" role="tablist" aria-label="Input conversion stage">
-                  <button type="button" role="tab" aria-selected={inputPreviewStage === "source"} onClick={() => setInputPreviewStage("source")}>Adjusted source</button>
-                  <button type="button" role="tab" aria-selected={inputPreviewStage === "pre-constraint"} disabled={displayedResult === null || framing === "crop"} onClick={() => setInputPreviewStage("pre-constraint")}>Pre-attribute dither</button>
-                </div>
-                ) : null}
+                <label className="preview-content-selector">
+                  <span className="sr-only">Source window content</span>
+                  <select
+                    value={sourcePreviewContent}
+                    onChange={(event) => {
+                      selectPreviewContent("source", event.target.value as PreviewContent);
+                    }}
+                  >
+                    <option value="image">Source image</option>
+                    <option value="result-image">Result image</option>
+                    <option value="pre-attribute" disabled={workspaceMode !== "palette"}>Pre-attribute dither</option>
+                    <option value="screen-1" disabled={!hasMixedScreenTarget}>Screen 1</option>
+                    <option value="screen-2" disabled={!hasMixedScreenTarget}>Screen 2</option>
+                    <option value="merged-low" disabled={!hasMixedScreenTarget}>Merged · low resolution</option>
+                    <option value="merged-high" disabled={!hasMixedScreenTarget}>Merged · high resolution</option>
+                    <option value="palette-usage">Palette usage</option>
+                    <option value="tile-usage" disabled={workspaceMode !== "tilemap"}>Used tiles</option>
+                    <option value="tile-editor" disabled={workspaceMode !== "tilemap"}>Tile editor</option>
+                    <option value="bitmap-editor" disabled={workspaceMode !== "palette"}>Bitmap editor</option>
+                    <option value="difference">Difference heatmap</option>
+                    <option value="inspector">Inspector</option>
+                  </select>
+                </label>
               </div>
-              <div
+              {sourcePreviewContent === "image" || sourcePreviewContent === "source-image" || sourcePreviewContent === "result-image" ? <div
                 className={`preview-frame preview-viewport ${draggingSide === "source" ? "dragging" : ""}`}
                 ref={sourceViewportRef}
                 onScroll={(event) => handlePreviewScroll("source", event)}
@@ -6116,25 +6958,27 @@ export function App() {
                     <div
                       className={`preview-stage ${previewZoom === "fit" ? "fit-stage" : ""}`}
                       style={{
-                        width: previewStageWidth,
-                        aspectRatio: previewAspectRatio,
+                        width: sourceStageWidth,
+                        aspectRatio: sourceStageAspectRatio,
                       }}
                     >
                       <canvas
-                        ref={canvasRef}
+                        ref={sourcePreviewContent === "result-image" ? convertedCanvasRef : canvasRef}
                         className={framing === "crop"
                           ? `crop-editor-canvas crop-pointer-${cropPointerMode}`
                           : undefined}
-                        aria-label={framing === "crop"
+                        aria-label={sourcePreviewContent === "result-image"
+                          ? "Converted hardware preview"
+                          : framing === "crop"
                           ? "Source image crop editor"
                           : "Decoded source image preview"}
-                        tabIndex={framing === "crop" ? 0 : undefined}
-                        onPointerDown={framing === "crop" ? beginCropSelection : undefined}
-                        onPointerMove={framing === "crop" ? moveCropSelection : undefined}
-                        onPointerUp={framing === "crop" ? endCropSelection : undefined}
-                        onPointerCancel={framing === "crop" ? endCropSelection : undefined}
-                        onDoubleClick={framing === "crop" ? clearCropSelection : undefined}
-                        onKeyDown={framing === "crop" ? moveCropWithKeyboard : undefined}
+                        tabIndex={sourcePreviewContent === "result-image" ? 0 : framing === "crop" ? 0 : undefined}
+                        onPointerDown={sourcePreviewContent === "result-image" ? selectResultPixel : framing === "crop" ? beginCropSelection : undefined}
+                        onPointerMove={sourcePreviewContent === "result-image" ? inspectResultPixel : framing === "crop" ? moveCropSelection : undefined}
+                        onPointerUp={sourcePreviewContent === "result-image" ? undefined : framing === "crop" ? endCropSelection : undefined}
+                        onPointerCancel={sourcePreviewContent === "result-image" ? undefined : framing === "crop" ? endCropSelection : undefined}
+                        onDoubleClick={sourcePreviewContent === "result-image" ? undefined : framing === "crop" ? clearCropSelection : undefined}
+                        onKeyDown={sourcePreviewContent === "result-image" ? handleInspectorKey : framing === "crop" ? moveCropWithKeyboard : undefined}
                         onPointerLeave={framing === "crop"
                           ? () => {
                               if (cropDragRef.current === null) {
@@ -6143,7 +6987,7 @@ export function App() {
                             }
                           : undefined}
                       />
-                      {framing === "crop" && cropOverlay !== null ? (
+                      {sourcePreviewContent !== "result-image" && framing === "crop" && cropOverlay !== null ? (
                         <svg
                           className="crop-selection-overlay"
                           viewBox="0 0 256 192"
@@ -6164,9 +7008,63 @@ export function App() {
                           />
                         </svg>
                       ) : null}
+                      {sourcePreviewContent === "result-image" && inspectionCellOverlay !== null ? (
+                        <svg className="inspection-cell-overlay" viewBox={`0 0 ${displayedWidth} ${displayedHeight}`} preserveAspectRatio="none" aria-hidden="true">
+                          <rect {...inspectionCellOverlay} />
+                        </svg>
+                      ) : null}
+                      {sourcePreviewContent === "result-image" && bitmapEditorSelectionOverlay !== null ? (
+                        <svg className="bitmap-editor-selection-overlay" viewBox={`0 0 ${displayedWidth} ${displayedHeight}`} preserveAspectRatio="none" aria-hidden="true">
+                          <rect {...bitmapEditorSelectionOverlay} />
+                        </svg>
+                      ) : null}
                     </div>
                   )}
-              </div>
+              </div> : (
+                <div className="preview-frame preview-content-card" aria-live="polite">
+                  {sourcePreviewContent === "palette-usage" ? (
+                    paletteUsage === null ? <p>Palette usage appears with the converted preview.</p> : (
+                      <>
+                        <p><strong>{paletteUsage.normalCells + paletteUsage.brightCells}</strong> attribute cells analyzed</p>
+                        <label className="preview-filter-control"><span>Show</span><select value={paletteUsageFilter} onChange={(event) => setPaletteUsageFilter(event.target.value as "used" | "all")}><option value="used">Used colors only</option><option value="all">All colors</option></select></label>
+                        <div className="usage-palette">
+                          {visiblePaletteUsageColors.map((color) => {
+                            const normalUsed = paletteUsage.normalColorCodes.includes(color.code);
+                            const brightUsed = paletteUsage.brightColorCodes.includes(color.code);
+                            return <button type="button" className={`usage-color usage-color-button ${normalUsed || brightUsed ? "used" : ""}${selectedPaletteColor === color.code ? " selected" : ""}`} key={color.code} aria-pressed={selectedPaletteColor === color.code} onClick={() => setSelectedPaletteColor(selectedPaletteColor === color.code ? null : color.code)}>
+                              <span className="usage-swatches" aria-hidden="true"><span style={{ backgroundColor: color.normal }} /><span style={{ backgroundColor: color.bright }} /></span>
+                              <span>{color.name}</span><small>N {paletteUsage.normalColorCounts[color.code]} ({paletteUsagePercent(paletteUsage.normalColorCounts[color.code] ?? 0)}) · B {paletteUsage.brightColorCounts[color.code]} ({paletteUsagePercent(paletteUsage.brightColorCounts[color.code] ?? 0)})</small>
+                            </button>;
+                          })}
+                        </div>
+                      </>
+                    )
+                  ) : sourcePreviewContent === "tile-usage" ? (
+                    tileUsage.length === 0 ? <p>Run Tilemap High to inspect tile usage.</p> : <>
+                      <label className="preview-filter-control"><span>Show</span><select value={tileUsageFilter} onChange={(event) => setTileUsageFilter(event.target.value as "used" | "all")}><option value="used">Used tiles only</option><option value="all">All tiles</option></select></label>
+                      <div className="preview-usage-list">
+                        {visibleTileUsage.slice(0, 64).map(({ characterIndex, count }) => <button type="button" className={`preview-usage-row${tileEditorSelected === characterIndex ? " selected" : ""}`} key={characterIndex} aria-pressed={tileEditorSelected === characterIndex} onClick={() => selectUsedTile(characterIndex)}><span>Tile {characterIndex}</span><strong>{count} cells</strong></button>)}
+                      </div>
+                    </>
+                  ) : sourcePreviewContent === "tile-editor" ? (
+                    tileEditorPreview
+                  ) : sourcePreviewContent === "bitmap-editor" ? (
+                    bitmapEditorPreview
+                  ) : sourcePreviewContent === "pre-attribute" || sourcePreviewContent === "screen-1" || sourcePreviewContent === "screen-2" || sourcePreviewContent === "merged-low" || sourcePreviewContent === "merged-high" ? (
+                    windowImageFor(sourcePreviewContent)
+                  ) : sourcePreviewContent === "difference" ? (
+                    differencePreviewDataUrl === null ? <p>Convert an image to inspect the difference heatmap.</p> : <img className="preview-difference-image" src={differencePreviewDataUrl} alt="Difference heatmap between adjusted source and output" />
+                  ) : inspection === null ? <p>Point at the converted preview, or focus it and use arrow keys, to inspect a cell.</p> : (
+                    <dl className="attribute-readout">
+                      <div><dt>Pixel</dt><dd>{inspection.pixelX}, {inspection.pixelY}</dd></div>
+                      <div><dt>Cell</dt><dd>{inspection.cellX}, {inspection.cellY}</dd></div>
+                      <div><dt>Attribute</dt><dd>{inspection.attributeHex} · offset {inspection.attributeOffset}</dd></div>
+                      <div><dt>INK / PAPER</dt><dd>{inspection.ink} / {inspection.paper}</dd></div>
+                      <div><dt>BRIGHT</dt><dd>{inspection.bright ? "On" : "Off"}</dd></div>
+                    </dl>
+                  )}
+                </div>
+              )}
               {isPmd && targetModeId === "pmd85-2-tv" ? (
                 <p className="pmd-tv-note">
                   Blink animation is unsupported. Bit 7 is accepted and displayed as static intensity: 10 Bright, 11 Dim.
@@ -6175,24 +7073,32 @@ export function App() {
             </section>
             <section className={`preview-panel result-panel ${workspaceMode === "tilemap" ? "tilemap-preview-panel" : ""}`} aria-labelledby="result-preview-title">
               <div className="preview-panel-heading">
-                <h3 id="result-preview-title">{resultLabel}</h3>
-                {workspaceMode === "palette" ? (
-                <div className="preview-tabs" role="tablist" aria-label="Output screen">
-                  <button type="button" role="tab" aria-selected={outputPreviewStage === "screen-1"} onClick={() => setOutputPreviewStage("screen-1")}> 
-                    {targetModeId === "mode8-mode4-mixed-512x256"
-                      ? "Screen 1 · Low"
-                      : targetModeId.includes("vertical-spatial") ? "Physical" : "Screen 1"}
-                  </button>
-                  <button type="button" role="tab" aria-selected={outputPreviewStage === "screen-2"} disabled={(displayedResult?.frames.length ?? 0) < 2 && !targetModeId.includes("vertical-spatial")} title={(displayedResult?.frames.length ?? 0) < 2 && !targetModeId.includes("vertical-spatial") ? "This mode produces one hardware screen." : undefined} onClick={() => setOutputPreviewStage("screen-2")}> 
-                    {targetModeId === "mode8-mode4-mixed-512x256"
-                      ? "Screen 2 · High"
-                      : targetModeId.includes("vertical-spatial") ? "Split" : "Screen 2"}
-                  </button>
-                  <button type="button" role="tab" aria-selected={outputPreviewStage === "merged"} disabled={(displayedResult?.frames.length ?? 0) < 2 && !targetModeId.includes("vertical-spatial")} title={(displayedResult?.frames.length ?? 0) < 2 && !targetModeId.includes("vertical-spatial") ? "This mode produces one hardware screen." : undefined} onClick={() => setOutputPreviewStage("merged")}>{targetModeId.includes("vertical-spatial") ? "Analytic" : "Merged"}</button>
-                </div>
-                ) : null}
+                <h3 id="result-preview-title">{resultPreviewContent === "image" || resultPreviewContent === "result-image" ? resultLabel : resultPreviewContent === "source-image" ? "Conversion input" : resultPreviewContent === "pre-attribute" ? "Pre-attribute dither" : resultPreviewContent === "screen-1" ? "Screen 1" : resultPreviewContent === "screen-2" ? "Screen 2" : resultPreviewContent === "merged-low" ? "Merged · low resolution" : resultPreviewContent === "merged-high" ? "Merged · high resolution" : resultPreviewContent === "palette-usage" ? "Palette usage" : resultPreviewContent === "tile-usage" ? "Used tiles" : resultPreviewContent === "tile-editor" ? "Tile editor" : resultPreviewContent === "bitmap-editor" ? "Bitmap editor" : resultPreviewContent === "difference" ? "Difference heatmap" : "Inspector"}</h3>
+                <label className="preview-content-selector">
+                  <span className="sr-only">Result window content</span>
+                  <select
+                    value={resultPreviewContent}
+                    onChange={(event) => {
+                      selectPreviewContent("result", event.target.value as PreviewContent);
+                    }}
+                  >
+                    <option value="image">Result image</option>
+                    <option value="source-image">Source image</option>
+                    <option value="pre-attribute" disabled={workspaceMode !== "palette"}>Pre-attribute dither</option>
+                    <option value="screen-1" disabled={!hasMixedScreenTarget}>Screen 1</option>
+                    <option value="screen-2" disabled={!hasMixedScreenTarget}>Screen 2</option>
+                    <option value="merged-low" disabled={!hasMixedScreenTarget}>Merged · low resolution</option>
+                    <option value="merged-high" disabled={!hasMixedScreenTarget}>Merged · high resolution</option>
+                    <option value="palette-usage">Palette usage</option>
+                    <option value="tile-usage" disabled={workspaceMode !== "tilemap"}>Used tiles</option>
+                    <option value="tile-editor" disabled={workspaceMode !== "tilemap"}>Tile editor</option>
+                    <option value="bitmap-editor" disabled={workspaceMode !== "palette"}>Bitmap editor</option>
+                    <option value="difference">Difference heatmap</option>
+                    <option value="inspector">Inspector</option>
+                  </select>
+                </label>
               </div>
-              <div
+              {resultPreviewContent === "image" || resultPreviewContent === "result-image" || resultPreviewContent === "source-image" ? <div
                 className={`preview-frame preview-viewport zx-preview ${draggingSide === "result" ? "dragging" : ""}`}
                 ref={resultViewportRef}
                 onScroll={(event) => handlePreviewScroll("result", event)}
@@ -6204,8 +7110,9 @@ export function App() {
                 onFocusCapture={() => markPanSource("result")}
                 style={{ backgroundColor: borderHex, borderColor: borderHex }}
               >
-                {displayedResult !== null &&
-                  (workspaceMode === "palette" || charsetState.kind === "ready")
+                {((resultPreviewContent === "source-image" && image !== null) ||
+                  (displayedResult !== null &&
+                    (workspaceMode === "palette" || charsetState.kind === "ready")))
                   ? (
                     <div
                       className={[
@@ -6215,18 +7122,18 @@ export function App() {
                         showAttributeGrid ? "show-attribute-grid" : "",
                       ].filter(Boolean).join(" ")}
                       style={{
-                        width: previewStageWidth,
-                        aspectRatio: previewAspectRatio,
+                        width: resultStageWidth,
+                        aspectRatio: resultStageAspectRatio,
                       }}
                     >
                       <canvas
-                        ref={convertedCanvasRef}
-                        aria-label="Converted hardware preview"
+                        ref={resultPreviewContent === "source-image" ? canvasRef : convertedCanvasRef}
+                        aria-label={resultPreviewContent === "source-image" ? "Decoded source image preview" : "Converted hardware preview"}
                         aria-describedby="inspection-help"
-                        tabIndex={0}
-                        onPointerMove={inspectResultPixel}
-                        onPointerDown={inspectResultPixel}
-                        onKeyDown={handleInspectorKey}
+                        tabIndex={resultPreviewContent === "source-image" ? undefined : 0}
+                        onPointerMove={resultPreviewContent === "source-image" ? undefined : inspectResultPixel}
+                        onPointerDown={resultPreviewContent === "source-image" ? undefined : selectResultPixel}
+                        onKeyDown={resultPreviewContent === "source-image" ? undefined : handleInspectorKey}
                       />
                       <svg
                         className="pixel-grid-overlay"
@@ -6244,6 +7151,16 @@ export function App() {
                       >
                         <path d={gridPathForDimensions(displayedWidth, displayedHeight, isPmd ? 6 : 8, isPmd ? (targetModeId === "pmd85-colorace" ? 2 : 1) : displayedAttributeHeight)} vectorEffect="non-scaling-stroke" />
                       </svg> : null}
+                      {resultPreviewContent !== "source-image" && inspectionCellOverlay !== null ? (
+                        <svg className="inspection-cell-overlay" viewBox={`0 0 ${displayedWidth} ${displayedHeight}`} preserveAspectRatio="none" aria-hidden="true">
+                          <rect {...inspectionCellOverlay} />
+                        </svg>
+                      ) : null}
+                      {resultPreviewContent !== "source-image" && bitmapEditorSelectionOverlay !== null ? (
+                        <svg className="bitmap-editor-selection-overlay" viewBox={`0 0 ${displayedWidth} ${displayedHeight}`} preserveAspectRatio="none" aria-hidden="true">
+                          <rect {...bitmapEditorSelectionOverlay} />
+                        </svg>
+                      ) : null}
                       {workspaceMode === "tilemap" && tilemapStale ? (
                         <span className="stale-preview-badge">
                           Stale · press Convert High
@@ -6258,7 +7175,41 @@ export function App() {
                           : "Run Tilemap High to generate the reconstruction."
                         : "A Draft preview will appear automatically."}
                     </p>}
-              </div>
+              </div> : (
+                <div className="preview-frame preview-content-card" aria-live="polite">
+                  {resultPreviewContent === "palette-usage" ? (
+                    paletteUsage === null ? <p>Palette usage appears with the converted preview.</p> : (
+                      <>
+                        <p><strong>{paletteUsage.normalCells + paletteUsage.brightCells}</strong> attribute cells analyzed · <strong>{paletteUsage.normalColorCodes.length + paletteUsage.brightColorCodes.length}</strong> colors used</p>
+                        <label className="preview-filter-control"><span>Show</span><select value={paletteUsageFilter} onChange={(event) => setPaletteUsageFilter(event.target.value as "used" | "all")}><option value="used">Used colors only</option><option value="all">All colors</option></select></label>
+                        <div className="usage-palette">
+                          {visiblePaletteUsageColors.map((color) => {
+                            const normalUsed = paletteUsage.normalColorCodes.includes(color.code);
+                            const brightUsed = paletteUsage.brightColorCodes.includes(color.code);
+                            return <button type="button" className={`usage-color usage-color-button ${normalUsed || brightUsed ? "used" : ""}${selectedPaletteColor === color.code ? " selected" : ""}`} key={color.code} aria-pressed={selectedPaletteColor === color.code} onClick={() => setSelectedPaletteColor(selectedPaletteColor === color.code ? null : color.code)}>
+                              <span className="usage-swatches" aria-hidden="true"><span style={{ backgroundColor: color.normal }} /><span style={{ backgroundColor: color.bright }} /></span>
+                              <span>{color.name}</span><small>N {paletteUsage.normalColorCounts[color.code]} ({paletteUsagePercent(paletteUsage.normalColorCounts[color.code] ?? 0)}) · B {paletteUsage.brightColorCounts[color.code]} ({paletteUsagePercent(paletteUsage.brightColorCounts[color.code] ?? 0)})</small>
+                            </button>;
+                          })}
+                        </div>
+                      </>
+                    )
+                  ) : resultPreviewContent === "tile-usage" ? (
+                    tileUsage.length === 0 ? <p>Run Tilemap High to inspect tile usage.</p> : <>
+                      <label className="preview-filter-control"><span>Show</span><select value={tileUsageFilter} onChange={(event) => setTileUsageFilter(event.target.value as "used" | "all")}><option value="used">Used tiles only</option><option value="all">All tiles</option></select></label>
+                      <div className="preview-usage-list">{visibleTileUsage.slice(0, 64).map(({ characterIndex, count }) => <button type="button" className={`preview-usage-row${tileEditorSelected === characterIndex ? " selected" : ""}`} key={characterIndex} aria-pressed={tileEditorSelected === characterIndex} onClick={() => selectUsedTile(characterIndex)}><span>Tile {characterIndex}</span><strong>{count} cells</strong></button>)}</div>
+                    </>
+                  ) : resultPreviewContent === "tile-editor" ? (
+                    tileEditorPreview
+                  ) : resultPreviewContent === "bitmap-editor" ? (
+                    bitmapEditorPreview
+                  ) : resultPreviewContent === "pre-attribute" || resultPreviewContent === "screen-1" || resultPreviewContent === "screen-2" || resultPreviewContent === "merged-low" || resultPreviewContent === "merged-high" ? (
+                    windowImageFor(resultPreviewContent)
+                  ) : resultPreviewContent === "difference" ? (
+                    differencePreviewDataUrl === null ? <p>Convert an image to inspect the difference heatmap.</p> : <img className="preview-difference-image" src={differencePreviewDataUrl} alt="Difference heatmap between adjusted source and output" />
+                  ) : inspection === null ? <p>Point at the converted preview, or focus it and use arrow keys, to inspect a cell.</p> : <dl className="attribute-readout"><div><dt>Pixel</dt><dd>{inspection.pixelX}, {inspection.pixelY}</dd></div><div><dt>Cell</dt><dd>{inspection.cellX}, {inspection.cellY}</dd></div><div><dt>Attribute</dt><dd>{inspection.attributeHex} · offset {inspection.attributeOffset}</dd></div><div><dt>INK / PAPER</dt><dd>{inspection.ink} / {inspection.paper}</dd></div><div><dt>BRIGHT</dt><dd>{inspection.bright ? "On" : "Off"}</dd></div></dl>}
+                </div>
+              )}
               {workspaceMode === "palette" ? (
               <div
                 className="output-palette-bar"
@@ -6352,34 +7303,7 @@ export function App() {
                 )
               )}
               </section>
-              {workspaceMode === "palette" ? (
-              <section aria-labelledby="palette-usage-title">
-              <h3 id="palette-usage-title">Palette usage</h3>
-              {paletteUsage === null ? (
-                <p>Palette usage appears with the converted preview.</p>
-              ) : (
-                <>
-                  <div className="usage-palette">
-                    {ZX_BASE_COLORS.map((color) => {
-                      const normalUsed = paletteUsage.normalColorCodes.includes(color.code);
-                      const brightUsed = paletteUsage.brightColorCodes.includes(color.code);
-                      return (
-                        <div className={`usage-color ${normalUsed || brightUsed ? "used" : ""}`} key={color.code}>
-                          <span className="usage-swatches" aria-hidden="true">
-                            <span style={{ backgroundColor: color.normal }} />
-                            <span style={{ backgroundColor: color.bright }} />
-                          </span>
-                          <span>{color.name}</span>
-                          <small>{normalUsed ? "N" : "–"} / {brightUsed ? "B" : "–"}</small>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <p>{paletteUsage.normalCells.toLocaleString()} normal attributes · {paletteUsage.brightCells.toLocaleString()} bright attributes</p>
-                </>
-              )}
-              </section>
-              ) : charsetState.kind === "ready" ? (
+              {workspaceMode === "tilemap" && charsetState.kind === "ready" ? (
               <section aria-labelledby="tilemap-diagnostics-title">
                 <h3 id="tilemap-diagnostics-title">Tilemap diagnostics</h3>
                 <p

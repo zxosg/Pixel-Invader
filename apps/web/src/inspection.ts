@@ -60,6 +60,10 @@ export interface PaletteUsage {
   readonly baseColorCodes: readonly number[];
   readonly normalColorCodes: readonly number[];
   readonly brightColorCodes: readonly number[];
+  /** Number of attribute color slots using each base color in the normal plane. */
+  readonly normalColorCounts: readonly number[];
+  /** Number of attribute color slots using each base color in the bright plane. */
+  readonly brightColorCounts: readonly number[];
   readonly normalCells: number;
   readonly brightCells: number;
 }
@@ -113,14 +117,21 @@ export function summarizePaletteUsage(
   const colors = new Set<number>();
   const normalColors = new Set<number>();
   const brightColors = new Set<number>();
+  const normalColorCounts = Array.from({ length: 8 }, () => 0);
+  const brightColorCounts = Array.from({ length: 8 }, () => 0);
   let normalCells = 0;
   let brightCells = 0;
   for (const attribute of scr.subarray(ZX_BITMAP_BYTES)) {
-    colors.add(attribute & 7);
-    colors.add((attribute >> 3) & 7);
+    const ink = attribute & 7;
+    const paper = (attribute >> 3) & 7;
+    colors.add(ink);
+    colors.add(paper);
     const planeColors = (attribute & 0x40) === 0 ? normalColors : brightColors;
-    planeColors.add(attribute & 7);
-    planeColors.add((attribute >> 3) & 7);
+    const planeCounts = (attribute & 0x40) === 0 ? normalColorCounts : brightColorCounts;
+    planeColors.add(ink);
+    planeColors.add(paper);
+    planeCounts[ink] = (planeCounts[ink] ?? 0) + 1;
+    planeCounts[paper] = (planeCounts[paper] ?? 0) + 1;
     if ((attribute & 0x40) === 0) normalCells += 1;
     else brightCells += 1;
   }
@@ -128,6 +139,8 @@ export function summarizePaletteUsage(
     baseColorCodes: [...colors].sort((left, right) => left - right),
     normalColorCodes: [...normalColors].sort((left, right) => left - right),
     brightColorCodes: [...brightColors].sort((left, right) => left - right),
+    normalColorCounts,
+    brightColorCounts,
     normalCells,
     brightCells,
   };
@@ -152,6 +165,8 @@ export function buildInspectionReport(
     used_base_color_codes: usage.baseColorCodes,
     used_normal_color_codes: usage.normalColorCodes,
     used_bright_color_codes: usage.brightColorCodes,
+    normal_color_counts: usage.normalColorCounts,
+    bright_color_counts: usage.brightColorCounts,
     normal_attribute_count: usage.normalCells,
     bright_attribute_count: usage.brightCells,
     attributes_hex: Array.from(scr.subarray(ZX_BITMAP_BYTES), (value) =>

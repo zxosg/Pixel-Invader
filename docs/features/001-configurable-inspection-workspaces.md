@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+In progress — first iteration implemented
 
 ## Summary
 
@@ -217,3 +217,15 @@ Only the first and explicitly defined fourth category may affect exported output
 - `apps/web/src/styles.css` contains the current desktop workstation and responsive layouts.
 - `apps/web/src/inspection.ts` contains inspection and palette-usage logic.
 - `Retro_Converter_SRS_v1.0-draft.3.md` defines the normative preview, inspection, determinism, and export constraints.
+
+## Implementation notes
+
+- The two primary panes now have independent content selectors with target-aware
+  source, output, palette, tile, difference, and inspection views.
+- The Palette tuning preset uses source + palette usage rather than duplicating
+  palette usage in both panes. The inspector drawer remains focused on cell and
+  tile diagnostics.
+- Palette usage reports normal/BRIGHT INK/PAPER counts and percentages, with a
+  used-colors-only filter shared across the palette views.
+- The next implementation phase is the palette-mode bitmap/cell editor with a
+  post-conversion edit layer and scoped undo/redo.

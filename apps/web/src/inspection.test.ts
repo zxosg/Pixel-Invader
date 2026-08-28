@@ -61,6 +61,8 @@ describe("screen inspection", () => {
       baseColorCodes: [0, 1, 2, 4],
       normalColorCodes: [0, 1, 2],
       brightColorCodes: [4],
+      normalColorCounts: [1532, 1, 1, 0, 0, 0, 0, 0],
+      brightColorCounts: [0, 0, 0, 0, 2, 0, 0, 0],
       normalCells: 767,
       brightCells: 1,
     });
