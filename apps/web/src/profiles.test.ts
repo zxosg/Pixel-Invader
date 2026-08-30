@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_CONVERSION_SETTINGS } from "@retro-converter/conversion-core";
 import {
   BUILT_IN_PROFILE_ID,
+  BUILT_IN_PROFILE,
   PMD85_BUILT_IN_PROFILES,
   QL_BUILT_IN_PROFILE,
   parseImportedProfile,
@@ -89,6 +90,16 @@ describe("declarative profiles", () => {
     const colorAce = candidate.palette.modes["pmd85-colorace"]!;
     expect(colorAce.base_calibration_id).toBe("pure-rgb");
     expect(colorAce.calibrations?.map((calibration) => calibration.id)).toEqual(["emulator-soft"]);
+  });
+
+  it("exposes the ZX detail-preserving spatial preset as experimental", () => {
+    const preset = BUILT_IN_PROFILE.presets.find(
+      ({ id }) => id === "vertical-spatial-detail-v1",
+    );
+    expect(preset?.settings.attributeOptimizerId)
+      .toBe("zx-vertical-spatial-detail-v1");
+    expect(preset?.settings.verticalSpatialMix?.algorithmId)
+      .toBe("vertical-spatial-detail-v1");
   });
 
   it("accepts schema-5 profiles without the new PMD settings through the compatibility adapter", async () => {

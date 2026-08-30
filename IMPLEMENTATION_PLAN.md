@@ -10,8 +10,11 @@
   schema-4 metadata. The spatial targets now support deterministic None,
   ordered-matrix, and cell-aware error-diffusion methods at the logical
   row-pair level, with the Analytic tab reporting the actually used mixed
-  palette. Measured calibration, CRT simulation, and ZX player exports remain
-  intentionally deferred.
+  palette. A separate experimental `zx-vertical-spatial-detail-v1` optimizer
+  performs a deterministic physical-row orientation refinement using source
+  subrow detail and left-neighbor phase continuity while preserving the exact
+  analytic mixture. Measured calibration, CRT simulation, corpus approval, and
+  ZX player exports remain intentionally deferred.
 
 - Phases 1–5: implemented baseline with deterministic import, geometry, adjustments,
   ZX optimization, dithering, serializer validation, and automated tests.

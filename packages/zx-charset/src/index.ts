@@ -4,3 +4,4 @@ export * from "./distance.js";
 export * from "./charset.js";
 export * from "./encoding.js";
 export * from "./convert.js";
+export * from "./editing.js";

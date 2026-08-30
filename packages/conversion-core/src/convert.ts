@@ -2197,6 +2197,7 @@ export function convertToZx(
     settings.modeId !== "zx48-vertical-spatial-256x192" &&
     (
       settings.attributeOptimizerId === "zx-vertical-spatial-uniform-v1" ||
+      settings.attributeOptimizerId === "zx-vertical-spatial-detail-v1" ||
       settings.ditherEngineId.startsWith("vertical-spatial-") ||
       settings.verticalSpatialMix !== undefined
     )
@@ -2209,7 +2210,15 @@ export function convertToZx(
         ? "vertical-spatial-ordered-v1"
         : "vertical-spatial-error-diffusion-v1";
     if (
-      settings.attributeOptimizerId !== "zx-vertical-spatial-uniform-v1" ||
+      ![
+        "zx-vertical-spatial-uniform-v1",
+        "zx-vertical-spatial-detail-v1",
+      ].includes(settings.attributeOptimizerId) ||
+      settings.verticalSpatialMix?.algorithmId !== (
+        settings.attributeOptimizerId === "zx-vertical-spatial-detail-v1"
+          ? "vertical-spatial-detail-v1"
+          : "vertical-spatial-uniform-v1"
+      ) ||
       settings.ditherEngineId !== spatialDitherEngine ||
       settings.attributeHeight !== 1
     ) throw new RangeError("ZX vertical spatial mode requires a matching Version 1 8x1 spatial dither engine.");
@@ -2224,6 +2233,9 @@ export function convertToZx(
         orderedMatrix: settings.orderedMatrix,
         errorRandomization: settings.errorDiffusionRandomization,
       },
+      settings.attributeOptimizerId === "zx-vertical-spatial-detail-v1"
+        ? "detail-preserving"
+        : "uniform-blend",
     );
     const previewRgba = renderAttributeFrameRgba(
       optimized.pixelMasks,

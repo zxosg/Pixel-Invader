@@ -25,13 +25,12 @@ function normalizedRows(rows: Uint8Array): Uint8Array {
 function shiftedRows(rows: Uint8Array, dx: -1 | 0 | 1, dy: -1 | 0 | 1): Uint8Array {
   const output = new Uint8Array(8);
   for (let y = 0; y < 8; y += 1) {
-    const sourceY = y - dy;
-    if (sourceY < 0 || sourceY >= 8) continue;
+    const sourceY = (y - dy + 8) % 8;
     const source = rows[sourceY] ?? 0;
     output[y] = dx === 1
-      ? (source >> 1) & 0x7f
+      ? ((source >> 1) | ((source & 1) << 7)) & 0xff
       : dx === -1
-        ? (source << 1) & 0xfe
+        ? ((source << 1) | ((source & 0x80) >> 7)) & 0xff
         : source;
   }
   return output;

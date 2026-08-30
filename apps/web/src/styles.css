@@ -506,16 +506,26 @@ h1 {
 
 .tilemap-charset-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.25rem;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.15rem;
   padding-top: 0.3rem;
 }
 
 .tilemap-charset-actions button {
   min-width: 0;
-  padding-inline: 0.25rem;
-  font-size: 0.57rem;
+  padding-inline: 0.08rem;
+  font-size: 0.5rem;
   white-space: nowrap;
+}
+
+.tilemap-charset-freeze {
+  display: grid;
+  gap: 0.2rem;
+  padding-top: 0.3rem;
+}
+
+.tilemap-charset-freeze .control-help {
+  font-size: 0.55rem;
 }
 
 .glyph-item {
@@ -731,6 +741,61 @@ h1 {
   width: 16px;
   height: 16px;
   image-rendering: pixelated;
+}
+
+.unified-editor {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+  overflow: auto;
+}
+
+.unified-editor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.unified-tile-layout {
+  display: grid;
+  grid-template-columns: auto minmax(10rem, 1fr);
+  align-items: start;
+  gap: 0.65rem;
+}
+
+.unified-tile-side {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 0.45rem;
+}
+
+.unified-tile-side > p {
+  margin: 0;
+}
+
+.unified-tile-heading {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.unified-tile-navigation {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.2rem;
+  margin-top: 0.15rem;
+}
+
+.unified-tile-bitmap {
+  display: grid;
+  width: 192px;
+  height: 192px;
+  grid-template-columns: repeat(8, 24px);
+  grid-template-rows: repeat(8, 24px);
+  border: 1px solid #52627d;
+  background: #000;
+  cursor: crosshair;
+  touch-action: none;
 }
 
 .stale-preview-badge {
@@ -1468,6 +1533,11 @@ input[type="range"] {
     background: rgb(17 24 36 / 70%);
   }
 
+  .control-group.settings-focused {
+    border-color: #78b8ff;
+    box-shadow: 0 0 0 2px rgb(120 184 255 / 22%), 0 0 1rem rgb(120 184 255 / 12%);
+  }
+
   .geometry-group {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1887,16 +1957,17 @@ input[type="range"] {
   }
 
   .tilemap-preview-panel {
-    grid-template-rows: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
   }
 
   .tilemap-preview-panel > .preview-panel-heading {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
+    position: static;
+    display: flex;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
   }
 
   .inspection-workspace > .control-help {

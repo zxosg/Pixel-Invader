@@ -451,7 +451,10 @@ export function convertToPmd85(
       : settings.dithering === "ordered"
         ? "vertical-spatial-ordered-v1"
         : "vertical-spatial-error-diffusion-v1";
-    if (settings.ditherEngineId !== spatialDitherEngine) {
+    if (
+      settings.verticalSpatialMix.algorithmId !== "vertical-spatial-uniform-v1" ||
+      settings.ditherEngineId !== spatialDitherEngine
+    ) {
       throw new RangeError("PMD 85 vertical spatial mode requires a matching Version 1 spatial dither engine.");
     }
     const optimized = optimizeVerticalSpatialPmd(

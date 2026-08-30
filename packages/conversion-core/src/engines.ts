@@ -94,6 +94,20 @@ export const ATTRIBUTE_OPTIMIZERS: readonly AttributeOptimizerDescriptor[] = [
     lifecycle: "promoted",
   },
   {
+    id: "zx-vertical-spatial-detail-v1",
+    name: "ZX vertical spatial detail v1 · experimental",
+    version: 1,
+    platforms: ["zx-spectrum"],
+    compatibleDitherEngineIds: [
+      "vertical-spatial-none-v1",
+      "vertical-spatial-ordered-v1",
+      "vertical-spatial-error-diffusion-v1",
+    ],
+    defaultDitherEngineId: "vertical-spatial-none-v1",
+    targetModeIds: ["zx48-vertical-spatial-256x192"],
+    lifecycle: "experimental",
+  },
+  {
     id: "pmd85-cell-v1",
     name: "PMD 85 fixed PAPER 0 cell v1",
     version: 1,
@@ -209,6 +223,7 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
     platforms: ["zx-spectrum", "sinclair-ql", "pmd-85"],
     compatibleAttributeOptimizerIds: [
       "zx-vertical-spatial-uniform-v1",
+      "zx-vertical-spatial-detail-v1",
       "ql-vertical-spatial-uniform-v1",
       "pmd85-vertical-spatial-uniform-v1",
     ],
@@ -230,6 +245,7 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
     platforms: ["zx-spectrum", "sinclair-ql", "pmd-85"],
     compatibleAttributeOptimizerIds: [
       "zx-vertical-spatial-uniform-v1",
+      "zx-vertical-spatial-detail-v1",
       "ql-vertical-spatial-uniform-v1",
       "pmd85-vertical-spatial-uniform-v1",
     ],
@@ -255,6 +271,7 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
     platforms: ["zx-spectrum", "sinclair-ql", "pmd-85"],
     compatibleAttributeOptimizerIds: [
       "zx-vertical-spatial-uniform-v1",
+      "zx-vertical-spatial-detail-v1",
       "ql-vertical-spatial-uniform-v1",
       "pmd85-vertical-spatial-uniform-v1",
     ],

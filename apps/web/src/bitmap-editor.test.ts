@@ -15,6 +15,8 @@ describe("bitmap cell editor model", () => {
   it("inverts and shifts within the cell boundary", () => {
     expect([...applyBitmapCellEdit(cell, { kind: "invert" }).rows]).toEqual([0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]);
     expect([...applyBitmapCellEdit(cell, { kind: "shift", dx: 1, dy: 1 }).rows]).toEqual([0, 0x40, 0, 0, 0, 0, 0, 0]);
+    expect([...applyBitmapCellEdit({ rows: Uint8Array.from([0x01, 0, 0, 0, 0, 0, 0, 0]), attribute: 0 }, { kind: "shift", dx: 1, dy: 1 }).rows]).toEqual([0, 0x80, 0, 0, 0, 0, 0, 0]);
+    expect([...applyBitmapCellEdit({ rows: Uint8Array.from([0x80, 0, 0, 0, 0, 0, 0, 0]), attribute: 0 }, { kind: "shift", dx: -1, dy: -1 }).rows]).toEqual([0, 0, 0, 0, 0, 0, 0, 0x01]);
   });
 
   it("edits the attribute without changing bitmap rows", () => {

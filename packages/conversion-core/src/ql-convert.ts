@@ -1190,6 +1190,7 @@ export function convertToQl(
         : "vertical-spatial-error-diffusion-v1";
     if (
       settings.attributeOptimizerId !== "ql-vertical-spatial-uniform-v1" ||
+      settings.verticalSpatialMix.algorithmId !== "vertical-spatial-uniform-v1" ||
       settings.ditherEngineId !== spatialDitherEngine
     ) throw new RangeError("Sinclair QL vertical spatial mode requires a matching Version 1 spatial dither engine.");
     const hardwareMode = hardwareModes[0]!;

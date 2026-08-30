@@ -155,6 +155,28 @@ describe("completed project containers", () => {
     expect(validated.frames).toEqual([screen]);
   });
 
+  it("round-trips the experimental ZX detail-preserving spatial optimizer", async () => {
+    const screen = new Uint8Array(12_288);
+    const settings = BUILT_IN_PROFILE.presets.find(
+      (preset) => preset.id === "vertical-spatial-detail-v1",
+    )!.settings;
+    const project = await createCompletedProject({
+      sourceBytes: encodeRgbaPng(Uint8Array.from([0, 0, 0, 255]), 1, 1),
+      sourceFormat: "png",
+      settings,
+      scr: screen,
+      frames: [screen],
+      previewPng: encodeRgbaPng(new Uint8Array(256 * 96 * 4), 256, 96),
+      metadataJson: projectEncoder.encode("{\"schema_version\":\"4.0.0\"}\n"),
+      profile: BUILT_IN_PROFILE,
+    });
+    const validated = await validateCompletedProject(project);
+    expect(validated.settings.attributeOptimizerId)
+      .toBe("zx-vertical-spatial-detail-v1");
+    expect(validated.settings.verticalSpatialMix?.algorithmId)
+      .toBe("vertical-spatial-detail-v1");
+  });
+
   it("adapts schema-10 .scr entries into the generic artifact model", async () => {
     const legacy = await asLegacySchema10(await createCompletedProject(projectInput()));
     const validated = await validateCompletedProject(legacy);

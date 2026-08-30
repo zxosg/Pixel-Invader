@@ -40,4 +40,18 @@ describe("workspace preferences", () => {
     }));
     expect(loadWorkspacePreferences(storage as unknown as Storage)).toEqual(DEFAULT_WORKSPACE_PREFERENCES);
   });
+
+  it("migrates legacy editor pane preferences to the unified editor", () => {
+    const storage = memoryStorage(JSON.stringify({
+      ...DEFAULT_WORKSPACE_PREFERENCES,
+      layout: "custom",
+      sourceContent: "bitmap-editor",
+      resultContent: "tile-editor",
+    }));
+
+    expect(loadWorkspacePreferences(storage as unknown as Storage).sourceContent)
+      .toBe("unified-editor");
+    expect(loadWorkspacePreferences(storage as unknown as Storage).resultContent)
+      .toBe("unified-editor");
+  });
 });

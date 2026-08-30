@@ -22,7 +22,25 @@ import {
   pmd85AttributeCellHeight,
 } from "@retro-converter/pmd-85";
 
-export const APPLICATION_VERSION = "1.0.0-draft.4";
+export const APPLICATION_VERSION = "1.0.0-draft.5";
+
+export function formatApplicationDisplayVersion(
+  version: string,
+  buildId?: string,
+): string {
+  const normalizedBuildId = buildId
+    ?.trim()
+    .replace(/[^0-9A-Za-z._-]/g, "")
+    .slice(0, 12);
+  return normalizedBuildId
+    ? `${version} · build ${normalizedBuildId}`
+    : version;
+}
+
+export const APPLICATION_DISPLAY_VERSION = formatApplicationDisplayVersion(
+  APPLICATION_VERSION,
+  import.meta.env.VITE_BUILD_ID,
+);
 
 export const DEFAULT_PROFILE = {
   id: "org.retroconverter.zx48.default",
@@ -298,6 +316,8 @@ export async function buildConversionMetadata(input: MetadataInput) {
         : {
             color_cost: input.verticalSpatialDiagnostics.colorCost,
             stripe_cost: input.verticalSpatialDiagnostics.stripeCost,
+            detail_cost: input.verticalSpatialDiagnostics.detailCost ?? null,
+            phase_changes: input.verticalSpatialDiagnostics.phaseChanges ?? null,
             total_cost: input.verticalSpatialDiagnostics.totalCost,
           },
     },

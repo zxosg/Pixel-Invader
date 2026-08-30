@@ -196,6 +196,24 @@ export const BUILT_IN_PROFILE: ConversionProfile = {
       },
     },
     {
+      id: "vertical-spatial-detail-v1",
+      name: "Vertical spatial detail · experimental",
+      settings: {
+        ...DEFAULT_CONVERSION_SETTINGS,
+        modeId: "zx48-vertical-spatial-256x192",
+        attributeOptimizerId: "zx-vertical-spatial-detail-v1",
+        ditherEngineId: "vertical-spatial-none-v1",
+        dithering: "none",
+        ditheringAmount: 0,
+        attributeHeight: 1,
+        verticalSpatialMix: {
+          schemaVersion: 1,
+          algorithmId: "vertical-spatial-detail-v1",
+          calibrationId: "srgb-ideal-v1",
+        },
+      },
+    },
+    {
       id: "clean-exact",
       name: "Clean / exact",
       settings: {
@@ -619,7 +637,7 @@ function validateSettings(value: unknown): value is ConversionSettings {
       "pmd85-3-rgb-vertical-spatial",
       "pmd85-3-pal-vertical-spatial",
     ].includes(String(value.modeId)) &&
-    ["pmd85-cell-v1", "pmd85-vertical-spatial-uniform-v1", "ql-vertical-spatial-uniform-v1", "zx-vertical-spatial-uniform-v1", "zx-adaptive-v1", "zx-source-cell-v1", "zx-guide-local-v1", "zx-guide-reference-halo-v1", "zx-guide-reference-halo-v2", "zx-guide-reference-rgb-halo-v3", "zx-block-dbs-global-v1", "zx-structured-global-v1", "zx-structured-global-v2", "zx-structured-global-v3", "zx-structured-global-v4"].includes(String(value.attributeOptimizerId)) &&
+    ["pmd85-cell-v1", "pmd85-vertical-spatial-uniform-v1", "ql-vertical-spatial-uniform-v1", "zx-vertical-spatial-uniform-v1", "zx-vertical-spatial-detail-v1", "zx-adaptive-v1", "zx-source-cell-v1", "zx-guide-local-v1", "zx-guide-reference-halo-v1", "zx-guide-reference-halo-v2", "zx-guide-reference-rgb-halo-v3", "zx-block-dbs-global-v1", "zx-structured-global-v1", "zx-structured-global-v2", "zx-structured-global-v3", "zx-structured-global-v4"].includes(String(value.attributeOptimizerId)) &&
     [
       "none-v1",
       "vertical-spatial-none-v1",
@@ -766,7 +784,11 @@ function validateSettings(value: unknown): value is ConversionSettings {
       ? (
       isObject(value.verticalSpatialMix) &&
       value.verticalSpatialMix.schemaVersion === 1 &&
-      value.verticalSpatialMix.algorithmId === "vertical-spatial-uniform-v1" &&
+      value.verticalSpatialMix.algorithmId === (
+        value.attributeOptimizerId === "zx-vertical-spatial-detail-v1"
+          ? "vertical-spatial-detail-v1"
+          : "vertical-spatial-uniform-v1"
+      ) &&
       value.verticalSpatialMix.calibrationId === "srgb-ideal-v1" &&
       value.ditherEngineId === (
         value.dithering === "none"
@@ -777,7 +799,10 @@ function validateSettings(value: unknown): value is ConversionSettings {
       ) &&
       (
         value.platformId === "zx-spectrum"
-          ? value.attributeOptimizerId === "zx-vertical-spatial-uniform-v1"
+          ? [
+              "zx-vertical-spatial-uniform-v1",
+              "zx-vertical-spatial-detail-v1",
+            ].includes(String(value.attributeOptimizerId))
           : value.platformId === "sinclair-ql"
             ? value.attributeOptimizerId === "ql-vertical-spatial-uniform-v1"
             : value.attributeOptimizerId === "pmd85-vertical-spatial-uniform-v1"

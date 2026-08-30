@@ -3,9 +3,25 @@ import { DEFAULT_CONVERSION_SETTINGS } from "@retro-converter/conversion-core";
 import { createBlankScreen, serializeScr } from "@retro-converter/zx-spectrum";
 import { encodeQlScreen } from "@retro-converter/sinclair-ql";
 import { PMD85_VRAM_BYTES } from "@retro-converter/pmd-85";
-import { buildConversionMetadata, sanitizeArtifactBaseName, sha256Hex } from "./artifacts.js";
+import {
+  APPLICATION_VERSION,
+  buildConversionMetadata,
+  formatApplicationDisplayVersion,
+  sanitizeArtifactBaseName,
+  sha256Hex,
+} from "./artifacts.js";
 
 describe("artifact helpers", () => {
+  it("formats a recognizable release and optional sanitized build identity", () => {
+    expect(APPLICATION_VERSION).toBe("1.0.0-draft.5");
+    expect(formatApplicationDisplayVersion(APPLICATION_VERSION))
+      .toBe("1.0.0-draft.5");
+    expect(formatApplicationDisplayVersion(APPLICATION_VERSION, " 0123456789abcdef "))
+      .toBe("1.0.0-draft.5 · build 0123456789ab");
+    expect(formatApplicationDisplayVersion(APPLICATION_VERSION, "<>"))
+      .toBe("1.0.0-draft.5");
+  });
+
   it("sanitizes deterministic cross-platform base names", () => {
     expect(sanitizeArtifactBaseName("My image?.PNG")).toBe("My-image");
     expect(sanitizeArtifactBaseName("CON.png")).toBe("retro-CON");

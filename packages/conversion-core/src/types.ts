@@ -48,6 +48,7 @@ export type AttributeOptimizerId =
   | "zx-structured-global-v3"
   | "zx-structured-global-v4"
   | "zx-vertical-spatial-uniform-v1"
+  | "zx-vertical-spatial-detail-v1"
   | "ql-vertical-spatial-uniform-v1";
 export type DitherEngineId =
   | "vertical-spatial-none-v1"
@@ -151,7 +152,9 @@ export interface ConversionSettings {
 
 export interface VerticalSpatialMixSettings {
   readonly schemaVersion: 1;
-  readonly algorithmId: "vertical-spatial-uniform-v1";
+  readonly algorithmId:
+    | "vertical-spatial-uniform-v1"
+    | "vertical-spatial-detail-v1";
   readonly calibrationId: "srgb-ideal-v1";
 }
 
@@ -265,13 +268,17 @@ export interface BaseConversionResult {
 }
 
 export interface VerticalSpatialDiagnostics {
-  readonly algorithmId: "vertical-spatial-uniform-v1";
+  readonly algorithmId:
+    | "vertical-spatial-uniform-v1"
+    | "vertical-spatial-detail-v1";
   readonly calibrationId: "srgb-ideal-v1";
   readonly logicalWidth: number;
   readonly logicalHeight: number;
   readonly analyticPreviewRgba: Uint8Array;
   readonly colorCost: number;
   readonly stripeCost: number;
+  readonly detailCost?: number;
+  readonly phaseChanges?: number;
   readonly totalCost: number;
 }
 

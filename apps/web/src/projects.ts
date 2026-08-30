@@ -446,12 +446,19 @@ export async function validateCompletedProject(bytes: Uint8Array): Promise<Valid
         : "vertical-spatial-error-diffusion-v1";
     if (
       settings.verticalSpatialMix?.schemaVersion !== 1 ||
-      settings.verticalSpatialMix.algorithmId !== "vertical-spatial-uniform-v1" ||
+      settings.verticalSpatialMix.algorithmId !== (
+        settings.attributeOptimizerId === "zx-vertical-spatial-detail-v1"
+          ? "vertical-spatial-detail-v1"
+          : "vertical-spatial-uniform-v1"
+      ) ||
       settings.verticalSpatialMix.calibrationId !== "srgb-ideal-v1" ||
       settings.ditherEngineId !== spatialDitherEngine ||
       (
         settings.platformId === "zx-spectrum"
-          ? settings.attributeOptimizerId !== "zx-vertical-spatial-uniform-v1"
+          ? ![
+              "zx-vertical-spatial-uniform-v1",
+              "zx-vertical-spatial-detail-v1",
+            ].includes(settings.attributeOptimizerId)
           : settings.platformId === "sinclair-ql"
             ? settings.attributeOptimizerId !== "ql-vertical-spatial-uniform-v1"
             : settings.attributeOptimizerId !== "pmd85-vertical-spatial-uniform-v1"

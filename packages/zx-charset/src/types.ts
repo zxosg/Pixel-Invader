@@ -55,6 +55,7 @@ export interface CharsetMemoryReport {
 }
 
 export interface CharsetDiagnostics {
+  readonly edited?: boolean;
   readonly uniqueCanonicalTiles: number;
   readonly usedCharacterCount: number;
   readonly exactMatches: number;

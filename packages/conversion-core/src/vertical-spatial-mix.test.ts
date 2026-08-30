@@ -6,7 +6,7 @@ import {
   optimizeVerticalSpatialZx,
   VERTICAL_SPATIAL_SRGB_TO_LINEAR_Q16,
 } from "./vertical-spatial-mix.js";
-import { convertToZx } from "./convert.js";
+import { convertToZx, renderAttributeFrameRgba } from "./convert.js";
 import { convertToQl } from "./ql-convert.js";
 import { convertToPmd85 } from "./pmd85-convert.js";
 import { DEFAULT_CONVERSION_SETTINGS } from "./types.js";
@@ -111,6 +111,38 @@ describe("vertical spatial mixing v1", () => {
     expect(result.pixelMasks).toHaveLength(256 * 192);
     expect(result.attributes).toHaveLength(32 * 192);
     expect([...result.attributes].every((attribute) => (attribute & 0x80) === 0)).toBe(true);
+  }, 20_000);
+
+  it("refines ZX physical row orientation without changing the analytic mixture", () => {
+    const source = new Uint8Array(256 * 192 * 4);
+    for (let y = 0; y < 192; y += 1) {
+      for (let x = 0; x < 256; x += 1) {
+        const offset = (y * 256 + x) * 4;
+        source.set(y % 2 === 0
+          ? [0, 0, 205, 255]
+          : [205, 0, 0, 255], offset);
+      }
+    }
+    const uniform = optimizeVerticalSpatialZx(
+      source, [0, 1, 2, 7], "off", undefined, "uniform-blend",
+    );
+    const detail = optimizeVerticalSpatialZx(
+      source, [0, 1, 2, 7], "off", undefined, "detail-preserving",
+    );
+    expect(detail.pixelMasks).not.toEqual(uniform.pixelMasks);
+    expect(detail.diagnostics.algorithmId).toBe("vertical-spatial-detail-v1");
+    expect(detail.diagnostics.detailCost).toBe(0);
+    const uniformPreview = buildVerticalSpatialAnalyticPreview(
+      renderAttributeFrameRgba(uniform.pixelMasks, uniform.attributes, 1),
+      256,
+      192,
+    );
+    const detailPreview = buildVerticalSpatialAnalyticPreview(
+      renderAttributeFrameRgba(detail.pixelMasks, detail.attributes, 1),
+      256,
+      192,
+    );
+    expect(detailPreview).toEqual(uniformPreview);
   }, 20_000);
 
   it("integrates single-frame spatial targets with all three codecs", () => {

@@ -64,7 +64,6 @@ import {
 } from "./worker/client.js";
 import type {
   CharsetConversionOptions,
-  CharsetAssignment,
   CharsetDistanceMetric,
   CharsetEncoding,
   CharsetSource,
@@ -80,6 +79,14 @@ import {
   reorderCharsetTiles,
   type TileEditOperation,
 } from "@retro-converter/zx-charset";
+import type { TilemapEditorSnapshot } from "./tilemap-editor.js";
+import {
+  allCharsetIndices,
+  effectiveCharsetSelection,
+  invertCharsetSelection as invertSelection,
+  remapCharsetSelection,
+  toggleCharsetSelection,
+} from "./charset-selection.js";
 import {
   ATTRIBUTE_OPTIMIZERS,
   DEFAULT_CONVERSION_SETTINGS,
@@ -222,12 +229,6 @@ type CharsetState =
   | { readonly kind: "ready"; readonly result: WorkerCharsetResult }
   | { readonly kind: "error"; readonly message: string };
 
-interface TileEditorSnapshot {
-  readonly charset: Uint8Array;
-  readonly assignments: readonly CharsetAssignment[];
-  readonly encoding: CharsetEncoding;
-}
-
 interface SourceArtifactInfo {
   readonly sha256: string;
   readonly baseName: string;
@@ -238,7 +239,7 @@ type ResultOrigin = "direct-import" | "converted";
 
 type PreviewSide = "source" | "result";
 type PreviewZoom = "fit" | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
-type PreviewContent = "image" | "source-image" | "result-image" | "pre-attribute" | "screen-1" | "screen-2" | "merged-low" | "merged-high" | "palette-usage" | "tile-usage" | "tile-editor" | "bitmap-editor" | "inspector" | "difference";
+type PreviewContent = "image" | "source-image" | "result-image" | "pre-attribute" | "screen-1" | "screen-2" | "merged-low" | "merged-high" | "palette-usage" | "tile-usage" | "unified-editor" | "inspector" | "difference";
 type SettingsSection = "all" | "geometry" | "adjustments" | "palette" | "dithering" | "tilemap";
 
 function gridPathForDimensions(
@@ -478,6 +479,7 @@ function rebuildCharsetResult(
   charset: Uint8Array,
   assignments = result.assignments,
   encoding = result.encoding,
+  attributes = result.attributes,
 ): WorkerCharsetResult {
   const characterIndices = Uint8Array.from(
     assignments,
@@ -492,7 +494,7 @@ function rebuildCharsetResult(
     characterCount: charset.length / 8,
     transformations: result.transformations,
     characterIndices,
-    attributes: result.attributes,
+    attributes,
     transforms,
     charset,
   });
@@ -809,7 +811,9 @@ export function App() {
     readonly pointerId: number;
     readonly selecting: boolean;
     readonly visited: Set<number>;
+    readonly characterIndex: number;
   } | null>(null);
+  const charsetSelectionClickRef = useRef<Map<number, number>>(new Map());
   const charsetGlyphRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const tileEditorPointerRef = useRef<{ pointerId: number; visited: Set<string> } | null>(null);
   const bitmapEditorPointerRef = useRef<{ pointerId: number; visited: Set<string> } | null>(null);
@@ -823,13 +827,17 @@ export function App() {
   const [lastFinal, setLastFinal] = useState<WorkerConversionResult | null>(null);
   const [charsetState, setCharsetState] = useState<CharsetState>({ kind: "idle" });
   const [tileEditorSelected, setTileEditorSelected] = useState(0);
-  const [tileEditorActive, setTileEditorActive] = useState(true);
   const [tileEditorOriginals, setTileEditorOriginals] = useState<readonly (Uint8Array | null)[]>([]);
-  const [tileEditorUndo, setTileEditorUndo] = useState<readonly TileEditorSnapshot[]>([]);
+  const [tileEditorUndo, setTileEditorUndo] = useState<readonly TilemapEditorSnapshot[]>([]);
+  const [tileEditorRedo, setTileEditorRedo] = useState<readonly TilemapEditorSnapshot[]>([]);
   const [tileEditorEdited, setTileEditorEdited] = useState(false);
+  const [tilemapEditorCell, setTilemapEditorCell] = useState<number | null>(null);
   const [bitmapEditorCell, setBitmapEditorCell] = useState<BitmapCell | null>(null);
   const [bitmapEditorUndo, setBitmapEditorUndo] = useState<readonly BitmapCell[]>([]);
+  const [bitmapEditorRedo, setBitmapEditorRedo] = useState<readonly BitmapCell[]>([]);
   const [bitmapEditorSelection, setBitmapEditorSelection] = useState<InspectedAttribute | null>(null);
+  const [bitmapEditorOriginalResult, setBitmapEditorOriginalResult] = useState<WorkerConversionResult | null>(null);
+  const [bitmapEditorUseColors, setBitmapEditorUseColors] = useState(false);
   const [workspaceMode, setWorkspaceMode] =
     useState<WorkspaceConversionMode>("palette");
   const [tilemapStale, setTilemapStale] = useState(false);
@@ -1085,6 +1093,10 @@ export function App() {
     setWorkspaceLayout("conversion");
     setInspection(null);
     setBitmapEditorSelection(null);
+    setBitmapEditorOriginalResult(null);
+    setTileEditorUndo([]);
+    setTileEditorRedo([]);
+    setTilemapEditorCell(null);
     setSelectedPaletteColor(null);
   }, [image]);
 
@@ -1092,12 +1104,14 @@ export function App() {
     if (bitmapEditorSelection === null || workspaceMode !== "palette") {
       setBitmapEditorCell(null);
       setBitmapEditorUndo([]);
+      setBitmapEditorRedo([]);
       return;
     }
     const rows = new Uint8Array(8);
     rows.set(bitmapEditorSelection.bitmapBytes.slice(0, 8));
     setBitmapEditorCell({ rows, attribute: bitmapEditorSelection.attribute });
     setBitmapEditorUndo([]);
+    setBitmapEditorRedo([]);
   }, [bitmapEditorSelection, workspaceMode]);
 
   useEffect(() => {
@@ -1117,9 +1131,7 @@ export function App() {
     }
     if (workspaceMode !== "tilemap") {
       unavailable.add("tile-usage");
-      unavailable.add("tile-editor");
     }
-    if (workspaceMode !== "palette") unavailable.add("bitmap-editor");
     if (unavailable.has(sourcePreviewContent)) setSourcePreviewContent("image");
     if (unavailable.has(resultPreviewContent)) setResultPreviewContent("image");
   }, [workspaceMode, targetModeId, sourcePreviewContent, resultPreviewContent]);
@@ -2319,7 +2331,7 @@ export function App() {
       return;
     }
     if (layout === "tilemap") {
-      setSourcePreviewContent(tilemapViews ? "tile-usage" : "image");
+      setSourcePreviewContent(tilemapViews ? "tile-usage" : "unified-editor");
       setResultPreviewContent("image");
       setInspectionDrawerOpen(true);
       return;
@@ -2358,9 +2370,13 @@ export function App() {
   function focusSettingsSection(section: SettingsSection): void {
     setSettingsSection(section);
     if (section === "all") return;
-    document.getElementById(`settings-${section}`)?.scrollIntoView({
-      behavior: "smooth",
-      block: "nearest",
+    window.requestAnimationFrame(() => {
+      const element = document.getElementById(`settings-${section}`);
+      if (element === null) return;
+      element.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      element.querySelector<HTMLElement>("select, input, button, textarea")?.focus({
+        preventScroll: true,
+      });
     });
   }
 
@@ -2463,7 +2479,13 @@ export function App() {
       (event.clientY - bounds.top) / bounds.height * 192,
     )));
     const selected = inspectActivePixel(pixelX, pixelY);
-    if (selected !== null) setBitmapEditorSelection(selected);
+    if (selected !== null && workspaceMode === "tilemap" && charsetState.kind === "ready") {
+      const cellIndex = selected.cellY * 32 + selected.cellX;
+      setTilemapEditorCell(cellIndex);
+      setTileEditorSelected(charsetState.result.assignments[cellIndex]?.characterIndex ?? 0);
+    } else if (selected !== null) {
+      setBitmapEditorSelection(selected);
+    }
   }
 
   function inspectActivePixel(pixelX: number, pixelY: number): InspectedAttribute | null {
@@ -2715,6 +2737,8 @@ export function App() {
       setTargetModeId("zx48-standard-256x192");
       setAttributeHeight(8);
       setTilemapStale(charsetState.kind === "ready");
+      setSourcePreviewContent("unified-editor");
+      setResultPreviewContent("image");
     }
   }
 
@@ -3174,6 +3198,9 @@ export function App() {
     const conversionMode = workspaceMode;
     finalRunningRef.current = true;
     setBitmapEditorSelection(null);
+    setBitmapEditorOriginalResult(null);
+    setTileEditorUndo([]);
+    setTileEditorRedo([]);
     setState({ kind: "running" });
     try {
       const result = await worker.convertImage(
@@ -3229,11 +3256,32 @@ export function App() {
     setCharsetState({ kind: "idle" });
   }
 
+  function freezeGeneratedCharset(): void {
+    if (charsetSource !== "derived" || charsetState.kind !== "ready") return;
+    const charset = charsetState.result.charset.slice();
+    const count = charset.length / 8;
+    const all = allCharsetIndices(count);
+    setExistingCharset(charset);
+    setExistingCharsetName("generated-charset.chr");
+    setExistingCharsetStart(0);
+    setExistingCharsetLength(count);
+    setExistingCharsetStartEntry("1");
+    setExistingCharsetLengthEntry(String(count));
+    existingCharsetSelectionRef.current = all;
+    setExistingCharsetSelection(all);
+    setCharsetBudget(count);
+    if (count > 32) setCharsetEncoding("extended");
+    setCharsetSource("existing");
+    setTilemapStale(true);
+    setDirty(true);
+  }
+
   function initializeTileEditor(result: WorkerCharsetResult): void {
     setTileEditorSelected(0);
-    setTileEditorActive(true);
     setTileEditorOriginals(Array.from({ length: result.characterCount }, () => null));
     setTileEditorUndo([]);
+    setTileEditorRedo([]);
+    setTilemapEditorCell(0);
     setTileEditorEdited(false);
   }
 
@@ -3242,20 +3290,28 @@ export function App() {
     charset: Uint8Array,
     assignments = result.assignments,
     encoding = result.encoding,
+    attributes = result.attributes,
   ): void {
-    const next = rebuildCharsetResult(result, charset, assignments, encoding);
+    const next = rebuildCharsetResult(result, charset, assignments, encoding, attributes);
     setCharsetState({ kind: "ready", result: next });
+    if (charsetSource === "existing") setExistingCharset(charset.slice());
     setTilemapStale(false);
     setDirty(true);
     setTileEditorEdited(true);
   }
 
-  function snapshotTileEditor(result: WorkerCharsetResult): TileEditorSnapshot {
+  function snapshotTileEditor(result: WorkerCharsetResult): TilemapEditorSnapshot {
     return {
       charset: result.charset.slice(),
       assignments: result.assignments.map((assignment) => ({ ...assignment })),
+      attributes: result.attributes.slice(),
       encoding: result.encoding,
     };
+  }
+
+  function pushTileEditorHistory(result: WorkerCharsetResult): void {
+    setTileEditorUndo((history) => [...history, snapshotTileEditor(result)]);
+    setTileEditorRedo([]);
   }
 
   function applyEditorOperation(operation: TileEditOperation, pushHistory = true): void {
@@ -3263,7 +3319,7 @@ export function App() {
     const result = charsetState.result;
     const tile = result.charset.slice(tileEditorSelected * 8, tileEditorSelected * 8 + 8);
     if (pushHistory) {
-      setTileEditorUndo((history) => [...history, snapshotTileEditor(result)]);
+      pushTileEditorHistory(result);
       setTileEditorOriginals((originals) => {
         const next = [...originals];
         if (next[tileEditorSelected] === null) next[tileEditorSelected] = tile;
@@ -3286,38 +3342,30 @@ export function App() {
   function selectUsedTile(index: number): void {
     if (charsetState.kind !== "ready") return;
     selectEditorTile(index);
-    setTileEditorActive(true);
+    const firstCell = charsetState.result.assignments.findIndex((assignment) => assignment.characterIndex === index);
+    if (firstCell >= 0) setTilemapEditorCell(firstCell);
     charsetGlyphRefs.current[index]?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }
-
-  function exitTileEditor(): void {
-    if (charsetState.kind !== "ready") return;
-    const charset = charsetState.result.charset.slice();
-    const count = charset.length / 8;
-    setExistingCharset(charset);
-    setExistingCharsetName("generated-charset.chr");
-    setExistingCharsetStart(0);
-    setExistingCharsetLength(count);
-    setExistingCharsetStartEntry("1");
-    setExistingCharsetLengthEntry(String(count));
-    existingCharsetSelectionRef.current = null;
-    setExistingCharsetSelection(null);
-    setCharsetBudget(count);
-    if (count > 32) setCharsetEncoding("extended");
-    setCharsetSource("existing");
-    setTileEditorActive(false);
-    setTilemapStale(true);
-    setDirty(true);
   }
 
   function undoTileEditor(): void {
     const snapshot = tileEditorUndo[tileEditorUndo.length - 1];
     if (snapshot === undefined) return;
+    if (charsetState.kind !== "ready") return;
+    setTileEditorRedo((history) => [...history, snapshotTileEditor(charsetState.result)]);
     setTileEditorUndo((history) => history.slice(0, -1));
     setCharsetEncoding(snapshot.encoding);
-    setCharsetState((current) => current.kind === "ready"
-      ? { kind: "ready", result: rebuildCharsetResult(current.result, snapshot.charset, snapshot.assignments, snapshot.encoding) }
-      : current);
+    setCharsetState({ kind: "ready", result: rebuildCharsetResult(charsetState.result, snapshot.charset, snapshot.assignments, snapshot.encoding, snapshot.attributes) });
+    setDirty(true);
+    setTileEditorEdited(true);
+  }
+
+  function redoTileEditor(): void {
+    const snapshot = tileEditorRedo[tileEditorRedo.length - 1];
+    if (snapshot === undefined || charsetState.kind !== "ready") return;
+    pushTileEditorHistory(charsetState.result);
+    setTileEditorRedo((history) => history.slice(0, -1));
+    setCharsetEncoding(snapshot.encoding);
+    setCharsetState({ kind: "ready", result: rebuildCharsetResult(charsetState.result, snapshot.charset, snapshot.assignments, snapshot.encoding, snapshot.attributes) });
     setDirty(true);
     setTileEditorEdited(true);
   }
@@ -3326,7 +3374,7 @@ export function App() {
     if (charsetState.kind !== "ready") return;
     const original = tileEditorOriginals[tileEditorSelected];
     if (original === null || original === undefined) return;
-    setTileEditorUndo((history) => [...history, snapshotTileEditor(charsetState.result)]);
+    pushTileEditorHistory(charsetState.result);
     commitTileEditorResult(
       charsetState.result,
       replaceTileInCharset(charsetState.result.charset, tileEditorSelected, original),
@@ -3335,7 +3383,7 @@ export function App() {
 
   function createEditorTile(): void {
     if (charsetState.kind !== "ready" || charsetState.result.characterCount >= 256) return;
-    setTileEditorUndo((history) => [...history, snapshotTileEditor(charsetState.result)]);
+    pushTileEditorHistory(charsetState.result);
     const nextCharset = appendBlankTile(charsetState.result.charset);
     const nextEncoding = nextCharset.length / 8 > 32 ? "extended" : charsetState.result.encoding;
     setCharsetEncoding(nextEncoding);
@@ -3350,7 +3398,7 @@ export function App() {
     const index = tileEditorSelected;
     const used = result.assignments.filter((assignment) => assignment.characterIndex === index).length;
     if (used > 0 && !window.confirm(`Tile ${index + 1} is used by ${used} cells. Delete it and remap those cells?`)) return;
-    setTileEditorUndo((history) => [...history, snapshotTileEditor(result)]);
+    pushTileEditorHistory(result);
     const nextCharset = new Uint8Array(result.charset.length - 8);
     nextCharset.set(result.charset.subarray(0, index * 8));
     nextCharset.set(result.charset.subarray(index * 8 + 8), index * 8);
@@ -3368,6 +3416,14 @@ export function App() {
     commitTileEditorResult(result, nextCharset, assignments, nextEncoding);
     setTileEditorSelected(nextSelected);
     setTileEditorOriginals((originals) => originals.filter((_, tileIndex) => tileIndex !== index));
+    if (existingCharsetSelection !== null) {
+      const remap = Array.from({ length: result.characterCount }, (_, characterIndex) =>
+        characterIndex === index ? -1 : characterIndex > index ? characterIndex - 1 : characterIndex,
+      );
+      const selection = remapCharsetSelection(existingCharsetSelection, remap) ?? [];
+      existingCharsetSelectionRef.current = selection;
+      setExistingCharsetSelection(selection);
+    }
   }
 
   function moveEditorTile(delta: -1 | 1): void {
@@ -3375,17 +3431,7 @@ export function App() {
     const count = charsetState.result.characterCount;
     const target = tileEditorSelected + delta;
     if (target < 0 || target >= count) return;
-    setTileEditorUndo((history) => [...history, snapshotTileEditor(charsetState.result)]);
-    const order = Array.from({ length: count }, (_, index) => index);
-    [order[tileEditorSelected], order[target]] = [order[target]!, order[tileEditorSelected]!];
-    const reordered = reorderCharsetTiles(charsetState.result.charset, charsetState.result.assignments, order);
-    commitTileEditorResult(charsetState.result, reordered.charset, reordered.assignments);
     setTileEditorSelected(target);
-    setTileEditorOriginals((originals) => {
-      const next = [...originals];
-      [next[tileEditorSelected], next[target]] = [next[target] ?? null, next[tileEditorSelected] ?? null];
-      return next;
-    });
   }
 
   function sortEditorTilesByUsage(): void {
@@ -3401,6 +3447,13 @@ export function App() {
     commitTileEditorResult(charsetState.result, reordered.charset, reordered.assignments);
     setTileEditorSelected(order.indexOf(tileEditorSelected));
     setTileEditorOriginals((originals) => order.map((oldIndex) => originals[oldIndex] ?? null));
+    if (existingCharsetSelection !== null) {
+      const remap = new Array<number>(count);
+      order.forEach((oldIndex, newIndex) => { remap[oldIndex] = newIndex; });
+      const remappedSelection = remapCharsetSelection(existingCharsetSelection, remap) ?? [];
+      existingCharsetSelectionRef.current = remappedSelection;
+      setExistingCharsetSelection(remappedSelection);
+    }
   }
 
   function tileEditorPixelFromEvent(event: ReactPointerEvent<HTMLDivElement>): { readonly x: number; readonly y: number } | null {
@@ -3436,15 +3489,29 @@ export function App() {
 
   function applyBitmapEditorOperation(operation: BitmapCellEditOperation): void {
     if (bitmapEditorCell === null) return;
+    const nextCell = applyBitmapCellEdit(bitmapEditorCell, operation);
     setBitmapEditorUndo((history) => [...history, bitmapEditorCell]);
-    setBitmapEditorCell(applyBitmapCellEdit(bitmapEditorCell, operation));
+    setBitmapEditorRedo([]);
+    setBitmapEditorCell(nextCell);
+    applyBitmapEditorToResult(nextCell);
   }
 
   function undoBitmapEditor(): void {
     const previous = bitmapEditorUndo[bitmapEditorUndo.length - 1];
     if (previous === undefined) return;
+    if (bitmapEditorCell !== null) setBitmapEditorRedo((history) => [...history, bitmapEditorCell]);
     setBitmapEditorCell(previous);
     setBitmapEditorUndo((history) => history.slice(0, -1));
+    applyBitmapEditorToResult(previous);
+  }
+
+  function redoBitmapEditor(): void {
+    const next = bitmapEditorRedo[bitmapEditorRedo.length - 1];
+    if (next === undefined) return;
+    if (bitmapEditorCell !== null) setBitmapEditorUndo((history) => [...history, bitmapEditorCell]);
+    setBitmapEditorCell(next);
+    setBitmapEditorRedo((history) => history.slice(0, -1));
+    applyBitmapEditorToResult(next);
   }
 
   function bitmapEditorPixelFromEvent(event: ReactPointerEvent<HTMLDivElement>): { readonly x: number; readonly y: number } | null {
@@ -3477,6 +3544,34 @@ export function App() {
     if (bitmapEditorPointerRef.current?.pointerId === event.pointerId) bitmapEditorPointerRef.current = null;
   }
 
+  function handleBitmapEditorKey(event: ReactKeyboardEvent<HTMLDivElement>): void {
+    if (!(event.metaKey || event.ctrlKey)) return;
+    if (event.key.toLowerCase() === "z" && event.shiftKey) {
+      event.preventDefault();
+      redoBitmapEditor();
+    } else if (event.key.toLowerCase() === "z") {
+      event.preventDefault();
+      undoBitmapEditor();
+    } else if (event.key.toLowerCase() === "y") {
+      event.preventDefault();
+      redoBitmapEditor();
+    }
+  }
+
+  function handleUnifiedEditorKey(event: ReactKeyboardEvent<HTMLDivElement>): void {
+    if (!(event.metaKey || event.ctrlKey)) return;
+    if (event.key.toLowerCase() === "z" && event.shiftKey) {
+      event.preventDefault();
+      redoTileEditor();
+    } else if (event.key.toLowerCase() === "z") {
+      event.preventDefault();
+      undoTileEditor();
+    } else if (event.key.toLowerCase() === "y") {
+      event.preventDefault();
+      redoTileEditor();
+    }
+  }
+
   function setBitmapEditorAttribute(mask: number, value: number): void {
     if (bitmapEditorCell === null) return;
     applyBitmapEditorOperation({
@@ -3485,9 +3580,19 @@ export function App() {
     });
   }
 
-  function applyBitmapEditorToResult(): void {
+  function invertBitmapEditorAttributes(): void {
+    if (bitmapEditorCell === null) return;
+    const ink = bitmapEditorCell.attribute & 7;
+    const paper = (bitmapEditorCell.attribute >> 3) & 7;
+    applyBitmapEditorOperation({
+      kind: "set-attribute",
+      attribute: (bitmapEditorCell.attribute & 0xc0) | paper | (ink << 3),
+    });
+  }
+
+  function applyBitmapEditorToResult(cell: BitmapCell | null = bitmapEditorCell): void {
     const activeResult = draftPreviewResult(draftState) ?? lastFinal;
-    if (bitmapEditorCell === null || bitmapEditorSelection === null || activeResult === null ||
+    if (cell === null || bitmapEditorSelection === null || activeResult === null ||
         activeResult.platformId !== "zx-spectrum" || activeResult.frames.length !== 1) return;
     const frame = activeResult.frames[0];
     const height = activeResult.attributeHeight ?? attributeHeight;
@@ -3495,10 +3600,10 @@ export function App() {
     const encoded = Uint8Array.from(frame.encoded);
     for (let row = 0; row < 8; row += 1) {
       encoded[zxBitmapOffset(bitmapEditorSelection.cellX, bitmapEditorSelection.cellY * 8 + row)] =
-        bitmapEditorCell.rows[row] ?? 0;
+        cell.rows[row] ?? 0;
     }
     encoded[6144 + bitmapEditorSelection.cellY * 32 + bitmapEditorSelection.cellX] =
-      bitmapEditorCell.attribute;
+      cell.attribute;
     const previewRgba = renderAttributeFrameRgba(
       unpackZxBitmap(encoded),
       encoded.subarray(6144),
@@ -3513,11 +3618,29 @@ export function App() {
       mergedPreviewRgba: previewRgba,
       previewRgba,
     };
+    if (bitmapEditorOriginalResult === null) setBitmapEditorOriginalResult(activeResult);
     setLastFinal(nextResult);
     setDraftState({ kind: "idle" });
     setState({ kind: "ready", result: nextResult });
     setDirty(true);
+  }
+
+  function revertBitmapEditorChanges(): void {
+    if (bitmapEditorOriginalResult === null) return;
+    setLastFinal(bitmapEditorOriginalResult);
+    setDraftState({ kind: "idle" });
+    setState({ kind: "ready", result: bitmapEditorOriginalResult });
+    setBitmapEditorCell(
+      bitmapEditorSelection === null
+        ? null
+        : {
+            rows: Uint8Array.from(bitmapEditorSelection.bitmapBytes.slice(0, 8)),
+            attribute: bitmapEditorSelection.attribute,
+          },
+    );
     setBitmapEditorUndo([]);
+    setBitmapEditorRedo([]);
+    setBitmapEditorOriginalResult(null);
   }
 
   function markCharsetSelectionChanged(indices: readonly number[]): void {
@@ -3525,25 +3648,16 @@ export function App() {
     existingCharsetSelectionRef.current = sorted;
     setExistingCharsetSelection(sorted);
     if (sorted.length > 32) setCharsetEncoding("extended");
-    invalidateCharset();
     setTilemapStale(true);
-  }
-
-  function activeRangeIndices(): number[] {
-    return Array.from(
-      { length: existingCharsetLength },
-      (_, index) => existingCharsetStart + index,
-    );
   }
 
   function toggleCharsetCharacter(characterIndex: number): void {
     if (charsetSource !== "existing" || existingCharset === null) return;
-    const selected = new Set(
-      existingCharsetSelectionRef.current ?? activeRangeIndices(),
-    );
-    if (selected.has(characterIndex)) selected.delete(characterIndex);
-    else selected.add(characterIndex);
-    markCharsetSelectionChanged([...selected]);
+    markCharsetSelectionChanged(toggleCharsetSelection(
+      existingCharsetSelectionRef.current,
+      existingCharset.length / 8,
+      characterIndex,
+    ));
   }
 
   function paintCharsetCharacter(
@@ -3553,9 +3667,10 @@ export function App() {
     const drag = charsetSelectionDragRef.current;
     if (drag === null || drag.visited.has(characterIndex)) return;
     drag.visited.add(characterIndex);
-    const selected = new Set(
-      existingCharsetSelectionRef.current ?? activeRangeIndices(),
-    );
+    const selected = new Set(effectiveCharsetSelection(
+      existingCharsetSelectionRef.current,
+      (existingCharset?.length ?? 0) / 8,
+    ));
     if (selecting) selected.add(characterIndex);
     else selected.delete(characterIndex);
     markCharsetSelectionChanged([...selected]);
@@ -3566,18 +3681,18 @@ export function App() {
     event: ReactPointerEvent<HTMLButtonElement>,
   ): void {
     if (charsetSource !== "existing" || existingCharset === null) return;
-    event.preventDefault();
-    const selected = new Set(
-      existingCharsetSelectionRef.current ?? activeRangeIndices(),
-    );
+    const selected = new Set(effectiveCharsetSelection(
+      existingCharsetSelectionRef.current,
+      existingCharset.length / 8,
+    ));
     const selecting = !selected.has(characterIndex);
     charsetSelectionDragRef.current = {
       pointerId: event.pointerId,
       selecting,
       visited: new Set<number>(),
+      characterIndex,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
-    paintCharsetCharacter(characterIndex, selecting);
     event.currentTarget.focus();
   }
 
@@ -3597,34 +3712,49 @@ export function App() {
   function endCharsetSelection(event: ReactPointerEvent): void {
     const drag = charsetSelectionDragRef.current;
     if (drag?.pointerId !== event.pointerId) return;
+    if (drag.visited.size === 0) queueCharsetSelectionClick(drag.characterIndex);
     charsetSelectionDragRef.current = null;
+  }
+
+  function clearPendingCharsetClick(characterIndex: number): void {
+    const timer = charsetSelectionClickRef.current.get(characterIndex);
+    if (timer !== undefined) window.clearTimeout(timer);
+    charsetSelectionClickRef.current.delete(characterIndex);
+  }
+
+  function queueCharsetSelectionClick(characterIndex: number): void {
+    clearPendingCharsetClick(characterIndex);
+    const timer = window.setTimeout(() => {
+      charsetSelectionClickRef.current.delete(characterIndex);
+      selectEditorTile(characterIndex);
+      toggleCharsetCharacter(characterIndex);
+    }, 300);
+    charsetSelectionClickRef.current.set(characterIndex, timer);
+  }
+
+  function handleCharsetDoubleClick(characterIndex: number): void {
+    clearPendingCharsetClick(characterIndex);
+    selectEditorTile(characterIndex);
+    toggleCharsetCharacter(characterIndex);
   }
 
   function clearCharsetSelection(): void {
     const count = Math.floor((existingCharset?.length ?? 0) / 8);
-    existingCharsetSelectionRef.current = null;
-    setExistingCharsetSelection(null);
+    markCharsetSelectionChanged(allCharsetIndices(count));
     setExistingCharsetStart(0);
     setExistingCharsetLength(count);
     setExistingCharsetStartEntry("1");
     setExistingCharsetLengthEntry(String(count));
     if (count > 32) setCharsetEncoding("extended");
-    invalidateCharset();
-    setTilemapStale(true);
   }
 
   function invertCharsetSelection(): void {
     if (charsetSource !== "existing" || existingCharset === null) return;
     const count = Math.floor(existingCharset.length / 8);
-    const selected = new Set(
-      existingCharsetSelectionRef.current ?? activeRangeIndices(),
-    );
-    markCharsetSelectionChanged(
-      Array.from(
-        { length: count },
-        (_, characterIndex) => characterIndex,
-      ).filter((characterIndex) => !selected.has(characterIndex)),
-    );
+    markCharsetSelectionChanged(invertSelection(
+      existingCharsetSelectionRef.current,
+      count,
+    ));
   }
 
   function handleCharsetGlyphKey(
@@ -4387,11 +4517,6 @@ export function App() {
       charsetState.kind === "ready" && !tilemapStale
     ? lastFinal
     : draftPreviewResult(draftState) ?? lastFinal;
-  const bitmapEditorResult = draftPreviewResult(draftState) ?? lastFinal;
-  const bitmapEditorCanApply = bitmapEditorResult !== null &&
-    bitmapEditorResult.platformId === "zx-spectrum" &&
-    bitmapEditorResult.frames.length === 1 &&
-    (bitmapEditorResult.attributeHeight ?? attributeHeight) === 8;
   const displayedAttributeHeight = displayedResult?.attributeHeight ?? attributeHeight;
   const displayedWidth = displayedResult?.verticalSpatialDiagnostics === undefined
     ? displayedResult?.width ?? 256
@@ -4519,36 +4644,25 @@ export function App() {
   const visibleTileUsage = tileUsageFilter === "used"
     ? tileUsage.filter((tile) => tile.count > 0)
     : tileUsage;
-  const tileEditorPreview = charsetState.kind !== "ready"
-    ? <p>Run Tilemap High to open the tile editor.</p>
-    : <>
-        <p><strong>Tile {tileEditorSelected + 1}</strong> · {charsetState.result.assignments.filter((assignment) => assignment.characterIndex === tileEditorSelected).length} cells use this tile</p>
-        <div className="tile-editor-grid tile-editor-grid-main" role="grid" aria-label={`Tile ${tileEditorSelected + 1} bitmap, 8 by 8 pixels`} onPointerDown={beginTileEditorPaint} onPointerMove={moveTileEditorPaint} onPointerUp={endTileEditorPaint} onPointerCancel={endTileEditorPaint}>
-          {Array.from({ length: 64 }, (_, pixelIndex) => {
-            const x = pixelIndex % 8;
-            const y = Math.floor(pixelIndex / 8);
-            const row = charsetState.result.charset[tileEditorSelected * 8 + y] ?? 0;
-            const on = (row & (0x80 >> x)) !== 0;
-            return <span className={`tile-editor-pixel${on ? " on" : ""}`} key={pixelIndex} role="gridcell" aria-label={`${x}, ${y}${on ? ": on" : ": off"}`} />;
-          })}
-        </div>
-        <p className="control-help">Click or drag pixels to toggle them. The existing tile editor controls remain available in the side panel.</p>
-      </>;
   const bitmapEditorPreview = bitmapEditorCell === null
-    ? <p>Point at a converted cell first, then open the Bitmap editor.</p>
+    ? <p>Point at a converted cell first, then open the Unified editor.</p>
     : <>
         <p><strong>Cell {bitmapEditorSelection?.cellX ?? 0}, {bitmapEditorSelection?.cellY ?? 0}</strong> · Attribute 0x{bitmapEditorCell.attribute.toString(16).padStart(2, "0")}</p>
         <div className="bitmap-editor-layout">
-          <div className="tile-editor-grid tile-editor-grid-main bitmap-editor-grid" role="grid" aria-label="Selected cell bitmap, 8 by 8 pixels" onPointerDown={beginBitmapEditorPaint} onPointerMove={moveBitmapEditorPaint} onPointerUp={endBitmapEditorPaint} onPointerCancel={endBitmapEditorPaint}>
+          <div className="tile-editor-grid tile-editor-grid-main bitmap-editor-grid" role="grid" tabIndex={0} aria-label="Selected cell bitmap, 8 by 8 pixels" onKeyDown={handleBitmapEditorKey} onPointerDown={beginBitmapEditorPaint} onPointerMove={moveBitmapEditorPaint} onPointerUp={endBitmapEditorPaint} onPointerCancel={endBitmapEditorPaint}>
             {Array.from({ length: 64 }, (_, pixelIndex) => {
               const x = pixelIndex % 8;
               const y = Math.floor(pixelIndex / 8);
               const on = ((bitmapEditorCell.rows[y] ?? 0) & (0x80 >> x)) !== 0;
-              return <span className={`tile-editor-pixel${on ? " on" : ""}`} key={pixelIndex} role="gridcell" aria-label={`${x}, ${y}${on ? ": on" : ": off"}`} />;
+              const bright = (bitmapEditorCell.attribute & 0x40) !== 0;
+              const ink = ZX_BASE_COLORS[bitmapEditorCell.attribute & 7];
+              const paper = ZX_BASE_COLORS[(bitmapEditorCell.attribute >> 3) & 7];
+              return <span className={`tile-editor-pixel${on ? " on" : ""}`} key={pixelIndex} role="gridcell" aria-label={`${x}, ${y}${on ? ": on" : ": off"}`} style={bitmapEditorUseColors ? { backgroundColor: on ? bright ? ink?.bright : ink?.normal : bright ? paper?.bright : paper?.normal } : undefined} />;
             })}
           </div>
           <div className="bitmap-editor-side">
             <div className="bitmap-editor-attributes">
+              <label className="check-control"><input type="checkbox" checked={bitmapEditorUseColors} onChange={(event) => setBitmapEditorUseColors(event.target.checked)} /><span>Use INK/PAPER colors</span></label>
               <div className="bitmap-editor-color-group" role="group" aria-label="INK color">
                 <span>INK</span>
                 <div className="palette-options">
@@ -4571,16 +4685,44 @@ export function App() {
             </div>
             <div className="bitmap-editor-actions">
           <button className="secondary compact" type="button" onClick={() => applyBitmapEditorOperation({ kind: "invert" })}>Invert</button>
+          <button className="secondary compact" type="button" onClick={invertBitmapEditorAttributes}>Invert attributes</button>
           <button className="secondary compact" type="button" onClick={() => applyBitmapEditorOperation({ kind: "shift", dx: -1, dy: 0 })}>←</button>
           <button className="secondary compact" type="button" onClick={() => applyBitmapEditorOperation({ kind: "shift", dx: 1, dy: 0 })}>→</button>
           <button className="secondary compact" type="button" onClick={() => applyBitmapEditorOperation({ kind: "shift", dx: 0, dy: -1 })}>↑</button>
           <button className="secondary compact" type="button" onClick={() => applyBitmapEditorOperation({ kind: "shift", dx: 0, dy: 1 })}>↓</button>
           <button className="secondary compact" type="button" onClick={undoBitmapEditor} disabled={bitmapEditorUndo.length === 0}>Undo</button>
-          <button className="primary compact" type="button" onClick={applyBitmapEditorToResult} disabled={bitmapEditorCell === null || bitmapEditorSelection === null || !bitmapEditorCanApply}>Apply to result</button>
+          <button className="secondary compact" type="button" onClick={redoBitmapEditor} disabled={bitmapEditorRedo.length === 0}>Redo</button>
+          <button className="secondary compact" type="button" onClick={revertBitmapEditorChanges} disabled={bitmapEditorOriginalResult === null}>Revert applied</button>
             </div>
           </div>
         </div>
       </>;
+  const unifiedEditorPreview = workspaceMode === "palette"
+    ? bitmapEditorPreview
+    : charsetState.kind !== "ready"
+      ? <p>Run Tilemap High to open the unified editor.</p>
+    : (() => {
+        const result = charsetState.result;
+        return <div className="unified-editor" tabIndex={-1} onKeyDown={handleUnifiedEditorKey}>
+          <div className="unified-editor-toolbar">
+            <button className="secondary compact" type="button" onClick={undoTileEditor} disabled={tileEditorUndo.length === 0}>Undo</button>
+            <button className="secondary compact" type="button" onClick={redoTileEditor} disabled={tileEditorRedo.length === 0}>Redo</button>
+            <button className="secondary compact" type="button" onClick={revertSelectedTile} disabled={tileEditorOriginals[tileEditorSelected] === null}>Revert</button>
+          </div>
+          <>
+            <div className="unified-tile-layout">
+              <div className="unified-tile-bitmap" role="grid" aria-label={`Tile ${tileEditorSelected} bitmap`} onPointerDown={beginTileEditorPaint} onPointerMove={moveTileEditorPaint} onPointerUp={endTileEditorPaint} onPointerCancel={endTileEditorPaint}>{Array.from({ length: 64 }, (_, pixelIndex) => { const x = pixelIndex % 8; const y = Math.floor(pixelIndex / 8); const row = result.charset[tileEditorSelected * 8 + y] ?? 0; const on = (row & (0x80 >> x)) !== 0; return <span className={`tile-editor-pixel${on ? " on" : ""}`} key={pixelIndex} role="gridcell" aria-label={`${x}, ${y}${on ? ": on" : ": off"}`} />; })}</div>
+              <div className="unified-tile-side">
+                <div className="unified-tile-heading">
+                  <p><strong>Tile {tileEditorSelected}</strong> · {tileUsage.find((item) => item.characterIndex === tileEditorSelected)?.count ?? 0} cells use this tile</p>
+                  <div className="unified-tile-navigation"><button className="secondary compact" type="button" onClick={() => moveEditorTile(-1)} disabled={tileEditorSelected === 0} aria-label="Previous tile">← Previous</button><button className="secondary compact" type="button" onClick={() => moveEditorTile(1)} disabled={tileEditorSelected >= result.characterCount - 1} aria-label="Next tile">Next →</button></div>
+                </div>
+                <div className="tile-editor-toolbar"><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "rotate-left" })}>↶</button><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "rotate-right" })}>↷</button><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "rotate-up" })}>↑</button><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "rotate-down" })}>↓</button><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "clear" })}>Clear</button><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "invert" })}>Invert</button></div>
+              </div>
+            </div>
+          </>
+        </div>;
+      })();
   const qlVerticalPixelScale = isQl && (
       targetModeId === "mode4-512x256" ||
       targetModeId === "mode4-plain-512x256" ||
@@ -4608,7 +4750,15 @@ export function App() {
         x: bitmapEditorSelection.cellX * 8,
         y: bitmapEditorSelection.cellY * inspectionCellHeight,
         width: 8,
-        height: inspectionCellHeight,
+      height: inspectionCellHeight,
+    };
+  const tilemapEditorSelectionOverlay = workspaceMode !== "tilemap" || tilemapEditorCell === null
+    ? null
+    : {
+        x: (tilemapEditorCell % 32) * 8,
+        y: Math.floor(tilemapEditorCell / 32) * 8,
+        width: 8,
+        height: 8,
       };
   const previewAspect = resolvePreviewAspect(
     displayedWidth,
@@ -4752,6 +4902,7 @@ export function App() {
     return <img className="preview-difference-image" src={mixedScreenWindowImages[content as keyof typeof mixedScreenWindowImages]} alt={`${content} preview`} />;
   };
   const retainedDraftVisible = draftPreviewResult(draftState) !== null;
+  const bitmapEditorEdited = bitmapEditorOriginalResult !== null;
   const platformLabel = isQl ? "Sinclair QL" : isPmd ? "Tesla PMD 85" : "ZX Spectrum";
   const paletteResultLabel = draftState.kind === "ready"
     ? `${platformLabel} result · Draft preview`
@@ -4759,7 +4910,7 @@ export function App() {
         (draftState.kind === "scheduled" || draftState.kind === "running")
       ? `${platformLabel} result · Draft updating`
     : state.kind === "stale" ? `${platformLabel} result · stale High`
-    : state.kind === "ready" ? `${platformLabel} result · completed High`
+    : state.kind === "ready" ? `${platformLabel} result · completed High${bitmapEditorEdited ? " · edited" : ""}`
     : `${platformLabel} result`;
   const resultLabel = workspaceMode === "tilemap"
     ? `Tilemap reconstruction${
@@ -5030,7 +5181,7 @@ export function App() {
             <button className="secondary compact destructive-profile" type="button" disabled={BUILT_IN_PROFILES.some((profile) => profile.id === selectedProfile.id)} onClick={deleteSelectedProfile}>Delete Profile</button>
             <button className="secondary compact delete-retained" type="button" disabled={profiles.length === BUILT_IN_PROFILES.length} onClick={deleteAllImportedProfiles}>Delete retained profiles ({profiles.length - BUILT_IN_PROFILES.length})</button>
           </fieldset>
-          <fieldset id="settings-geometry" className="control-group geometry-group">
+          <fieldset id="settings-geometry" className={`control-group geometry-group${settingsSection === "geometry" ? " settings-focused" : ""}`}>
             <legend>Geometry</legend>
           <label>
             <span>Framing</span>
@@ -5155,7 +5306,7 @@ export function App() {
             </label>
           </fieldset>
           </fieldset>
-          <fieldset id="settings-adjustments" className="adjustment-control control-group">
+          <fieldset id="settings-adjustments" className={`adjustment-control control-group${settingsSection === "adjustments" ? " settings-focused" : ""}`}>
             <legend>Image adjustments</legend>
             <RangeNumberControl id="brightness" label="Brightness" value={brightness} min={-100} max={100} onChange={(value) => { setBrightness(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
             <RangeNumberControl id="contrast" label="Contrast" value={contrast} min={-100} max={100} onChange={(value) => { setContrast(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
@@ -5175,7 +5326,7 @@ export function App() {
           </fieldset>
           {workspaceMode === "palette" ? (
           <>
-          <fieldset id="settings-palette" className="control-group palette-group">
+          <fieldset id="settings-palette" className={`control-group palette-group${settingsSection === "palette" ? " settings-focused" : ""}`}>
             <legend>{isQl ? "QL palette" : isPmd ? "PMD 85 legal foregrounds" : "ZX palette and attributes"}</legend>
           {isZx ? (
           <>
@@ -5325,7 +5476,7 @@ export function App() {
             </label>
           ) : null}
           </fieldset>
-          <fieldset id="settings-dithering" className="control-group dithering-group">
+          <fieldset id="settings-dithering" className={`control-group dithering-group${settingsSection === "dithering" ? " settings-focused" : ""}`}>
             <legend>Dithering</legend>
           <details className="engine-controls dithering-wide">
             <summary>Advanced conversion engines</summary>
@@ -5748,7 +5899,7 @@ export function App() {
           </>
           ) : (
           <>
-          <fieldset id="settings-tilemap" className="control-group tilemap-settings-group">
+          <fieldset id="settings-tilemap" className={`control-group tilemap-settings-group${settingsSection === "tilemap" ? " settings-focused" : ""}`}>
             <legend>Tilemap conversion</legend>
             <div className="tilemap-source-inline">
             <div className="tilemap-source-summary">
@@ -5773,6 +5924,10 @@ export function App() {
                   {paletteSelections[0]?.enabledColorIds.length ?? 0} colors ·
                   BRIGHT {paletteSelections[0]?.brightMode ?? "auto"}
                 </strong>
+              </div>
+              <div>
+                <span>Character budget</span>
+                <strong>{charsetSource === "existing" ? existingActiveCharacterCount : charsetBudget}</strong>
               </div>
               <div><span>Target</span><strong>ZX 256×192 · 8×8</strong></div>
             </div>
@@ -6762,11 +6917,8 @@ export function App() {
           ) : (
           <aside className="tilemap-charset-panel" aria-label="Charset selector">
             <div className="tilemap-charset-heading">
-              <strong>{tileEditorActive ? "Tile editor" : "Tile selection"}</strong>
+              <strong>Charset tiles</strong>
               <span>{glyphCount} available · {glyphActiveCount} active{tileEditorEdited ? " · Edited" : ""}</span>
-              {tileEditorActive && charsetState.kind === "ready" ? (
-                <button className="secondary compact tile-editor-exit" type="button" onClick={exitTileEditor}>Exit editor</button>
-              ) : null}
             </div>
             <div
               className="tilemap-glyph-grid"
@@ -6779,7 +6931,7 @@ export function App() {
                 <span className="control-help">No charset loaded.</span>
               ) : Array.from({ length: glyphCount }, (_, characterIndex) => {
                 const active = glyphActiveIndexSet.has(characterIndex);
-                const editorReady = charsetState.kind === "ready" && tileEditorActive;
+                const editorReady = charsetState.kind === "ready";
                 const selectable = editorReady || (charsetSource === "existing" && existingCharset !== null);
                 return (
                   <button
@@ -6794,17 +6946,20 @@ export function App() {
                     ref={(element) => {
                       charsetGlyphRefs.current[characterIndex] = element;
                     }}
-                    onClick={() => editorReady
-                      ? selectEditorTile(characterIndex)
+                    onClick={() => {
+                      if (charsetSource !== "existing") selectEditorTile(characterIndex);
+                    }}
+                    onDoubleClick={() => charsetSource === "existing"
+                      ? handleCharsetDoubleClick(characterIndex)
+                      : selectEditorTile(characterIndex)}
+                    onPointerDown={(event) => charsetSource === "existing"
+                      ? beginCharsetSelection(characterIndex, event)
                       : undefined}
-                    onPointerDown={(event) => editorReady
-                      ? undefined
-                      : beginCharsetSelection(characterIndex, event)}
                     onKeyDown={(event) => editorReady
                       ? (event.key === "ArrowLeft" || event.key === "ArrowRight" || event.key === "ArrowUp" || event.key === "ArrowDown"
                         ? handleCharsetGlyphKey(characterIndex, event)
                         : event.key === "Enter" || event.key === " "
-                          ? (event.preventDefault(), selectEditorTile(characterIndex))
+                          ? (event.preventDefault(), selectEditorTile(characterIndex), charsetSource === "existing" ? toggleCharsetCharacter(characterIndex) : undefined)
                           : undefined)
                       : handleCharsetGlyphKey(characterIndex, event)}
                     onDragStart={(event) => event.preventDefault()}
@@ -6820,70 +6975,19 @@ export function App() {
                 );
               })}
             </div>
-            {charsetState.kind === "ready" && tileEditorActive ? (
-              <section className="tile-editor" aria-label="Tile editor">
-                <div className="tile-editor-heading">
-                  <strong>Tile {tileEditorSelected + 1}</strong>
-                  <span>{charsetState.result.assignments.filter((assignment) => assignment.characterIndex === tileEditorSelected).length} cells use this tile</span>
-                </div>
-                <div className="tile-editor-order-actions">
-                  <button className="secondary compact" type="button" aria-label="Move tile left" title="Move tile left" disabled={tileEditorSelected === 0} onClick={() => moveEditorTile(-1)}>←</button>
-                  <button className="secondary compact" type="button" aria-label="Move tile right" title="Move tile right" disabled={tileEditorSelected >= charsetState.result.characterCount - 1} onClick={() => moveEditorTile(1)}>→</button>
-                  <button className="secondary compact tile-editor-sort-button" type="button" aria-label="Sort tiles by usage count" title="Sort tiles by usage count" onClick={sortEditorTilesByUsage}>⇵ Usage</button>
-                </div>
-                <div
-                  className="tile-editor-grid"
-                  role="grid"
-                  aria-label={`Tile ${tileEditorSelected + 1} bitmap, 8 by 8 pixels`}
-                  onPointerDown={beginTileEditorPaint}
-                  onPointerMove={moveTileEditorPaint}
-                  onPointerUp={endTileEditorPaint}
-                  onPointerCancel={endTileEditorPaint}
-                >
-                  {Array.from({ length: 64 }, (_, pixelIndex) => {
-                    const x = pixelIndex % 8;
-                    const y = Math.floor(pixelIndex / 8);
-                    const row = charsetState.result.charset[tileEditorSelected * 8 + y] ?? 0;
-                    const on = (row & (0x80 >> x)) !== 0;
-                    return <span className={`tile-editor-pixel${on ? " on" : ""}`} key={pixelIndex} role="gridcell" aria-label={`${x}, ${y}${on ? ": on" : ": off"}`} />;
-                  })}
-                </div>
-                <div className="tile-editor-toolbar">
-                  <button className="secondary compact tile-editor-icon-button" type="button" aria-label="Rotate tile left" title="Rotate left" onClick={() => applyEditorOperation({ kind: "rotate-left" })}>←</button>
-                  <button className="secondary compact tile-editor-icon-button" type="button" aria-label="Rotate tile right" title="Rotate right" onClick={() => applyEditorOperation({ kind: "rotate-right" })}>→</button>
-                  <button className="secondary compact tile-editor-icon-button" type="button" aria-label="Rotate tile up" title="Rotate up" onClick={() => applyEditorOperation({ kind: "rotate-up" })}>↑</button>
-                  <button className="secondary compact tile-editor-icon-button" type="button" aria-label="Rotate tile down" title="Rotate down" onClick={() => applyEditorOperation({ kind: "rotate-down" })}>↓</button>
-                  <button className="secondary compact tile-editor-icon-button" type="button" aria-label="Clear tile" title="Clear tile" onClick={() => applyEditorOperation({ kind: "clear" })}>×</button>
-                  <button className="secondary compact tile-editor-icon-button" type="button" aria-label="Invert tile" title="Invert tile" onClick={() => applyEditorOperation({ kind: "invert" })}>◐</button>
-                  <button className="secondary compact tile-editor-icon-button" type="button" aria-label="Undo last tile edit" title="Undo" disabled={tileEditorUndo.length === 0} onClick={undoTileEditor}>↶</button>
-                  <button className="secondary compact tile-editor-icon-button" type="button" aria-label="Revert selected tile" title="Revert selected tile" disabled={tileEditorOriginals[tileEditorSelected] === null} onClick={revertSelectedTile}>↺</button>
-                </div>
-                <div className="tile-editor-structure-actions">
-                  <button className="secondary compact" type="button" aria-label="Create blank tile" title="Create blank tile" disabled={charsetState.result.characterCount >= 256} onClick={createEditorTile}>＋ Tile</button>
-                  <button className="secondary compact destructive-profile" type="button" aria-label="Delete tile" title="Delete tile" disabled={charsetState.result.characterCount <= 1} onClick={deleteEditorTile}>⌫ Tile</button>
-                </div>
-              </section>
-            ) : null}
-            {charsetSource === "existing" && existingCharset !== null ? (
-              <div className="tilemap-charset-actions">
-                <button
-                  className="secondary compact"
-                  type="button"
-                  disabled={charsetState.kind === "running" || glyphCount === 0}
-                  onClick={clearCharsetSelection}
-                >
-                  Clear selection
-                </button>
-                <button
-                  className="secondary compact"
-                  type="button"
-                  disabled={charsetState.kind === "running" || glyphCount === 0}
-                  onClick={invertCharsetSelection}
-                >
-                  Invert selection
-                </button>
+            {charsetSource === "derived" ? (
+              <div className="tilemap-charset-freeze">
+                <button className="secondary compact" type="button" disabled={charsetState.kind !== "ready" || glyphCount === 0} onClick={freezeGeneratedCharset}>Freeze generated charset</button>
+                <span className="control-help">Freeze the current generated tiles to enable conversion selection.</span>
               </div>
             ) : null}
+            <div className="tilemap-charset-actions">
+              <button className="secondary compact" type="button" disabled={charsetState.kind !== "ready" || glyphCount === 0} onClick={sortEditorTilesByUsage}>Usage</button>
+              <button className="secondary compact" type="button" disabled={charsetState.kind !== "ready" || glyphCount >= 256} onClick={createEditorTile}>Add</button>
+              <button className="secondary compact" type="button" disabled={charsetState.kind !== "ready" || glyphCount <= 1} onClick={deleteEditorTile}>Del</button>
+              <button className="secondary compact" type="button" disabled={charsetSource !== "existing" || existingCharset === null || charsetState.kind === "running" || glyphCount === 0} onClick={clearCharsetSelection}>All</button>
+              <button className="secondary compact" type="button" disabled={charsetSource !== "existing" || existingCharset === null || charsetState.kind === "running" || glyphCount === 0} onClick={invertCharsetSelection}>Invert</button>
+            </div>
           </aside>
           )}
 
@@ -6909,10 +7013,8 @@ export function App() {
                       ? "Palette usage"
                       : sourcePreviewContent === "tile-usage"
                         ? "Used tiles"
-                        : sourcePreviewContent === "tile-editor"
-                          ? "Tile editor"
-                        : sourcePreviewContent === "bitmap-editor"
-                          ? "Bitmap editor"
+                        : sourcePreviewContent === "unified-editor"
+                          ? "Unified editor"
                         : sourcePreviewContent === "difference"
                           ? "Difference heatmap"
                         : "Inspector"}
@@ -6934,8 +7036,7 @@ export function App() {
                     <option value="merged-high" disabled={!hasMixedScreenTarget}>Merged · high resolution</option>
                     <option value="palette-usage">Palette usage</option>
                     <option value="tile-usage" disabled={workspaceMode !== "tilemap"}>Used tiles</option>
-                    <option value="tile-editor" disabled={workspaceMode !== "tilemap"}>Tile editor</option>
-                    <option value="bitmap-editor" disabled={workspaceMode !== "palette"}>Bitmap editor</option>
+                    <option value="unified-editor">Unified editor</option>
                     <option value="difference">Difference heatmap</option>
                     <option value="inspector">Inspector</option>
                   </select>
@@ -7018,6 +7119,11 @@ export function App() {
                           <rect {...bitmapEditorSelectionOverlay} />
                         </svg>
                       ) : null}
+                      {sourcePreviewContent === "result-image" && tilemapEditorSelectionOverlay !== null ? (
+                        <svg className="bitmap-editor-selection-overlay" viewBox={`0 0 ${displayedWidth} ${displayedHeight}`} preserveAspectRatio="none" aria-hidden="true">
+                          <rect {...tilemapEditorSelectionOverlay} />
+                        </svg>
+                      ) : null}
                     </div>
                   )}
               </div> : (
@@ -7043,13 +7149,11 @@ export function App() {
                     tileUsage.length === 0 ? <p>Run Tilemap High to inspect tile usage.</p> : <>
                       <label className="preview-filter-control"><span>Show</span><select value={tileUsageFilter} onChange={(event) => setTileUsageFilter(event.target.value as "used" | "all")}><option value="used">Used tiles only</option><option value="all">All tiles</option></select></label>
                       <div className="preview-usage-list">
-                        {visibleTileUsage.slice(0, 64).map(({ characterIndex, count }) => <button type="button" className={`preview-usage-row${tileEditorSelected === characterIndex ? " selected" : ""}`} key={characterIndex} aria-pressed={tileEditorSelected === characterIndex} onClick={() => selectUsedTile(characterIndex)}><span>Tile {characterIndex}</span><strong>{count} cells</strong></button>)}
+                        {visibleTileUsage.map(({ characterIndex, count }) => <button type="button" className={`preview-usage-row${tileEditorSelected === characterIndex ? " selected" : ""}`} key={characterIndex} aria-pressed={tileEditorSelected === characterIndex} onClick={() => { selectUsedTile(characterIndex); }}><span>Tile {characterIndex} · {charsetSource === "existing" ? "Loaded" : "Calculated"}</span><strong>{count} cells</strong></button>)}
                       </div>
                     </>
-                  ) : sourcePreviewContent === "tile-editor" ? (
-                    tileEditorPreview
-                  ) : sourcePreviewContent === "bitmap-editor" ? (
-                    bitmapEditorPreview
+                  ) : sourcePreviewContent === "unified-editor" ? (
+                    unifiedEditorPreview
                   ) : sourcePreviewContent === "pre-attribute" || sourcePreviewContent === "screen-1" || sourcePreviewContent === "screen-2" || sourcePreviewContent === "merged-low" || sourcePreviewContent === "merged-high" ? (
                     windowImageFor(sourcePreviewContent)
                   ) : sourcePreviewContent === "difference" ? (
@@ -7073,7 +7177,7 @@ export function App() {
             </section>
             <section className={`preview-panel result-panel ${workspaceMode === "tilemap" ? "tilemap-preview-panel" : ""}`} aria-labelledby="result-preview-title">
               <div className="preview-panel-heading">
-                <h3 id="result-preview-title">{resultPreviewContent === "image" || resultPreviewContent === "result-image" ? resultLabel : resultPreviewContent === "source-image" ? "Conversion input" : resultPreviewContent === "pre-attribute" ? "Pre-attribute dither" : resultPreviewContent === "screen-1" ? "Screen 1" : resultPreviewContent === "screen-2" ? "Screen 2" : resultPreviewContent === "merged-low" ? "Merged · low resolution" : resultPreviewContent === "merged-high" ? "Merged · high resolution" : resultPreviewContent === "palette-usage" ? "Palette usage" : resultPreviewContent === "tile-usage" ? "Used tiles" : resultPreviewContent === "tile-editor" ? "Tile editor" : resultPreviewContent === "bitmap-editor" ? "Bitmap editor" : resultPreviewContent === "difference" ? "Difference heatmap" : "Inspector"}</h3>
+                <h3 id="result-preview-title">{resultPreviewContent === "image" || resultPreviewContent === "result-image" ? resultLabel : resultPreviewContent === "source-image" ? "Conversion input" : resultPreviewContent === "pre-attribute" ? "Pre-attribute dither" : resultPreviewContent === "screen-1" ? "Screen 1" : resultPreviewContent === "screen-2" ? "Screen 2" : resultPreviewContent === "merged-low" ? "Merged · low resolution" : resultPreviewContent === "merged-high" ? "Merged · high resolution" : resultPreviewContent === "palette-usage" ? "Palette usage" : resultPreviewContent === "tile-usage" ? "Used tiles" : resultPreviewContent === "unified-editor" ? "Unified editor" : resultPreviewContent === "difference" ? "Difference heatmap" : "Inspector"}</h3>
                 <label className="preview-content-selector">
                   <span className="sr-only">Result window content</span>
                   <select
@@ -7091,8 +7195,7 @@ export function App() {
                     <option value="merged-high" disabled={!hasMixedScreenTarget}>Merged · high resolution</option>
                     <option value="palette-usage">Palette usage</option>
                     <option value="tile-usage" disabled={workspaceMode !== "tilemap"}>Used tiles</option>
-                    <option value="tile-editor" disabled={workspaceMode !== "tilemap"}>Tile editor</option>
-                    <option value="bitmap-editor" disabled={workspaceMode !== "palette"}>Bitmap editor</option>
+                    <option value="unified-editor">Unified editor</option>
                     <option value="difference">Difference heatmap</option>
                     <option value="inspector">Inspector</option>
                   </select>
@@ -7161,6 +7264,11 @@ export function App() {
                           <rect {...bitmapEditorSelectionOverlay} />
                         </svg>
                       ) : null}
+                      {resultPreviewContent !== "source-image" && tilemapEditorSelectionOverlay !== null ? (
+                        <svg className="bitmap-editor-selection-overlay" viewBox={`0 0 ${displayedWidth} ${displayedHeight}`} preserveAspectRatio="none" aria-hidden="true">
+                          <rect {...tilemapEditorSelectionOverlay} />
+                        </svg>
+                      ) : null}
                       {workspaceMode === "tilemap" && tilemapStale ? (
                         <span className="stale-preview-badge">
                           Stale · press Convert High
@@ -7197,12 +7305,10 @@ export function App() {
                   ) : resultPreviewContent === "tile-usage" ? (
                     tileUsage.length === 0 ? <p>Run Tilemap High to inspect tile usage.</p> : <>
                       <label className="preview-filter-control"><span>Show</span><select value={tileUsageFilter} onChange={(event) => setTileUsageFilter(event.target.value as "used" | "all")}><option value="used">Used tiles only</option><option value="all">All tiles</option></select></label>
-                      <div className="preview-usage-list">{visibleTileUsage.slice(0, 64).map(({ characterIndex, count }) => <button type="button" className={`preview-usage-row${tileEditorSelected === characterIndex ? " selected" : ""}`} key={characterIndex} aria-pressed={tileEditorSelected === characterIndex} onClick={() => selectUsedTile(characterIndex)}><span>Tile {characterIndex}</span><strong>{count} cells</strong></button>)}</div>
+                      <div className="preview-usage-list">{visibleTileUsage.map(({ characterIndex, count }) => <button type="button" className={`preview-usage-row${tileEditorSelected === characterIndex ? " selected" : ""}`} key={characterIndex} aria-pressed={tileEditorSelected === characterIndex} onClick={() => { selectUsedTile(characterIndex); }}><span>Tile {characterIndex} · {charsetSource === "existing" ? "Loaded" : "Calculated"}</span><strong>{count} cells</strong></button>)}</div>
                     </>
-                  ) : resultPreviewContent === "tile-editor" ? (
-                    tileEditorPreview
-                  ) : resultPreviewContent === "bitmap-editor" ? (
-                    bitmapEditorPreview
+                  ) : resultPreviewContent === "unified-editor" ? (
+                    unifiedEditorPreview
                   ) : resultPreviewContent === "pre-attribute" || resultPreviewContent === "screen-1" || resultPreviewContent === "screen-2" || resultPreviewContent === "merged-low" || resultPreviewContent === "merged-high" ? (
                     windowImageFor(resultPreviewContent)
                   ) : resultPreviewContent === "difference" ? (

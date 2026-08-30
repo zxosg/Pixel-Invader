@@ -239,7 +239,10 @@ export function validateVerticalSpatialMixSettings(
 ): asserts settings is VerticalSpatialMixSettings {
   if (
     settings?.schemaVersion !== 1 ||
-    settings.algorithmId !== "vertical-spatial-uniform-v1" ||
+    ![
+      "vertical-spatial-uniform-v1",
+      "vertical-spatial-detail-v1",
+    ].includes(settings.algorithmId) ||
     settings.calibrationId !== "srgb-ideal-v1"
   ) {
     throw new RangeError("Vertical spatial mixing settings are invalid.");
@@ -295,16 +298,22 @@ function diagnostics(
   height: number,
   colorCost: number,
   stripeCost: number,
+  algorithmId: VerticalSpatialDiagnostics["algorithmId"] = "vertical-spatial-uniform-v1",
+  detailCost?: number,
+  phaseChanges?: number,
 ): VerticalSpatialDiagnostics {
   return {
-    algorithmId: "vertical-spatial-uniform-v1",
+    algorithmId,
     calibrationId: "srgb-ideal-v1",
     logicalWidth: width,
     logicalHeight: height / 2,
     analyticPreviewRgba: preview,
     colorCost,
     stripeCost,
-    totalCost: 5 * colorCost + stripeCost,
+    totalCost: 5 * colorCost + stripeCost +
+      (detailCost === undefined ? 0 : Math.floor(detailCost / 20)),
+    ...(detailCost === undefined ? {} : { detailCost }),
+    ...(phaseChanges === undefined ? {} : { phaseChanges }),
   };
 }
 
@@ -496,6 +505,7 @@ export function optimizeVerticalSpatialZx(
   enabled: readonly number[],
   brightMode: BrightMode,
   ditherOptions: VerticalSpatialDitherOptions = DEFAULT_VERTICAL_SPATIAL_DITHER,
+  optimizationStyle: "uniform-blend" | "detail-preserving" = "uniform-blend",
 ): CellPlanes {
   const width = 256;
   const height = 192;
@@ -589,7 +599,126 @@ export function optimizeVerticalSpatialZx(
       dither.commitCell(logicalY, byteX, realized);
     }
   }
+  if (optimizationStyle === "detail-preserving") {
+    return refineVerticalSpatialZxOrientation(
+      physicalSource,
+      pixelMasks,
+      attributes,
+      colorCost,
+      stripeCost,
+    );
+  }
   return { pixelMasks, attributes, diagnostics: diagnostics(new Uint8Array(), width, height, colorCost, stripeCost) };
+}
+
+function squaredColorDifference(left: LinearColor, right: LinearColor): number {
+  const dr = left.r - right.r;
+  const dg = left.g - right.g;
+  const db = left.b - right.b;
+  return Math.floor((dr * dr + dg * dg + db * db) / 3);
+}
+
+function zxAttributePixel(attribute: number, mask: number, pixel: number): LinearColor {
+  const bright = (attribute & 0x40) !== 0;
+  const code = (mask & (1 << (7 - pixel))) === 0
+    ? (attribute >> 3) & 7
+    : attribute & 7;
+  return linearColor(zxColor(code, bright));
+}
+
+/**
+ * Experimental one-pass orientation refinement. Swapping a cell's physical
+ * rows preserves its exact analytic mixture and stripe energy. The pass uses
+ * source-subrow detail first, then a small deterministic phase-continuity
+ * preference relative to the already-refined cell on the left.
+ */
+function refineVerticalSpatialZxOrientation(
+  physicalSource: Uint8Array,
+  sourceMasks: Uint8Array,
+  sourceAttributes: Uint8Array,
+  colorCost: number,
+  stripeCost: number,
+): CellPlanes {
+  const width = 256;
+  const bytesPerRow = 32;
+  const pixelMasks = Uint8Array.from(sourceMasks);
+  const attributes = Uint8Array.from(sourceAttributes);
+  const sourceLinear = new Array<LinearColor>(width * 192);
+  for (let pixel = 0; pixel < sourceLinear.length; pixel += 1) {
+    sourceLinear[pixel] = linearColor({
+      r: physicalSource[pixel * 4] ?? 0,
+      g: physicalSource[pixel * 4 + 1] ?? 0,
+      b: physicalSource[pixel * 4 + 2] ?? 0,
+    });
+  }
+  let detailCost = 0;
+  let phaseChanges = 0;
+  const phaseUnit = Math.floor(VERTICAL_SPATIAL_LINEAR_SCALE ** 2 / 20);
+  for (let logicalY = 0; logicalY < 96; logicalY += 1) {
+    let previousUpper = -1;
+    let previousLower = -1;
+    for (let byteX = 0; byteX < bytesPerRow; byteX += 1) {
+      const upperIndex = (logicalY * 2) * bytesPerRow + byteX;
+      const lowerIndex = upperIndex + bytesPerRow;
+      const upperAttribute = attributes[upperIndex] ?? 0;
+      const lowerAttribute = attributes[lowerIndex] ?? 0;
+      let upperMask = 0;
+      let lowerMask = 0;
+      for (let pixel = 0; pixel < 8; pixel += 1) {
+        upperMask |= (pixelMasks[(logicalY * 2) * width + byteX * 8 + pixel] ?? 0) << (7 - pixel);
+        lowerMask |= (pixelMasks[(logicalY * 2 + 1) * width + byteX * 8 + pixel] ?? 0) << (7 - pixel);
+      }
+      let directDetail = 0;
+      let swappedDetail = 0;
+      for (let pixel = 0; pixel < 8; pixel += 1) {
+        const x = byteX * 8 + pixel;
+        const sourceUpper = sourceLinear[(logicalY * 2) * width + x]!;
+        const sourceLower = sourceLinear[(logicalY * 2 + 1) * width + x]!;
+        const outputUpper = zxAttributePixel(upperAttribute, upperMask, pixel);
+        const outputLower = zxAttributePixel(lowerAttribute, lowerMask, pixel);
+        directDetail += squaredColorDifference(sourceUpper, outputUpper) +
+          squaredColorDifference(sourceLower, outputLower);
+        swappedDetail += squaredColorDifference(sourceUpper, outputLower) +
+          squaredColorDifference(sourceLower, outputUpper);
+      }
+      const directPhase = previousUpper < 0
+        ? 0
+        : Number(upperAttribute !== previousUpper) + Number(lowerAttribute !== previousLower);
+      const swappedPhase = previousUpper < 0
+        ? 0
+        : Number(lowerAttribute !== previousUpper) + Number(upperAttribute !== previousLower);
+      const swap = swappedDetail + swappedPhase * phaseUnit <
+        directDetail + directPhase * phaseUnit;
+      if (swap) {
+        attributes[upperIndex] = lowerAttribute;
+        attributes[lowerIndex] = upperAttribute;
+        for (let pixel = 0; pixel < 8; pixel += 1) {
+          const upperPixel = (logicalY * 2) * width + byteX * 8 + pixel;
+          const lowerPixel = upperPixel + width;
+          const value = pixelMasks[upperPixel] ?? 0;
+          pixelMasks[upperPixel] = pixelMasks[lowerPixel] ?? 0;
+          pixelMasks[lowerPixel] = value;
+        }
+        detailCost += swappedDetail;
+        phaseChanges += swappedPhase;
+        previousUpper = lowerAttribute;
+        previousLower = upperAttribute;
+      } else {
+        detailCost += directDetail;
+        phaseChanges += directPhase;
+        previousUpper = upperAttribute;
+        previousLower = lowerAttribute;
+      }
+    }
+  }
+  return {
+    pixelMasks,
+    attributes,
+    diagnostics: diagnostics(
+      new Uint8Array(), width, 192, colorCost, stripeCost,
+      "vertical-spatial-detail-v1", detailCost, phaseChanges,
+    ),
+  };
 }
 
 export function withAnalyticPreview(
