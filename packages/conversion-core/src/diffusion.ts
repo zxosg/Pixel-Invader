@@ -135,6 +135,169 @@ export function phaseBalancedDiffusionKernel(
   ];
 }
 
+/**
+ * Phase-balanced diffusion with an explicit 2x2 checkerboard preference.
+ * At zero suppression this is exactly the unrestricted v2 kernel. Above zero
+ * it transfers a bounded share of same-phase weight to opposite-phase future
+ * pixels, while retaining v3's smooth-region vertical-run correction.
+ */
+export function checkerPhaseDiffusionKernel(
+  direction: -1 | 1,
+  x: number,
+  y: number,
+  suppression: number,
+  verticalRunLength = 0,
+): readonly (readonly [dx: number, dy: number, weight: number])[] {
+  if (suppression <= 0) {
+    return [
+      [direction, 0, 7],
+      [-direction, 1, 3],
+      [0, 1, 5],
+      [direction, 1, 1],
+    ];
+  }
+  const base = phaseBalancedDiffusionKernel(
+    direction,
+    x,
+    y,
+    suppression,
+    verticalRunLength,
+  );
+  const strength = Math.min(1, suppression / 100);
+  const weights = base.map(([, , weight]) => weight);
+  const samePhase = [1, 3] as const;
+  const oppositePhase = [0, 2] as const;
+  const sameTotal = samePhase.reduce((sum, index) => sum + (weights[index] ?? 0), 0);
+  // v4 must be materially stronger than v3 at the low suppression values
+  // commonly used by saved projects; otherwise the parity preference is
+  // drowned out by the inherited vertical feedback. The transfer is still
+  // bounded by the complete same-phase share and preserves total weight.
+  const transfer = sameTotal * strength;
+  if (transfer <= 0) return base;
+  for (const index of samePhase) {
+    const share = (weights[index] ?? 0) / sameTotal;
+    weights[index] = (weights[index] ?? 0) - transfer * share;
+  }
+  // Alternate which opposite-phase destination receives most of the transfer.
+  // This makes the parity preference spatially checkerboard-shaped without
+  // forcing a pixel or changing the mean propagated error.
+  const preferred: 0 | 1 = ((x + y) & 1) === 0 ? 0 : 1;
+  const secondary: 0 | 1 = preferred === 0 ? 1 : 0;
+  const preferredIndex = oppositePhase[preferred];
+  const secondaryIndex = oppositePhase[secondary];
+  weights[preferredIndex] = (weights[preferredIndex] ?? 0) + transfer * 0.7;
+  weights[secondaryIndex] = (weights[secondaryIndex] ?? 0) + transfer * 0.3;
+  return base.map(([dx, dy], index) => [dx, dy, weights[index] ?? 0] as const);
+}
+
+/** v4 checker diffusion with bounded rolling column-bias compensation. */
+export function checkerPhaseV42DiffusionKernel(
+  direction: -1 | 1,
+  x: number,
+  y: number,
+  suppression: number,
+  verticalRunLength = 0,
+  columnBias = 0,
+): readonly (readonly [dx: number, dy: number, weight: number])[] {
+  const base = checkerPhaseDiffusionKernel(direction, x, y, suppression, verticalRunLength);
+  if (suppression <= 0 || columnBias < 2) return base;
+  const weights = base.map(([, , weight]) => weight);
+  const transfer = Math.min(weights[2] ?? 0, (weights[2] ?? 0) * 0.12 * Math.min(3, columnBias - 1));
+  if (transfer <= 0) return base;
+  weights[2] = (weights[2] ?? 0) - transfer;
+  weights[1] = (weights[1] ?? 0) + transfer / 2;
+  weights[3] = (weights[3] ?? 0) + transfer / 2;
+  return base.map(([dx, dy], index) => [dx, dy, weights[index] ?? 0] as const);
+}
+
+/**
+ * Direction-neutral checker diffusion. Unlike v4, phase transfer never
+ * increases the direct-down path and the transferred weight is carried by
+ * symmetric two-row diagonal destinations. The v3 vertical-run feedback is
+ * deliberately not inherited.
+ */
+export function checkerPhaseV43DiffusionKernel(
+  direction: -1 | 1,
+  _x: number,
+  _y: number,
+  suppression: number,
+  _verticalRunLength = 0,
+): readonly (readonly [dx: number, dy: number, weight: number])[] {
+  if (suppression <= 0) {
+    return [
+      [direction, 0, 7],
+      [-direction, 1, 3],
+      [0, 1, 5],
+      [direction, 1, 1],
+    ];
+  }
+  const strength = Math.min(1, suppression / 100);
+  const phaseTransfer = 4 * 0.35 * strength;
+  const backShare = phaseTransfer * 3 / 4;
+  const forwardShare = phaseTransfer / 4;
+  return [
+    [direction, 0, 7],
+    [-direction, 1, 3 - backShare],
+    [0, 1, 5],
+    [direction, 1, 1 - forwardShare],
+    [-1, 2, phaseTransfer / 2],
+    [1, 2, phaseTransfer / 2],
+  ];
+}
+
+/**
+ * Symmetric checker-phase diffusion with short-column suppression. The phase
+ * transfer is deliberately weaker than v4 and never favors a scan direction.
+ */
+export function checkerPhaseV5DiffusionKernel(
+  direction: -1 | 1,
+  x: number,
+  y: number,
+  suppression: number,
+  verticalRunLength = 0,
+  boundaryDistance = 2,
+): readonly (readonly [dx: number, dy: number, weight: number])[] {
+  if (suppression <= 0) {
+    return [
+      [direction, 0, 7],
+      [-direction, 1, 3],
+      [0, 1, 5],
+      [direction, 1, 1],
+    ];
+  }
+  const base = phaseBalancedDiffusionKernel(
+    direction,
+    x,
+    y,
+    suppression,
+    verticalRunLength,
+  );
+  const weights = base.map(([, , weight]) => weight);
+  const strength = Math.min(1, suppression / 100);
+  const samePhase = [1, 3] as const;
+  const oppositePhase = [0, 2] as const;
+  const sameTotal = samePhase.reduce((sum, index) => sum + (weights[index] ?? 0), 0);
+  const boundaryFactor = boundaryDistance <= 0
+    ? 0
+    : boundaryDistance === 1 ? 0.5 : 1;
+  const phaseTransfer = sameTotal * 0.4 * strength * boundaryFactor;
+  for (const index of samePhase) {
+    const share = (weights[index] ?? 0) / Math.max(1, sameTotal);
+    weights[index] = (weights[index] ?? 0) - phaseTransfer * share;
+  }
+  for (const index of oppositePhase) {
+    weights[index] = (weights[index] ?? 0) + phaseTransfer / 2;
+  }
+  if (verticalRunLength >= 2) {
+    const runStrength = Math.min(1, (verticalRunLength - 1) / 4) * strength;
+    const columnTransfer = (weights[2] ?? 0) * 0.5 * runStrength;
+    weights[2] = (weights[2] ?? 0) - columnTransfer;
+    weights[1] = (weights[1] ?? 0) + columnTransfer / 2;
+    weights[3] = (weights[3] ?? 0) + columnTransfer / 2;
+  }
+  return base.map(([dx, dy], index) => [dx, dy, weights[index] ?? 0] as const);
+}
+
 function rotateHilbert(
   size: number,
   x: number,

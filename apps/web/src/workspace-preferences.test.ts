@@ -41,11 +41,11 @@ describe("workspace preferences", () => {
     expect(loadWorkspacePreferences(storage as unknown as Storage)).toEqual(DEFAULT_WORKSPACE_PREFERENCES);
   });
 
-  it("migrates legacy editor pane preferences to the unified editor", () => {
+  it("migrates the removed tile editor pane to the unified editor", () => {
     const storage = memoryStorage(JSON.stringify({
       ...DEFAULT_WORKSPACE_PREFERENCES,
       layout: "custom",
-      sourceContent: "bitmap-editor",
+      sourceContent: "tile-editor",
       resultContent: "tile-editor",
     }));
 
@@ -53,5 +53,20 @@ describe("workspace preferences", () => {
       .toBe("unified-editor");
     expect(loadWorkspacePreferences(storage as unknown as Storage).resultContent)
       .toBe("unified-editor");
+  });
+
+  it("accepts independent high zoom values and the bitmap editor pane", () => {
+    const storage = memoryStorage(JSON.stringify({
+      ...DEFAULT_WORKSPACE_PREFERENCES,
+      layout: "editor",
+      sourceContent: "result-image",
+      resultContent: "bitmap-editor",
+      sourceZoom: 8,
+      resultZoom: 16,
+    }));
+    const loaded = loadWorkspacePreferences(storage as unknown as Storage);
+    expect(loaded.layout).toBe("editor");
+    expect(loaded.resultContent).toBe("bitmap-editor");
+    expect(loaded.resultZoom).toBe(16);
   });
 });

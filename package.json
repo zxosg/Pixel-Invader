@@ -8,6 +8,8 @@
   "scripts": {
     "build": "pnpm -r build",
     "benchmark:corpus": "node tools/summarize-benchmark-corpus.mjs",
+    "benchmark:error-diffusion": "pnpm --filter @retro-converter/conversion-core build && node tools/benchmark-error-diffusion.mjs",
+    "benchmark:error-diffusion:ql": "pnpm --filter @retro-converter/conversion-core build && node tools/benchmark-error-diffusion-ql.mjs",
     "check": "pnpm run typecheck && pnpm run test",
     "dev": "pnpm --filter @retro-converter/zx-spectrum build && pnpm --filter @retro-converter/sinclair-ql build && pnpm --filter @retro-converter/web dev",
     "test": "vitest run",

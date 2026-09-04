@@ -9,6 +9,10 @@ import {
 } from "@retro-converter/sinclair-ql";
 import { adjustRgba } from "./adjustments.js";
 import { assertCompatibleEngines, ditherMethodForEngine } from "./engines.js";
+import {
+  applyCheckerPlacement,
+  planCheckerPlacement,
+} from "./checker-placement.js";
 import { filterRgba } from "./filters.js";
 import { frameRgbaToDimensions } from "./geometry.js";
 import {
@@ -23,6 +27,9 @@ import {
 } from "./palette-selections.js";
 import {
   atkinsonDiffusionKernel,
+  checkerPhaseDiffusionKernel,
+  checkerPhaseV43DiffusionKernel,
+  checkerPhaseV5DiffusionKernel,
   decorrelatedDiffusionKernel,
   diffusionNoiseOffset,
   phaseBalancedDiffusionKernel,
@@ -679,7 +686,16 @@ export function quantizeTemporalVirtual(
     const atkinson =
       settings.ditherEngineId === "error-diffusion-atkinson-v1";
     const phaseBalanced =
-      settings.ditherEngineId === "error-diffusion-phase-balanced-v3";
+      settings.ditherEngineId === "error-diffusion-phase-balanced-v3" ||
+      settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-2";
+    const checkerPhase =
+      settings.ditherEngineId === "error-diffusion-checker-phase-v4";
+    const checkerPhaseV43 =
+      settings.ditherEngineId === "error-diffusion-checker-phase-v4-3";
+    const checkerPhaseV5 =
+      settings.ditherEngineId === "error-diffusion-checker-phase-v5";
+    const matrixGuided =
+      settings.ditherEngineId === "error-diffusion-matrix-guided-v1";
     const previousRowIndices = new Uint16Array(width);
     previousRowIndices.fill(0xffff);
     const verticalRunLengths = new Uint8Array(width);
@@ -694,7 +710,7 @@ export function quantizeTemporalVirtual(
           255,
           (source[sourceOffset] ?? 0) +
             (errors[errorOffset] ?? 0) +
-            (decorrelated || (phaseBalanced && settings.errorDiffusionLineSuppression > 0)
+            (decorrelated || ((phaseBalanced || checkerPhaseV5 || checkerPhaseV43 || matrixGuided) && settings.errorDiffusionLineSuppression > 0)
               ? diffusionNoiseOffset(
                   x,
                   y,
@@ -708,7 +724,7 @@ export function quantizeTemporalVirtual(
           255,
           (source[sourceOffset + 1] ?? 0) +
             (errors[errorOffset + 1] ?? 0) +
-            (decorrelated || (phaseBalanced && settings.errorDiffusionLineSuppression > 0)
+            (decorrelated || ((phaseBalanced || checkerPhaseV5 || checkerPhaseV43 || matrixGuided) && settings.errorDiffusionLineSuppression > 0)
               ? diffusionNoiseOffset(
                   x,
                   y,
@@ -722,7 +738,7 @@ export function quantizeTemporalVirtual(
           255,
           (source[sourceOffset + 2] ?? 0) +
             (errors[errorOffset + 2] ?? 0) +
-            (decorrelated || (phaseBalanced && settings.errorDiffusionLineSuppression > 0)
+            (decorrelated || ((phaseBalanced || checkerPhaseV5 || checkerPhaseV43 || matrixGuided) && settings.errorDiffusionLineSuppression > 0)
               ? diffusionNoiseOffset(
                   x,
                   y,
@@ -745,6 +761,36 @@ export function quantizeTemporalVirtual(
           ? decorrelatedDiffusionKernel(direction)
           : atkinson
             ? atkinsonDiffusionKernel(direction)
+          : checkerPhaseV5 || matrixGuided
+            ? checkerPhaseV5DiffusionKernel(
+                direction,
+                x,
+                y,
+                settings.errorDiffusionLineSuppression,
+                sourcePixelIsSmooth(source, width, height, x, y)
+                  ? verticalRunLengths[x] ?? 0
+                  : 0,
+              )
+          : checkerPhaseV43
+            ? checkerPhaseV43DiffusionKernel(
+                direction,
+                x,
+                y,
+                settings.errorDiffusionLineSuppression,
+                sourcePixelIsSmooth(source, width, height, x, y)
+                  ? verticalRunLengths[x] ?? 0
+                  : 0,
+              )
+          : checkerPhase
+            ? checkerPhaseDiffusionKernel(
+                direction,
+                x,
+                y,
+                settings.errorDiffusionLineSuppression,
+                sourcePixelIsSmooth(source, width, height, x, y)
+                  ? verticalRunLengths[x] ?? 0
+                  : 0,
+              )
           : phaseBalanced
             ? phaseBalancedDiffusionKernel(
                 direction,
@@ -972,7 +1018,16 @@ function quantizeMixedResolutionV2(
     settings.ditherEngineId === "error-diffusion-decorrelated-v3";
   const atkinson = settings.ditherEngineId === "error-diffusion-atkinson-v1";
   const phaseBalanced =
-    settings.ditherEngineId === "error-diffusion-phase-balanced-v3";
+    settings.ditherEngineId === "error-diffusion-phase-balanced-v3" ||
+    settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-2";
+  const checkerPhase =
+    settings.ditherEngineId === "error-diffusion-checker-phase-v4";
+  const checkerPhaseV43 =
+    settings.ditherEngineId === "error-diffusion-checker-phase-v4-3";
+  const checkerPhaseV5 =
+    settings.ditherEngineId === "error-diffusion-checker-phase-v5";
+  const matrixGuided =
+    settings.ditherEngineId === "error-diffusion-matrix-guided-v1";
   const previousRowIndices = new Uint16Array(width);
   previousRowIndices.fill(0xffff);
   const verticalRunLengths = new Uint8Array(width);
@@ -996,7 +1051,7 @@ function quantizeMixedResolutionV2(
           255,
           (source[pairOffset + channel] ?? 0) + threshold +
             (errors?.[errorOffset + channel] ?? 0) +
-            (decorrelated || (phaseBalanced && settings.errorDiffusionLineSuppression > 0)
+            (decorrelated || ((phaseBalanced || checkerPhaseV5 || checkerPhaseV43 || matrixGuided) && settings.errorDiffusionLineSuppression > 0)
               ? diffusionNoiseOffset(
                   x,
                   y,
@@ -1010,7 +1065,7 @@ function quantizeMixedResolutionV2(
           255,
           (source[pairOffset + 4 + channel] ?? 0) + threshold +
             (errors?.[errorOffset + channel + 3] ?? 0) +
-            (decorrelated || (phaseBalanced && settings.errorDiffusionLineSuppression > 0)
+            (decorrelated || ((phaseBalanced || checkerPhaseV5 || checkerPhaseV43 || matrixGuided) && settings.errorDiffusionLineSuppression > 0)
               ? diffusionNoiseOffset(
                   x,
                   y,
@@ -1046,6 +1101,36 @@ function quantizeMixedResolutionV2(
         ? decorrelatedDiffusionKernel(direction)
         : atkinson
           ? atkinsonDiffusionKernel(direction)
+          : checkerPhaseV5 || matrixGuided
+            ? checkerPhaseV5DiffusionKernel(
+                direction,
+                x,
+                y,
+                settings.errorDiffusionLineSuppression,
+                sourcePixelIsSmooth(source, width * 2, height, x * 2, y)
+                  ? verticalRunLengths[x] ?? 0
+                  : 0,
+              )
+          : checkerPhaseV43
+            ? checkerPhaseV43DiffusionKernel(
+                direction,
+                x,
+                y,
+                settings.errorDiffusionLineSuppression,
+                sourcePixelIsSmooth(source, width * 2, height, x * 2, y)
+                  ? verticalRunLengths[x] ?? 0
+                  : 0,
+              )
+          : checkerPhase
+            ? checkerPhaseDiffusionKernel(
+                direction,
+                x,
+                y,
+                settings.errorDiffusionLineSuppression,
+                sourcePixelIsSmooth(source, width * 2, height, x * 2, y)
+                  ? verticalRunLengths[x] ?? 0
+                  : 0,
+              )
           : phaseBalanced
             ? phaseBalancedDiffusionKernel(
                 direction,
@@ -1133,6 +1218,10 @@ export function convertToQl(
     throw new RangeError("Sinclair QL mixed optimizer is invalid.");
   }
   const targetMode = settings.modeId;
+  const checkerPlacementV31 =
+    settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-1";
+  const checkerPlacementV32 =
+    settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-2";
   if (
     targetMode !== "mode8-256x256" &&
     targetMode !== "mode4-512x256" &&
@@ -1317,9 +1406,12 @@ export function convertToQl(
         lowIndices[pixel] = candidate.low;
         const stableNeighbor = x + 1 < lowWidth &&
           virtualIndices[pixel + 1] === virtualIndex;
+        const matrix = ORDERED_MATRICES[settings.orderedMatrix];
         const swapHighPair = settings.screenFlickerSuppression &&
           stableNeighbor &&
-          (y & 1) === 0;
+          (settings.ditherEngineId === "error-diffusion-matrix-guided-v1"
+            ? orderedThreshold(matrix, x, y) < matrix.levels / 2
+            : (y & 1) === 0);
         const highOffset = y * highWidth + x * 2;
         highIndices[highOffset] = swapHighPair
           ? candidate.highRight
@@ -1327,6 +1419,99 @@ export function convertToQl(
         highIndices[highOffset + 1] = swapHighPair
           ? candidate.highLeft
           : candidate.highRight;
+      }
+    }
+    if (checkerPlacementV31) {
+      const sourceForHigh = useLegacyAverage
+        ? expandRgbaHorizontally2x(normalizedSource, lowWidth, QL_SCREEN_HEIGHT)
+        : normalizedSource;
+      const highBits = new Uint8Array(highIndices.length);
+      for (let pixel = 0; pixel < highIndices.length; pixel += 1) {
+        const x = pixel % highWidth;
+        const logicalX = Math.floor(x / 2);
+        const candidate = virtualPalette[virtualIndices[Math.floor(pixel / highWidth) * lowWidth + logicalX] ?? 0]!;
+        const paper = x % 2 === 0 ? candidate.highLeft : candidate.highRight;
+        const ink = x % 2 === 0 ? candidate.highRight : candidate.highLeft;
+        highBits[pixel] = paper !== ink && highIndices[pixel] === ink ? 1 : 0;
+      }
+      const placement = applyCheckerPlacement(
+        sourceForHigh,
+        highBits,
+        highWidth,
+        QL_SCREEN_HEIGHT,
+        settings.errorDiffusionLineSuppression / 100,
+        (x, y) => {
+          const logicalX = Math.floor(x / 2);
+          const candidate = virtualPalette[virtualIndices[y * lowWidth + logicalX] ?? 0]!;
+          const left = palettes[1]![candidate.highLeft];
+          const right = palettes[1]![candidate.highRight];
+          return left === undefined || right === undefined
+            ? null
+            : x % 2 === 0
+              ? { paper: left, ink: right, key: candidate.highLeft * 16 + candidate.highRight }
+              : { paper: right, ink: left, key: candidate.highLeft * 16 + candidate.highRight };
+        },
+      );
+      for (let pixel = 0; pixel < highBits.length; pixel += 1) {
+        const x = pixel % highWidth;
+        const logicalX = Math.floor(x / 2);
+        const candidate = virtualPalette[virtualIndices[Math.floor(pixel / highWidth) * lowWidth + logicalX] ?? 0]!;
+        const paper = x % 2 === 0 ? candidate.highLeft : candidate.highRight;
+        const ink = x % 2 === 0 ? candidate.highRight : candidate.highLeft;
+        highIndices[pixel] = placement.pixels[pixel] === 1 ? ink : paper;
+      }
+    } else if (checkerPlacementV32) {
+      const sourceForHigh = useLegacyAverage
+        ? expandRgbaHorizontally2x(normalizedSource, lowWidth, QL_SCREEN_HEIGHT)
+        : normalizedSource;
+      const highBits = new Uint8Array(highIndices.length);
+      for (let pixel = 0; pixel < highIndices.length; pixel += 1) {
+        const x = pixel % highWidth;
+        const logicalX = Math.floor(x / 2);
+        const candidate = virtualPalette[virtualIndices[Math.floor(pixel / highWidth) * lowWidth + logicalX] ?? 0]!;
+        const paper = x % 2 === 0 ? candidate.highLeft : candidate.highRight;
+        const ink = x % 2 === 0 ? candidate.highRight : candidate.highLeft;
+        highBits[pixel] = paper !== ink && highIndices[pixel] === ink ? 1 : 0;
+      }
+      const plan = planCheckerPlacement(
+        sourceForHigh,
+        highBits,
+        highWidth,
+        QL_SCREEN_HEIGHT,
+        settings.errorDiffusionLineSuppression / 100,
+        (x, y) => {
+          const logicalX = Math.floor(x / 2);
+          const candidate = virtualPalette[virtualIndices[y * lowWidth + logicalX] ?? 0]!;
+          const left = palettes[1]![candidate.highLeft];
+          const right = palettes[1]![candidate.highRight];
+          return left === undefined || right === undefined
+            ? null
+            : x % 2 === 0
+              ? { paper: left, ink: right, key: candidate.highLeft * 16 + candidate.highRight }
+              : { paper: right, ink: left, key: candidate.highLeft * 16 + candidate.highRight };
+        },
+      );
+      for (let top = 0; top + 1 < QL_SCREEN_HEIGHT; top += 2) {
+        for (let left = 0; left + 1 < highWidth; left += 2) {
+          const mask = plan.masks[
+            Math.floor(top / 2) * plan.blockColumns + Math.floor(left / 2)
+          ] ?? 255;
+          if (mask === 255) continue;
+          for (let dy = 0; dy < 2; dy += 1) {
+            for (let dx = 0; dx < 2; dx += 1) {
+              highBits[(top + dy) * highWidth + left + dx] =
+                (mask >> (dy * 2 + dx)) & 1;
+            }
+          }
+        }
+      }
+      for (let pixel = 0; pixel < highBits.length; pixel += 1) {
+        const x = pixel % highWidth;
+        const logicalX = Math.floor(x / 2);
+        const candidate = virtualPalette[virtualIndices[Math.floor(pixel / highWidth) * lowWidth + logicalX] ?? 0]!;
+        const paper = x % 2 === 0 ? candidate.highLeft : candidate.highRight;
+        const ink = x % 2 === 0 ? candidate.highRight : candidate.highLeft;
+        highIndices[pixel] = highBits[pixel] === 1 ? ink : paper;
       }
     }
     const lowNativePreview = renderQlRgba(lowIndices, lowMode);
@@ -1431,6 +1616,7 @@ export function convertToQl(
   );
   const firstIndices = new Uint8Array(virtualIndices.length);
   const secondIndices = new Uint8Array(virtualIndices.length);
+  const matrix = ORDERED_MATRICES[settings.orderedMatrix];
   for (let pixel = 0; pixel < virtualIndices.length; pixel += 1) {
     const virtualIndex = virtualIndices[pixel] ?? 0;
     const pair = virtualPalette[virtualIndex]!;
@@ -1440,9 +1626,79 @@ export function convertToQl(
       settings.screenFlickerSuppression &&
       paletteSelectionsMatch(selections[0]!, selections[1]!) &&
       pair.first !== pair.second &&
-      ((x + y) & 1) === 1;
+      (settings.ditherEngineId === "error-diffusion-matrix-guided-v1"
+        ? orderedThreshold(matrix, x, y) >= matrix.levels / 2
+        : ((x + y) & 1) === 1);
     firstIndices[pixel] = swap ? pair.second : pair.first;
     secondIndices[pixel] = swap ? pair.first : pair.second;
+  }
+  if (checkerPlacementV31 && usesMixing) {
+    const phaseBits = new Uint8Array(virtualIndices.length);
+    for (let pixel = 0; pixel < virtualIndices.length; pixel += 1) {
+      const pair = virtualPalette[virtualIndices[pixel] ?? 0]!;
+      phaseBits[pixel] = pair.first !== pair.second && firstIndices[pixel] === pair.second ? 1 : 0;
+    }
+    const placement = applyCheckerPlacement(
+      normalized,
+      phaseBits,
+      width,
+      QL_SCREEN_HEIGHT,
+      settings.errorDiffusionLineSuppression / 100,
+      (x, y) => {
+        const pair = virtualPalette[virtualIndices[y * width + x] ?? 0]!;
+        const first = palette[pair.first];
+        const second = palette[pair.second];
+        return first === undefined || second === undefined
+          ? null
+          : { paper: first, ink: second, key: pair.first * 16 + pair.second };
+      },
+    );
+    for (let pixel = 0; pixel < phaseBits.length; pixel += 1) {
+      const pair = virtualPalette[virtualIndices[pixel] ?? 0]!;
+      firstIndices[pixel] = placement.pixels[pixel] === 1 ? pair.second : pair.first;
+      secondIndices[pixel] = placement.pixels[pixel] === 1 ? pair.first : pair.second;
+    }
+  } else if (checkerPlacementV32 && usesMixing) {
+    const phaseBits = new Uint8Array(virtualIndices.length);
+    for (let pixel = 0; pixel < virtualIndices.length; pixel += 1) {
+      const pair = virtualPalette[virtualIndices[pixel] ?? 0]!;
+      phaseBits[pixel] = pair.first !== pair.second &&
+        firstIndices[pixel] === pair.second ? 1 : 0;
+    }
+    const plan = planCheckerPlacement(
+      normalized,
+      phaseBits,
+      width,
+      QL_SCREEN_HEIGHT,
+      settings.errorDiffusionLineSuppression / 100,
+      (x, y) => {
+        const pair = virtualPalette[virtualIndices[y * width + x] ?? 0]!;
+        const first = palette[pair.first];
+        const second = palette[pair.second];
+        return first === undefined || second === undefined
+          ? null
+          : { paper: first, ink: second, key: pair.first * 16 + pair.second };
+      },
+    );
+    for (let top = 0; top + 1 < QL_SCREEN_HEIGHT; top += 2) {
+      for (let left = 0; left + 1 < width; left += 2) {
+        const mask = plan.masks[
+          Math.floor(top / 2) * plan.blockColumns + Math.floor(left / 2)
+        ] ?? 255;
+        if (mask === 255) continue;
+        for (let dy = 0; dy < 2; dy += 1) {
+          for (let dx = 0; dx < 2; dx += 1) {
+            phaseBits[(top + dy) * width + left + dx] =
+              (mask >> (dy * 2 + dx)) & 1;
+          }
+        }
+      }
+    }
+    for (let pixel = 0; pixel < phaseBits.length; pixel += 1) {
+      const pair = virtualPalette[virtualIndices[pixel] ?? 0]!;
+      firstIndices[pixel] = phaseBits[pixel] === 1 ? pair.second : pair.first;
+      secondIndices[pixel] = phaseBits[pixel] === 1 ? pair.first : pair.second;
+    }
   }
   const firstPreview = renderQlRgba(firstIndices, mode);
   if (!usesMixing) {

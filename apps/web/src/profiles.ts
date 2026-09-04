@@ -665,6 +665,14 @@ function validateSettings(value: unknown): value is ConversionSettings {
       "error-diffusion-atkinson-v1",
       "error-diffusion-riemersma-v1",
       "error-diffusion-phase-balanced-v3",
+      "error-diffusion-phase-balanced-checker-v3-1",
+      "error-diffusion-phase-balanced-checker-v3-2",
+      "error-diffusion-checker-phase-v4",
+      "error-diffusion-checker-phase-v4-1",
+      "error-diffusion-checker-phase-v4-2",
+      "error-diffusion-checker-phase-v4-3",
+      "error-diffusion-checker-phase-v5",
+      "error-diffusion-matrix-guided-v1",
     ].includes(String(value.ditherEngineId)) &&
     [
       "ql-mixed-average-v1",

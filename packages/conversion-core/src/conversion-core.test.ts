@@ -1019,6 +1019,260 @@ describe("ZX conversion", () => {
     expect(maximum).toBeLessThan(medium);
   });
 
+  it("favors 2x2 checker coverage in a flat intermediate-tone field", () => {
+    const source = solid(256, 192, [112, 112, 112, 255]);
+    const base = settings({
+      framing: "stretch",
+      resampling: "nearest",
+      dithering: "error-diffusion",
+      ditheringAmount: 19,
+      errorDiffusionRandomization: 0,
+      errorDiffusionLineSuppression: 22,
+    });
+    const checkerCount = (rgba: Uint8Array): number => {
+      let count = 0;
+      for (let y = 0; y < 191; y += 1) {
+        for (let x = 0; x < 255; x += 1) {
+          const values = [
+            (y * 256 + x) * 4,
+            (y * 256 + x + 1) * 4,
+            ((y + 1) * 256 + x) * 4,
+            ((y + 1) * 256 + x + 1) * 4,
+          ].map((offset) => (rgba[offset] ?? 0) > 100 ? 1 : 0);
+          if (values[0] === values[3] && values[1] === values[2] && values[0] !== values[1]) count += 1;
+        }
+      }
+      return count;
+    };
+    const phaseBalanced = convertToZx(source, 256, 192, {
+      ...base,
+      ditherEngineId: "error-diffusion-phase-balanced-v3",
+    });
+    const checkerPhase = convertToZx(source, 256, 192, {
+      ...base,
+      ditherEngineId: "error-diffusion-checker-phase-v4",
+    });
+    expect(checkerCount(checkerPhase.preConstraintPreviewRgba))
+      .toBeGreaterThan(checkerCount(phaseBalanced.preConstraintPreviewRgba));
+  });
+
+  it("keeps matrix-guided placement deterministic and valid", () => {
+    const source = solid(256, 192, [112, 112, 112, 255]);
+    for (let pixel = 0; pixel < 256 * 192; pixel += 1) {
+      const value = 80 + ((pixel * 17) % 80);
+      source[pixel * 4] = value;
+      source[pixel * 4 + 1] = value;
+      source[pixel * 4 + 2] = value;
+    }
+    const base = settings({
+      framing: "stretch",
+      resampling: "nearest",
+      dithering: "error-diffusion",
+      ditherEngineId: "error-diffusion-matrix-guided-v1",
+      ditheringAmount: 100,
+      errorDiffusionLineSuppression: 50,
+    });
+    const checker = convertToZx(source, 256, 192, {
+      ...base,
+      orderedMatrix: "checkerboard-2x1",
+    });
+    const bayer = convertToZx(source, 256, 192, {
+      ...base,
+      orderedMatrix: "bayer-4x4",
+    });
+    expect(validateScreen(checker.screen)).toEqual([]);
+    expect(validateScreen(bayer.screen)).toEqual([]);
+    expect(checker.previewRgba).toEqual(
+      convertToZx(source, 256, 192, {
+        ...base,
+        orderedMatrix: "checkerboard-2x1",
+      }).previewRgba,
+    );
+  });
+
+  it("keeps checker-phase v4.1 deterministic and preserves horizontal gradients", () => {
+    const source = new Uint8Array(256 * 192 * 4);
+    for (let y = 0; y < 192; y += 1) {
+      for (let x = 0; x < 256; x += 1) {
+        const value = x;
+        const offset = (y * 256 + x) * 4;
+        source[offset] = value;
+        source[offset + 1] = value;
+        source[offset + 2] = value;
+        source[offset + 3] = 255;
+      }
+    }
+    const base = settings({
+      framing: "stretch",
+      resampling: "nearest",
+      dithering: "error-diffusion",
+      ditheringAmount: 100,
+      errorDiffusionLineSuppression: 60,
+      errorDiffusionRandomization: 0,
+      attributeOptimizerId: "zx-guide-reference-halo-v1",
+    });
+    const v4 = convertToZx(source, 256, 192, {
+      ...base,
+      ditherEngineId: "error-diffusion-checker-phase-v4",
+    });
+    const v41 = convertToZx(source, 256, 192, {
+      ...base,
+      ditherEngineId: "error-diffusion-checker-phase-v4-1",
+    });
+    expect(v41.preConstraintPreviewRgba).toEqual(v4.preConstraintPreviewRgba);
+    expect(v41.previewRgba).toEqual(v4.previewRgba);
+    expect(v41.previewRgba).toEqual(
+      convertToZx(source, 256, 192, { ...base, ditherEngineId: "error-diffusion-checker-phase-v4-1" }).previewRgba,
+    );
+    expect(validateScreen(v41.screen)).toEqual([]);
+  });
+
+  it("keeps v3.1 identical to v3 when checker placement is disabled", () => {
+    const source = solid(256, 192, [128, 128, 128, 255]);
+    const base = settings({
+      framing: "stretch",
+      dithering: "error-diffusion",
+      ditheringAmount: 100,
+      errorDiffusionLineSuppression: 0,
+      errorDiffusionRandomization: 0,
+      attributeOptimizerId: "zx-guide-reference-halo-v1",
+    });
+    const v3 = convertToZx(source, 256, 192, {
+      ...base,
+      ditherEngineId: "error-diffusion-phase-balanced-v3",
+    });
+    const v31 = convertToZx(source, 256, 192, {
+      ...base,
+      ditherEngineId: "error-diffusion-phase-balanced-checker-v3-1",
+    });
+    expect(v31.preConstraintPreviewRgba).toEqual(v3.preConstraintPreviewRgba);
+    expect(v31.previewRgba).toEqual(v3.previewRgba);
+    expect(v31.attributes).toEqual(v3.attributes);
+  });
+
+  it("preserves 2x2 coverage when v3.1 changes checker placement", () => {
+    const source = solid(256, 192, [128, 128, 128, 255]);
+    const base = settings({
+      framing: "stretch",
+      dithering: "error-diffusion",
+      ditheringAmount: 100,
+      errorDiffusionLineSuppression: 100,
+      errorDiffusionRandomization: 0,
+      attributeOptimizerId: "zx-guide-reference-halo-v1",
+    });
+    const v3 = convertToZx(source, 256, 192, {
+      ...base,
+      ditherEngineId: "error-diffusion-phase-balanced-v3",
+    });
+    const v31 = convertToZx(source, 256, 192, {
+      ...base,
+      ditherEngineId: "error-diffusion-phase-balanced-checker-v3-1",
+    });
+    for (let y = 0; y < 192; y += 2) {
+      for (let x = 0; x < 256; x += 2) {
+        const count = (result: typeof v3) =>
+          (result.pixels[y * 256 + x] ?? 0) +
+          (result.pixels[y * 256 + x + 1] ?? 0) +
+          (result.pixels[(y + 1) * 256 + x] ?? 0) +
+          (result.pixels[(y + 1) * 256 + x + 1] ?? 0);
+        expect(count(v31)).toBe(count(v3));
+      }
+    }
+    expect(v31.attributes).toEqual(v3.attributes);
+    expect(validateScreen(v31.screen)).toEqual([]);
+  });
+
+  it("keeps v3.2 byte-identical to v3 when checker placement is disabled", () => {
+    const source = new Uint8Array(256 * 192 * 4);
+    for (let pixel = 0; pixel < 256 * 192; pixel += 1) {
+      source[pixel * 4] = (pixel * 17) & 255;
+      source[pixel * 4 + 1] = (pixel * 29) & 255;
+      source[pixel * 4 + 2] = (pixel * 43) & 255;
+      source[pixel * 4 + 3] = 255;
+    }
+    const base = settings({
+      framing: "stretch",
+      resampling: "nearest",
+      dithering: "error-diffusion",
+      ditheringAmount: 100,
+      errorDiffusionRandomization: 65,
+      errorDiffusionLineSuppression: 0,
+    });
+    const v3 = convertToZx(source, 256, 192, {
+      ...base,
+      ditherEngineId: "error-diffusion-phase-balanced-v3",
+    });
+    const v32 = convertToZx(source, 256, 192, {
+      ...base,
+      ditherEngineId: "error-diffusion-phase-balanced-checker-v3-2",
+    });
+    expect(v32.frames[0]?.encoded).toEqual(v3.frames[0]?.encoded);
+    expect(v32.preConstraintPreviewRgba).toEqual(v3.preConstraintPreviewRgba);
+    expect(v32.attributes).toEqual(v3.attributes);
+  });
+
+  it("uses integrated, coverage-preserving checker blocks in v3.2", () => {
+    const source = solid(256, 192, [128, 128, 128, 255]);
+    const base = settings({
+      framing: "stretch",
+      resampling: "nearest",
+      dithering: "error-diffusion",
+      ditherEngineId: "error-diffusion-phase-balanced-v3",
+      ditheringAmount: 100,
+      errorDiffusionRandomization: 0,
+      errorDiffusionLineSuppression: 100,
+    });
+    const v3 = convertToZx(source, 256, 192, base);
+    const v32 = convertToZx(source, 256, 192, {
+      ...base,
+      ditherEngineId: "error-diffusion-phase-balanced-checker-v3-2",
+    });
+    let changedPixels = 0;
+    for (let y = 0; y < 192; y += 2) {
+      for (let x = 0; x < 256; x += 2) {
+        let before = 0;
+        let after = 0;
+        let changed = 0;
+        for (let dy = 0; dy < 2; dy += 1) {
+          for (let dx = 0; dx < 2; dx += 1) {
+            const index = (y + dy) * 256 + x + dx;
+            before += v3.pixels[index] ?? 0;
+            after += v32.pixels[index] ?? 0;
+            if (v3.pixels[index] !== v32.pixels[index]) changed += 1;
+          }
+        }
+        expect(after).toBe(before);
+        if (changed > 0) expect(changed).toBeGreaterThan(1);
+        changedPixels += changed;
+      }
+    }
+    expect(changedPixels).toBeGreaterThan(0);
+    expect(v32.attributes).toEqual(v3.attributes);
+    expect(validateScreen(v32.screen)).toEqual([]);
+    expect(v32.previewRgba).toEqual(
+      convertToZx(source, 256, 192, {
+        ...base,
+        ditherEngineId: "error-diffusion-phase-balanced-checker-v3-2",
+      }).previewRgba,
+    );
+  });
+
+  it("keeps checker-phase v4.1 corrections inside legal ZX output", () => {
+    const source = solid(256, 192, [112, 112, 112, 255]);
+    const result = convertToZx(source, 256, 192, settings({
+      framing: "stretch",
+      dithering: "error-diffusion",
+      ditherEngineId: "error-diffusion-checker-phase-v4-1",
+      ditheringAmount: 100,
+      errorDiffusionLineSuppression: 100,
+      errorDiffusionRandomization: 0,
+      attributeOptimizerId: "zx-guide-reference-halo-v1",
+    }));
+    expect(validateScreen(result.screen)).toEqual([]);
+    expect(result.pixels.every((pixel) => pixel === 0 || pixel === 1)).toBe(true);
+    expect(result.artifactCorrection?.correctedPixelCount).toBeGreaterThan(0);
+  });
+
   it("produces a deterministic, valid bounded Draft result", () => {
     const source = new Uint8Array(16 * 16 * 4);
     for (let index = 0; index < source.length; index += 1) source[index] = (index * 53) & 255;

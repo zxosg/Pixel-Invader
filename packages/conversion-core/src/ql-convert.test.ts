@@ -416,7 +416,8 @@ describe("Sinclair QL conversion", () => {
     const convert = (ditherEngineId:
       | "error-diffusion-unrestricted-v2"
       | "error-diffusion-decorrelated-v3"
-      | "error-diffusion-phase-balanced-v3") => convertToQl(source, 1, 1, {
+      | "error-diffusion-phase-balanced-v3"
+      | "error-diffusion-checker-phase-v4") => convertToQl(source, 1, 1, {
         ...DEFAULT_CONVERSION_SETTINGS,
         platformId: "sinclair-ql",
         profileId: "org.retroconverter.sinclair-ql.default",
@@ -451,6 +452,7 @@ describe("Sinclair QL conversion", () => {
     const legacy = convert("error-diffusion-unrestricted-v2");
     const decorrelated = convert("error-diffusion-decorrelated-v3");
     const phaseBalanced = convert("error-diffusion-phase-balanced-v3");
+    const checkerPhase = convert("error-diffusion-checker-phase-v4");
 
     expect(maximumVerticalRun(decorrelated.frames[0]!.paletteIndices))
       .toBeLessThan(maximumVerticalRun(legacy.frames[0]!.paletteIndices));
@@ -460,6 +462,72 @@ describe("Sinclair QL conversion", () => {
     expect(phaseBalanced.frames[0]?.encoded).not.toEqual(
       legacy.frames[0]?.encoded,
     );
+    expect(checkerPhase.frames[0]?.encoded).toEqual(
+      convert("error-diffusion-checker-phase-v4").frames[0]?.encoded,
+    );
+    expect(checkerPhase.frames[0]?.encoded).not.toEqual(
+      legacy.frames[0]?.encoded,
+    );
+  });
+
+  it("keeps v3.1 QL placement deterministic and valid", () => {
+    const source = new Uint8Array(256 * 256 * 4);
+    for (let pixel = 0; pixel < 256 * 256; pixel += 1) {
+      const value = 96 + ((pixel * 13) % 96);
+      source[pixel * 4] = value;
+      source[pixel * 4 + 1] = value;
+      source[pixel * 4 + 2] = value;
+      source[pixel * 4 + 3] = 255;
+    }
+    const settings = {
+      ...DEFAULT_CONVERSION_SETTINGS,
+      platformId: "sinclair-ql" as const,
+      profileId: "org.retroconverter.sinclair-ql.default",
+      modeId: "mode8-256x256" as const,
+      framing: "stretch" as const,
+      paletteSelections: qlPaletteSelections([0, 1, 2, 3, 4, 5, 6, 7]),
+      dithering: "error-diffusion" as const,
+      ditherEngineId: "error-diffusion-phase-balanced-checker-v3-1" as const,
+      ditheringAmount: 100,
+      errorDiffusionLineSuppression: 75,
+      errorDiffusionRandomization: 0,
+    };
+    const first = convertToQl(source, 256, 256, settings);
+    const second = convertToQl(source, 256, 256, settings);
+    expect(first.frames[0]?.encoded).toEqual(second.frames[0]?.encoded);
+    expect(first.frames[1]?.encoded).toEqual(second.frames[1]?.encoded);
+    expect(first.frames[0]?.encoded).toHaveLength(32_768);
+    expect(first.frames[1]?.encoded).toHaveLength(32_768);
+  });
+
+  it("keeps v3.2 QL temporal output deterministic and valid", () => {
+    const source = new Uint8Array(256 * 256 * 4);
+    for (let pixel = 0; pixel < 256 * 256; pixel += 1) {
+      const value = 96 + ((pixel * 13) % 96);
+      source[pixel * 4] = value;
+      source[pixel * 4 + 1] = value;
+      source[pixel * 4 + 2] = value;
+      source[pixel * 4 + 3] = 255;
+    }
+    const settings = {
+      ...DEFAULT_CONVERSION_SETTINGS,
+      platformId: "sinclair-ql" as const,
+      profileId: "org.retroconverter.sinclair-ql.default",
+      modeId: "mode8-256x256" as const,
+      framing: "stretch" as const,
+      paletteSelections: qlPaletteSelections([0, 1, 2, 3, 4, 5, 6, 7]),
+      dithering: "error-diffusion" as const,
+      ditherEngineId: "error-diffusion-phase-balanced-checker-v3-2" as const,
+      ditheringAmount: 100,
+      errorDiffusionLineSuppression: 75,
+      errorDiffusionRandomization: 0,
+    };
+    const first = convertToQl(source, 256, 256, settings);
+    const second = convertToQl(source, 256, 256, settings);
+    expect(first.frames[0]?.encoded).toEqual(second.frames[0]?.encoded);
+    expect(first.frames[1]?.encoded).toEqual(second.frames[1]?.encoded);
+    expect(first.frames[0]?.encoded).toHaveLength(32_768);
+    expect(first.frames[1]?.encoded).toHaveLength(32_768);
   });
 
   it("keeps projected phase-balanced v3 equal to unrestricted v2 at zero suppression", () => {
@@ -486,6 +554,33 @@ describe("Sinclair QL conversion", () => {
     });
     expect(phaseBalanced.frames[0]?.encoded).toEqual(legacy.frames[0]?.encoded);
     expect(phaseBalanced.preConstraintPreviewRgba)
+      .toEqual(legacy.preConstraintPreviewRgba);
+  });
+
+  it("keeps checker-phase v4 equal to unrestricted v2 at zero suppression", () => {
+    const source = new Uint8Array([220, 108, 64, 255]);
+    const base = {
+      ...DEFAULT_CONVERSION_SETTINGS,
+      platformId: "sinclair-ql" as const,
+      profileId: "org.retroconverter.sinclair-ql.default",
+      modeId: "mode8-plain-256x256" as const,
+      framing: "stretch" as const,
+      paletteSelections: qlPaletteSelections([0, 1, 2, 3, 4, 5, 6, 7], 1),
+      dithering: "error-diffusion" as const,
+      ditheringAmount: 100,
+      errorDiffusionRandomization: 80,
+      errorDiffusionLineSuppression: 0,
+    };
+    const legacy = convertToQl(source, 1, 1, {
+      ...base,
+      ditherEngineId: "error-diffusion-unrestricted-v2",
+    });
+    const checkerPhase = convertToQl(source, 1, 1, {
+      ...base,
+      ditherEngineId: "error-diffusion-checker-phase-v4",
+    });
+    expect(checkerPhase.frames[0]?.encoded).toEqual(legacy.frames[0]?.encoded);
+    expect(checkerPhase.preConstraintPreviewRgba)
       .toEqual(legacy.preConstraintPreviewRgba);
   });
 

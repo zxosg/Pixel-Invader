@@ -120,11 +120,27 @@ describe("completed project containers", () => {
     const second = await createCompletedProject(projectInput());
     expect(first).toEqual(second);
     const validated = await validateCompletedProject(first);
-    expect(validated.manifest.schema_version).toBe("12.0.0");
+    expect(validated.manifest.schema_version).toBe("13.0.0");
     expect(validated.sourcePath).toBe("source/original.png");
     expect(validated.settings).toEqual(DEFAULT_CONVERSION_SETTINGS);
     expect(validated.scr).toEqual(projectInput().scr);
     expect(Object.keys(unzipSync(first))).toHaveLength(9);
+  });
+
+  it("round-trips an optional edited working source", async () => {
+    const workingSourcePng = encodeRgbaPng(
+      Uint8Array.from([255, 0, 0, 255]),
+      1,
+      1,
+    );
+    const project = await createCompletedProject({
+      ...projectInput(),
+      workingSourcePng,
+    });
+    const files = unzipSync(project);
+    expect(files["source/working.png"]).toEqual(workingSourcePng);
+    const validated = await validateCompletedProject(project);
+    expect(validated.workingSourcePng).toEqual(workingSourcePng);
   });
 
   it("round-trips schema-12 vertical spatial settings as one hardware frame", async () => {
@@ -150,7 +166,7 @@ describe("completed project containers", () => {
       profile: QL_BUILT_IN_PROFILE,
     });
     const validated = await validateCompletedProject(project);
-    expect(validated.manifest.schema_version).toBe("12.0.0");
+    expect(validated.manifest.schema_version).toBe("13.0.0");
     expect(validated.settings).toEqual(settings);
     expect(validated.frames).toEqual([screen]);
   });
@@ -343,7 +359,7 @@ describe("completed project containers", () => {
     const validated = await validateCompletedProject(project);
 
     expect(validated.settings).toEqual(settings);
-    expect(validated.manifest.schema_version).toBe("12.0.0");
+    expect(validated.manifest.schema_version).toBe("13.0.0");
   });
 
   it("round-trips Halo v2 influence and the experimental legal-mask engine", async () => {
@@ -389,7 +405,7 @@ describe("completed project containers", () => {
     const validated = await validateCompletedProject(project);
 
     expect(validated.settings).toEqual(settings);
-    expect(validated.manifest.schema_version).toBe("12.0.0");
+    expect(validated.manifest.schema_version).toBe("13.0.0");
   });
 
   it("round-trips the source-color-balanced structured Version 3 pair", async () => {
@@ -419,7 +435,7 @@ describe("completed project containers", () => {
     const validated = await validateCompletedProject(project);
 
     expect(validated.settings).toEqual(settings);
-    expect(validated.manifest.schema_version).toBe("12.0.0");
+    expect(validated.manifest.schema_version).toBe("13.0.0");
   });
 
   it("round-trips the topology-preserving structured Version 4 pair", async () => {
@@ -460,7 +476,7 @@ describe("completed project containers", () => {
     const validated = await validateCompletedProject(project);
 
     expect(validated.settings).toEqual(settings);
-    expect(validated.manifest.schema_version).toBe("12.0.0");
+    expect(validated.manifest.schema_version).toBe("13.0.0");
   });
 
   it("round-trips non-neutral filters and attribute smoothing", async () => {

@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="192" viewBox="0 0 256 192" shape-rendering="crispEdges">
+  <title>Error diffusion edge-case verification chart</title>
+  <defs>
+    <linearGradient id="horizontal" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#000"/><stop offset="1" stop-color="#fff"/>
+    </linearGradient>
+    <linearGradient id="vertical" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#222"/><stop offset="1" stop-color="#ddd"/>
+    </linearGradient>
+    <pattern id="checker2" width="2" height="2" patternUnits="userSpaceOnUse">
+      <rect width="1" height="1" fill="#000"/><rect x="1" y="1" width="1" height="1" fill="#000"/>
+      <rect x="1" width="1" height="1" fill="#fff"/><rect y="1" width="1" height="1" fill="#fff"/>
+    </pattern>
+    <pattern id="checker8" width="8" height="8" patternUnits="userSpaceOnUse">
+      <rect width="8" height="8" fill="#fff"/>
+      <rect width="4" height="4" fill="#000"/><rect x="4" y="4" width="4" height="4" fill="#000"/>
+    </pattern>
+    <pattern id="cellGrid" width="8" height="8" patternUnits="userSpaceOnUse">
+      <rect width="8" height="8" fill="#777"/>
+      <path d="M8 0H0V8" fill="none" stroke="#111" stroke-width="1"/>
+    </pattern>
+  </defs>
+
+  <!-- Flat fields: detect tone drift, worms, vertical runs, and clumping. -->
+  <rect x="0" y="0" width="64" height="32" fill="#404040"/>
+  <rect x="64" y="0" width="64" height="32" fill="#606060"/>
+  <rect x="128" y="0" width="64" height="32" fill="#808080"/>
+  <rect x="192" y="0" width="64" height="32" fill="#a0a0a0"/>
+
+  <!-- Horizontal and vertical ramps: detect directional bias and banding. -->
+  <rect x="0" y="32" width="128" height="32" fill="url(#horizontal)"/>
+  <rect x="128" y="32" width="128" height="32" fill="url(#vertical)"/>
+
+  <!-- Hard transitions: test edge preservation and attribute-boundary handling. -->
+  <rect x="0" y="64" width="32" height="32" fill="#000"/>
+  <rect x="32" y="64" width="32" height="32" fill="#fff"/>
+  <rect x="64" y="64" width="32" height="32" fill="#000"/>
+  <rect x="96" y="64" width="32" height="32" fill="#fff"/>
+  <rect x="128" y="64" width="64" height="32" fill="#777"/>
+  <rect x="192" y="64" width="32" height="32" fill="#222"/>
+  <rect x="224" y="64" width="32" height="32" fill="#ddd"/>
+
+  <!-- 2×2 checkerboard and 8×8 checker blocks. -->
+  <rect x="0" y="96" width="64" height="32" fill="url(#checker2)"/>
+  <rect x="64" y="96" width="64" height="32" fill="url(#checker8)"/>
+
+  <!-- One-pixel horizontal/vertical lines and diagonals. -->
+  <rect x="128" y="96" width="128" height="32" fill="#fff"/>
+  <path d="M128 100H256 M128 108H256 M128 116H256 M128 124H256" stroke="#000" stroke-width="1"/>
+  <path d="M136 96V128 M152 96V128 M168 96V128 M184 96V128 M200 96V128 M216 96V128 M232 96V128 M248 96V128" stroke="#000" stroke-width="1"/>
+
+  <!-- Diagonal edge staircase: exposes herringbone and directional artifacts. -->
+  <rect x="0" y="128" width="128" height="64" fill="#000"/>
+  <path d="M0 192L64 128H80L16 192ZM40 192L104 128H120L56 192ZM80 192L128 144V160L96 192Z" fill="#fff"/>
+
+  <!-- Explicit 8×8 cell pattern: exposes attribute-pair discontinuities. -->
+  <rect x="128" y="128" width="128" height="64" fill="url(#cellGrid)"/>
+  <rect x="136" y="136" width="8" height="8" fill="#000"/>
+  <rect x="168" y="136" width="8" height="8" fill="#fff"/>
+  <rect x="200" y="152" width="8" height="8" fill="#000"/>
+  <rect x="232" y="168" width="8" height="8" fill="#fff"/>
+</svg>

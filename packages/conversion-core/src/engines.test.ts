@@ -55,6 +55,20 @@ describe("versioned conversion engines", () => {
       .toBe("error-diffusion");
     expect(ditherMethodForEngine("error-diffusion-phase-balanced-v3"))
       .toBe("error-diffusion");
+    expect(ditherMethodForEngine("error-diffusion-phase-balanced-checker-v3-1"))
+      .toBe("error-diffusion");
+    expect(ditherMethodForEngine("error-diffusion-phase-balanced-checker-v3-2"))
+      .toBe("error-diffusion");
+    expect(ditherMethodForEngine("error-diffusion-checker-phase-v4"))
+      .toBe("error-diffusion");
+    expect(ditherMethodForEngine("error-diffusion-checker-phase-v4-1"))
+      .toBe("error-diffusion");
+    expect(ditherMethodForEngine("error-diffusion-checker-phase-v4-2"))
+      .toBe("error-diffusion");
+    expect(ditherMethodForEngine("error-diffusion-checker-phase-v4-3"))
+      .toBe("error-diffusion");
+    expect(ditherMethodForEngine("error-diffusion-checker-phase-v5"))
+      .toBe("error-diffusion");
     expect(() => assertCompatibleEngines(
       "sinclair-ql",
       "zx-adaptive-v1",
@@ -156,6 +170,14 @@ describe("versioned conversion engines", () => {
       "error-diffusion-atkinson-v1",
       "error-diffusion-riemersma-v1",
       "error-diffusion-phase-balanced-v3",
+      "error-diffusion-phase-balanced-checker-v3-1",
+      "error-diffusion-phase-balanced-checker-v3-2",
+      "error-diffusion-checker-phase-v4",
+      "error-diffusion-checker-phase-v4-1",
+      "error-diffusion-checker-phase-v4-2",
+      "error-diffusion-checker-phase-v4-3",
+      "error-diffusion-checker-phase-v5",
+      "error-diffusion-matrix-guided-v1",
     ]));
     expect(ATTRIBUTE_OPTIMIZERS.find(({ id }) =>
       id === "zx-guide-reference-rgb-halo-v3"

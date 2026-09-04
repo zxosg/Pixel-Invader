@@ -74,6 +74,14 @@ export type DitherEngineId =
   | "error-diffusion-projected-v1"
   | "error-diffusion-unrestricted-v2"
   | "error-diffusion-phase-balanced-v3"
+  | "error-diffusion-phase-balanced-checker-v3-1"
+  | "error-diffusion-phase-balanced-checker-v3-2"
+  | "error-diffusion-checker-phase-v4"
+  | "error-diffusion-checker-phase-v4-1"
+  | "error-diffusion-checker-phase-v4-2"
+  | "error-diffusion-checker-phase-v4-3"
+  | "error-diffusion-checker-phase-v5"
+  | "error-diffusion-matrix-guided-v1"
   | "error-diffusion-decorrelated-v3"
   | "error-diffusion-atkinson-v1"
   | "error-diffusion-riemersma-v1";
@@ -299,6 +307,22 @@ export interface ZxConversionResult extends BaseConversionResult {
   readonly pixels: Uint8Array;
   readonly attributes: Uint8Array;
   readonly attributeHeight: AttributeHeight;
+  readonly artifactCorrection?: {
+    readonly correctedPixelCount: number;
+    readonly totalArtifactScore: number;
+  };
+  readonly checkerPlacementDiagnostics?: {
+    readonly changedPixels: number;
+    readonly changedBlocks: number;
+    readonly fullBlocks: number;
+    readonly eligibleBlocks: number;
+    readonly intermediateCoverageBlocks: number;
+    readonly checkerCandidateCount: number;
+    readonly sourceRejectedCandidates: number;
+    readonly structureRejectedCandidates: number;
+    readonly edgeRejectedBlocks: number;
+    readonly acceptedCheckerBlocks: number;
+  };
 }
 
 export interface QlConversionResult extends BaseConversionResult {

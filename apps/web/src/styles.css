@@ -1260,6 +1260,147 @@ input[type="range"] {
   shape-rendering: crispEdges;
 }
 
+.bitmap-editor-full-viewport {
+  position: relative;
+}
+
+.bitmap-editor-pane-layout {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(0, 1fr);
+  gap: 0.35rem;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.bitmap-editor-pane-layout > .bitmap-editor-full-toolbar {
+  position: relative;
+  align-self: start;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+.bitmap-editor-pane-layout > .bitmap-editor-full-viewport {
+  min-width: 0;
+  min-height: 0;
+}
+
+.bitmap-editor-full-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  min-width: max-content;
+  min-height: 100%;
+}
+
+.bitmap-editor-full-canvas {
+  flex: 0 0 auto;
+}
+
+.bitmap-editor-interaction-layer {
+  position: absolute;
+  inset: 0;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+
+.bitmap-editor-full-toolbar {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  width: 4.5rem;
+  padding: 0.08rem 0;
+  background: #0f1827;
+}
+
+.bitmap-editor-full-action {
+  min-width: 0;
+  width: 100%;
+  height: 1rem;
+  min-height: 1rem;
+  padding: 0 0.1rem;
+  font-size: 0.58rem;
+  line-height: 1;
+  white-space: normal;
+}
+
+.bitmap-editor-attribute-policy {
+  display: grid;
+  gap: 0.12rem;
+  margin-top: 0.12rem;
+  border-top: 1px solid #33425d;
+  padding-top: 0.2rem;
+}
+
+.bitmap-editor-attribute-header,
+.bitmap-editor-attribute-transparent,
+.bitmap-editor-attribute-color-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.12rem;
+}
+
+.bitmap-editor-attribute-header {
+  color: #b9c3d2;
+  font-size: 0.58rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+.bitmap-editor-attribute-color,
+.bitmap-editor-attribute-icon {
+  min-width: 0;
+  height: 0.75rem;
+  min-height: 0.75rem;
+  margin: 0;
+  border: 1px solid #52627d;
+  border-radius: 0.2rem;
+  padding: 0;
+  background: #111824;
+  color: #b9c3d2;
+  font-size: 0.65rem;
+  line-height: 1;
+}
+
+.bitmap-editor-attribute-color.selected,
+.bitmap-editor-attribute-icon.selected,
+.bitmap-editor-full-action.active {
+  border-color: #79b7ff;
+  box-shadow: 0 0 0 1px #79b7ff inset;
+}
+
+.bitmap-editor-attribute-color span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 0.12rem;
+}
+
+.bitmap-editor-transparent-swatch {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 1px solid #7d8797;
+  background: linear-gradient(135deg, transparent 46%, #7d8797 47%, #7d8797 53%, transparent 54%);
+}
+
+.bitmap-editor-attribute-policy-row {
+  display: grid;
+  grid-template-columns: 1.2rem repeat(3, minmax(0, 1fr));
+  gap: 0.12rem;
+  align-items: center;
+  margin-top: 0.08rem;
+}
+
+.bitmap-editor-policy-symbol {
+  color: #eef6ff;
+  font-size: 0.85rem;
+  text-align: center;
+}
+
 .inspection-details {
   display: grid;
   grid-template-columns: minmax(18rem, 1fr) minmax(18rem, 1fr);
@@ -2252,6 +2393,155 @@ input[type="range"] {
 
   .tilemap-charset-panel {
     max-height: 10rem;
+  }
+}
+
+.settings-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgb(0 0 0 / 68%);
+}
+
+.settings-modal {
+  width: min(48rem, 100%);
+  max-height: min(46rem, 92vh);
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  padding: 0;
+  color: var(--text, #eef4ff);
+  background: var(--panel, #111a29);
+  border: 1px solid var(--line, #4f75a2);
+  border-radius: .6rem;
+  box-shadow: 0 1rem 4rem rgb(0 0 0 / 45%);
+}
+
+.settings-modal-header,
+.settings-modal-actions {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+}
+
+.settings-modal-header {
+  justify-content: space-between;
+  padding: 1.25rem 1.25rem .9rem;
+}
+
+.settings-modal-header h2,
+.settings-modal-header p {
+  margin: 0;
+}
+
+.settings-modal-header p {
+  margin-top: .25rem;
+  opacity: .72;
+}
+
+.settings-modal-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .75rem;
+}
+
+.settings-toolbar {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) 10rem 11rem;
+  gap: .5rem;
+  padding: .75rem 1.25rem;
+  border-block: 1px solid var(--line, #4f75a2);
+  background: color-mix(in srgb, var(--panel, #111a29) 92%, white);
+}
+
+.settings-result-count {
+  padding: .55rem 1.25rem .25rem;
+  font-size: .8rem;
+  opacity: .72;
+}
+
+.settings-modal-content {
+  min-height: 0;
+  overflow: auto;
+  padding: .25rem 1.25rem 1rem;
+}
+
+.settings-modal-content fieldset {
+  margin: .5rem 0 0;
+}
+
+.setting-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(12rem, 16rem);
+  align-items: center;
+  gap: 1rem;
+  padding: .25rem 0;
+}
+
+.setting-row label {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  font-weight: 650;
+}
+
+.setting-row p {
+  margin: .2rem 0 0;
+  font-size: .78rem;
+  line-height: 1.35;
+  opacity: .72;
+}
+
+.setting-control { min-width: 0; }
+.setting-control > input:not([type="checkbox"]),
+.setting-control > select { width: 100%; }
+.settings-slider { display: flex; align-items: center; gap: .5rem; }
+.settings-slider input { flex: 1; min-width: 0; }
+.settings-slider output { min-width: 3rem; text-align: right; font-variant-numeric: tabular-nums; }
+.setting-modified { color: var(--accent, #7fc8ff); font-size: .65rem; }
+.settings-empty { padding: 2rem 0; text-align: center; opacity: .75; }
+
+.settings-modal fieldset {
+  display: grid;
+  gap: .65rem;
+  min-width: 0;
+  padding: .85rem;
+  border: 1px solid var(--line, #4f75a2);
+  border-radius: .4rem;
+}
+
+.settings-modal legend {
+  padding: 0 .35rem;
+  font-weight: 700;
+}
+
+.settings-modal label:not(.checkbox-row) {
+  display: grid;
+  gap: .25rem;
+}
+
+.settings-modal .checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+
+.settings-modal-actions {
+  margin-top: 0;
+  padding: .85rem 1.25rem 1.25rem;
+  border-top: 1px solid var(--line, #4f75a2);
+  background: var(--panel, #111a29);
+}
+
+@media (max-width: 650px) {
+  .settings-toolbar { grid-template-columns: 1fr; }
+  .setting-row { grid-template-columns: 1fr; gap: .35rem; }
+  .setting-control { max-width: none; }
+  .settings-modal-grid {
+    grid-template-columns: 1fr;
   }
 }
 

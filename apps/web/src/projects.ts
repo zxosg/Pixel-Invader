@@ -17,8 +17,8 @@ import type {
   CharsetDiagnostics,
 } from "@retro-converter/zx-charset";
 
-const PROJECT_SCHEMA_VERSION = "12.0.0";
-const LEGACY_PROJECT_SCHEMA_VERSIONS = new Set(["10.0.0", "11.0.0"]);
+const PROJECT_SCHEMA_VERSION = "13.0.0";
+const LEGACY_PROJECT_SCHEMA_VERSIONS = new Set(["10.0.0", "11.0.0", "12.0.0"]);
 const MAX_PROJECT_BYTES = 64 * 1024 * 1024;
 const MAX_UNCOMPRESSED_BYTES = 128 * 1024 * 1024;
 const FIXED_ZIP_TIME = new Date("1980-01-01T00:00:00.000Z");
@@ -52,6 +52,7 @@ export interface ProjectCreateInput {
   readonly previewPng: Uint8Array;
   readonly metadataJson: Uint8Array;
   readonly profile: unknown;
+  readonly workingSourcePng?: Uint8Array;
   readonly workspaceMode?: WorkspaceConversionMode;
   readonly tilemap?: {
     readonly settings: TilemapConversionSettings;
@@ -77,6 +78,7 @@ export interface ValidatedProject {
   readonly workspaceMode: WorkspaceConversionMode;
   readonly sourceFormat: "png" | "jpeg" | "pmd85-bin";
   readonly resultOrigin: "direct-import" | "converted";
+  readonly workingSourcePng?: Uint8Array;
   readonly tilemap?: {
     readonly settings: TilemapConversionSettings;
     readonly artifact: Uint8Array;
@@ -258,8 +260,13 @@ export async function createCompletedProject(input: ProjectCreateInput): Promise
         : null,
       result_origin: input.resultOrigin ?? "converted",
       tilemap_settings: input.tilemap?.settings ?? null,
+      working_source_path: input.workingSourcePng === undefined ? null : "source/working.png",
+      working_source_edited: input.workingSourcePng !== undefined,
     }),
   };
+  if (input.workingSourcePng !== undefined) {
+    content["source/working.png"] = input.workingSourcePng;
+  }
   if (input.tilemap !== undefined) {
     content["artifacts/tilemap.bin"] = input.tilemap.artifact;
     content["artifacts/tilemap-preview.png"] = input.tilemap.previewPng;
@@ -288,6 +295,7 @@ export async function createCompletedProject(input: ProjectCreateInput): Promise
       : input.sourceFormat === "jpeg"
         ? "image/jpeg"
         : "application/octet-stream", "original-source"],
+    "source/working.png": ["image/png", "working-source"],
     "profile/profile.json": ["application/json", "profile-snapshot"],
     "settings/conversion.json": ["application/json", "conversion-settings"],
     "artifacts/screen-1.bin": ["application/octet-stream", "hardware-screen"],
@@ -356,7 +364,7 @@ export async function validateCompletedProject(bytes: Uint8Array): Promise<Valid
     throw new Error("PROJECT_VERSION_INCOMPATIBLE: application version is unsupported.");
   }
   const declared = manifest.entries;
-  if (!Array.isArray(declared) || declared.length < 9 || declared.length > 18) {
+  if (!Array.isArray(declared) || declared.length < 9 || declared.length > 19) {
     throw new Error("PROJECT_SCHEMA_INVALID: manifest entry count is invalid.");
   }
   const declaredPaths = declared.map((entry) => (entry as ManifestEntry).path).sort();
@@ -375,6 +383,30 @@ export async function validateCompletedProject(bytes: Uint8Array): Promise<Valid
     path === "source/original.bin"
   );
   if (sourcePath === undefined) throw new Error("PROJECT_ENTRY_MISSING: original source is required.");
+  const workspaceDocument = parseJson(
+    files["settings/workspace.json"] ?? new Uint8Array(),
+    "settings/workspace.json",
+  ) as Record<string, unknown>;
+  const workingSourcePath = workspaceDocument.working_source_path === undefined
+    ? null
+    : workspaceDocument.working_source_path;
+  const workingSourceEdited = workspaceDocument.working_source_edited;
+  if (workingSourceEdited !== undefined && typeof workingSourceEdited !== "boolean") {
+    throw new Error("PROJECT_SCHEMA_INVALID: working source state is invalid.");
+  }
+  const workingSourcePng = workingSourcePath === "source/working.png"
+    ? Uint8Array.from(files["source/working.png"] ?? new Uint8Array())
+    : undefined;
+  if (workingSourcePath !== null && workingSourcePath !== "source/working.png") {
+    throw new Error("PROJECT_SCHEMA_INVALID: working source path is invalid.");
+  }
+  if (workingSourcePath === "source/working.png" &&
+      (workingSourcePng === undefined || workingSourcePng.length === 0)) {
+    throw new Error("PROJECT_ENTRY_MISSING: working source is required.");
+  }
+  if (workingSourcePath === null && workingSourceEdited === true) {
+    throw new Error("PROJECT_SCHEMA_INVALID: edited working source is missing.");
+  }
   const usesLegacyArtifactNames = schemaVersion === "10.0.0";
   const firstArtifactPath = usesLegacyArtifactNames ? "artifacts/result.scr" : "artifacts/screen-1.bin";
   const secondArtifactPath = usesLegacyArtifactNames ? "artifacts/result-screen-2.scr" : "artifacts/screen-2.bin";
@@ -477,10 +509,6 @@ export async function validateCompletedProject(bytes: Uint8Array): Promise<Valid
       throw new Error(`PROJECT_INTEGRITY_MISMATCH: ${path}.`);
     }
   }
-  const workspaceDocument = parseJson(
-    files["settings/workspace.json"] ?? new Uint8Array(),
-    "settings/workspace.json",
-  ) as Record<string, unknown>;
   const workspaceMode = workspaceDocument.conversion_mode;
   if (workspaceMode !== "palette" && workspaceMode !== "tilemap") {
     throw new Error("PROJECT_SCHEMA_INVALID: conversion mode is invalid.");
@@ -632,6 +660,7 @@ export async function validateCompletedProject(bytes: Uint8Array): Promise<Valid
     workspaceMode,
     sourceFormat,
     resultOrigin,
+    ...(workingSourcePng === undefined ? {} : { workingSourcePng }),
     ...(tilemap === undefined ? {} : { tilemap }),
   };
 }

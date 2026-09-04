@@ -35,9 +35,17 @@ import {
   withAnalyticPreview,
 } from "./vertical-spatial-mix.js";
 import { assertCompatibleEngines, ditherMethodForEngine } from "./engines.js";
+import {
+  applyCheckerPlacement,
+  planCheckerPlacement,
+} from "./checker-placement.js";
 import { convertStructuredZx } from "./structured-zx.js";
 import {
   atkinsonDiffusionKernel,
+  checkerPhaseDiffusionKernel,
+  checkerPhaseV42DiffusionKernel,
+  checkerPhaseV43DiffusionKernel,
+  checkerPhaseV5DiffusionKernel,
   decorrelatedDiffusionKernel,
   diffusionNoiseOffset,
   hilbertTraversal,
@@ -377,7 +385,16 @@ function renderLocalErrorDiffusion(
   const decorrelated = engineId === "error-diffusion-decorrelated-v3";
   const atkinson = engineId === "error-diffusion-atkinson-v1";
   const riemersma = engineId === "error-diffusion-riemersma-v1";
-  const phaseBalanced = engineId === "error-diffusion-phase-balanced-v3";
+  const checkerPlacementV31 = engineId === "error-diffusion-phase-balanced-checker-v3-1";
+  const checkerPlacementV32 = engineId === "error-diffusion-phase-balanced-checker-v3-2";
+  const phaseBalanced = engineId === "error-diffusion-phase-balanced-v3" ||
+    checkerPlacementV31 || checkerPlacementV32;
+  const checkerPhase = engineId === "error-diffusion-checker-phase-v4";
+  const checkerPhaseV41 = engineId === "error-diffusion-checker-phase-v4-1";
+  const checkerPhaseV42 = engineId === "error-diffusion-checker-phase-v4-2";
+  const checkerPhaseV43 = engineId === "error-diffusion-checker-phase-v4-3";
+  const checkerPhaseV5 = engineId === "error-diffusion-checker-phase-v5";
+  const matrixGuided = engineId === "error-diffusion-matrix-guided-v1";
   const unrestrictedBrightValues = brightMode === "on"
     ? [true] as const
     : brightMode === "off" ? [false] as const : [false, true] as const;
@@ -438,6 +455,8 @@ function renderLocalErrorDiffusion(
   const previousRowKeys = new Uint8Array(ZX_SCREEN_WIDTH);
   previousRowKeys.fill(255);
   const verticalRunLengths = new Uint8Array(ZX_SCREEN_WIDTH);
+  const recentColumnKeys = new Uint8Array(ZX_SCREEN_WIDTH * 4);
+  recentColumnKeys.fill(255);
   const diffusionScale = Math.fround(
     amount / (decorrelated ? 4_200 : atkinson ? 800 : ERROR_SCALE),
   );
@@ -491,12 +510,20 @@ function renderLocalErrorDiffusion(
       const brightKey = outputBright ? 8 : 0;
       colorKeys[pixelOffset] = brightKey + outputCode;
       const outputKey = brightKey + outputCode;
+      let columnBias = 0;
+      for (let history = 0; history < 4; history += 1) {
+        if (recentColumnKeys[x * 4 + history] === outputKey) columnBias += 1;
+      }
+      for (let history = 3; history > 0; history -= 1) {
+        recentColumnKeys[x * 4 + history] = recentColumnKeys[x * 4 + history - 1] ?? 255;
+      }
+      recentColumnKeys[x * 4] = outputKey;
       verticalRunLengths[x] = previousRowKeys[x] === outputKey
         ? Math.min(255, (verticalRunLengths[x] ?? 0) + 1)
         : 1;
       previousRowKeys[x] = outputKey;
       let smoothSource = true;
-      if (phaseBalanced && lineSuppression > 0) {
+      if ((phaseBalanced || checkerPhaseV5 || checkerPhaseV42 || checkerPhaseV43 || matrixGuided) && lineSuppression > 0) {
         for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]] as const) {
           if (nx < 0 || nx >= ZX_SCREEN_WIDTH || ny < 0 || ny >= ZX_SCREEN_HEIGHT) continue;
           const neighborSource = (ny * ZX_SCREEN_WIDTH + nx) * 4;
@@ -521,7 +548,41 @@ function renderLocalErrorDiffusion(
           ? atkinsonDiffusionKernel(direction).map(
               ([dx, dy, weight]) => [x + dx, y + dy, weight] as const,
             )
-        : phaseBalanced
+          : checkerPhaseV5 || matrixGuided
+            ? checkerPhaseV5DiffusionKernel(
+                direction,
+                x,
+                y,
+                lineSuppression,
+                smoothSource ? verticalRunLengths[x] ?? 0 : 0,
+                Math.min(x % CELL_WIDTH, CELL_WIDTH - 1 - (x % CELL_WIDTH)),
+              ).map(([dx, dy, weight]) => [x + dx, y + dy, weight] as const)
+          : checkerPhase || checkerPhaseV41
+            ? checkerPhaseDiffusionKernel(
+                direction,
+                x,
+                y,
+                lineSuppression,
+                smoothSource ? verticalRunLengths[x] ?? 0 : 0,
+              ).map(([dx, dy, weight]) => [x + dx, y + dy, weight] as const)
+          : checkerPhaseV42
+            ? checkerPhaseV42DiffusionKernel(
+                direction,
+                x,
+                y,
+                lineSuppression,
+                smoothSource ? verticalRunLengths[x] ?? 0 : 0,
+                smoothSource ? columnBias : 0,
+              ).map(([dx, dy, weight]) => [x + dx, y + dy, weight] as const)
+          : checkerPhaseV43
+            ? checkerPhaseV43DiffusionKernel(
+                direction,
+                x,
+                y,
+                lineSuppression,
+                smoothSource ? verticalRunLengths[x] ?? 0 : 0,
+              ).map(([dx, dy, weight]) => [x + dx, y + dy, weight] as const)
+          : phaseBalanced
           ? phaseBalancedDiffusionKernel(
               direction,
               x,
@@ -550,6 +611,141 @@ function renderLocalErrorDiffusion(
     }
   }
   return colorKeys;
+}
+
+function renderCheckerPlacementV32(
+  source: Uint8Array,
+  basePixels: Uint8Array,
+  attributes: Uint8Array,
+  cellHeight: AttributeHeight,
+  amount: number,
+  randomization: number,
+  lineSuppression: number,
+): { readonly pixels: Uint8Array; readonly plan: ReturnType<typeof planCheckerPlacement> | null } {
+  if (lineSuppression <= 0) return { pixels: basePixels, plan: null };
+  const placement = planCheckerPlacement(
+    source,
+    basePixels,
+    ZX_SCREEN_WIDTH,
+    ZX_SCREEN_HEIGHT,
+    lineSuppression / 100,
+    (x, y) => {
+      const attribute = attributes[
+        Math.floor(y / cellHeight) * ZX_ATTRIBUTE_COLUMNS + Math.floor(x / CELL_WIDTH)
+      ] ?? 0;
+      const colors = decodeAttribute(attribute);
+      return { paper: colors.paper, ink: colors.ink, key: attribute };
+    },
+    CELL_WIDTH,
+    cellHeight,
+  );
+  if (placement.changedBlocks === 0) return { pixels: basePixels, plan: placement };
+
+  const pixels = basePixels.slice();
+  const errors = new Float32Array(ZX_SCREEN_WIDTH * ZX_SCREEN_HEIGHT * 3);
+  const verticalRunLengths = new Uint8Array(ZX_SCREEN_WIDTH);
+  const previousRowKeys = new Uint8Array(ZX_SCREEN_WIDTH);
+  previousRowKeys.fill(255);
+  const diffusionScale = Math.fround(amount / ERROR_SCALE);
+  const isChangedBlock = (x: number, y: number): boolean => {
+    const left = x & ~1;
+    const top = y & ~1;
+    if (left + 1 >= ZX_SCREEN_WIDTH || top + 1 >= ZX_SCREEN_HEIGHT) return false;
+    const blockIndex = Math.floor(top / 2) * placement.blockColumns + Math.floor(left / 2);
+    const mask = placement.masks[blockIndex];
+    if (mask === undefined || mask === 255) return false;
+    const baseMask =
+      (basePixels[top * ZX_SCREEN_WIDTH + left] ?? 0) |
+      ((basePixels[top * ZX_SCREEN_WIDTH + left + 1] ?? 0) << 1) |
+      ((basePixels[(top + 1) * ZX_SCREEN_WIDTH + left] ?? 0) << 2) |
+      ((basePixels[(top + 1) * ZX_SCREEN_WIDTH + left + 1] ?? 0) << 3);
+    return mask !== baseMask;
+  };
+  const plannedBit = (x: number, y: number): number => {
+    const left = x & ~1;
+    const top = y & ~1;
+    const blockIndex = Math.floor(top / 2) * placement.blockColumns + Math.floor(left / 2);
+    const mask = placement.masks[blockIndex] ?? 255;
+    return mask === 255 ? basePixels[y * ZX_SCREEN_WIDTH + x] ?? 0 :
+      (mask >> ((y - top) * 2 + x - left)) & 1;
+  };
+  const isSmoothSource = (x: number, y: number): boolean => {
+    const center = (y * ZX_SCREEN_WIDTH + x) * 4;
+    for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]] as const) {
+      if (nx < 0 || nx >= ZX_SCREEN_WIDTH || ny < 0 || ny >= ZX_SCREEN_HEIGHT) continue;
+      const neighbor = (ny * ZX_SCREEN_WIDTH + nx) * 4;
+      for (let channel = 0; channel < 3; channel += 1) {
+        if (Math.abs((source[center + channel] ?? 0) - (source[neighbor + channel] ?? 0)) > 48) {
+          return false;
+        }
+      }
+    }
+    return true;
+  };
+
+  for (let y = 0; y < ZX_SCREEN_HEIGHT; y += 1) {
+    const direction = y % 2 === 1 ? 1 : -1;
+    for (let step = 0; step < ZX_SCREEN_WIDTH; step += 1) {
+      const x = direction === 1 ? step : ZX_SCREEN_WIDTH - 1 - step;
+      const pixel = y * ZX_SCREEN_WIDTH + x;
+      const sourceOffset = pixel * 4;
+      const errorOffset = pixel * 3;
+      const adjustedR = Math.max(0, Math.min(
+        255,
+        (source[sourceOffset] ?? 0) + Math.trunc(errors[errorOffset] ?? 0) +
+          diffusionNoiseOffset(x, y, 0, randomization, 8),
+      ));
+      const adjustedG = Math.max(0, Math.min(
+        255,
+        (source[sourceOffset + 1] ?? 0) + Math.trunc(errors[errorOffset + 1] ?? 0) +
+          diffusionNoiseOffset(x, y, 1, randomization, 8),
+      ));
+      const adjustedB = Math.max(0, Math.min(
+        255,
+        (source[sourceOffset + 2] ?? 0) + Math.trunc(errors[errorOffset + 2] ?? 0) +
+          diffusionNoiseOffset(x, y, 2, randomization, 8),
+      ));
+      const attribute = attributes[
+        Math.floor(y / cellHeight) * ZX_ATTRIBUTE_COLUMNS + Math.floor(x / CELL_WIDTH)
+      ] ?? 0;
+      const { ink, paper } = decodeAttribute(attribute);
+      const decision = isChangedBlock(x, y)
+        ? plannedBit(x, y)
+        : basePixels[pixel] ?? 0;
+      pixels[pixel] = decision;
+      const output = decision === 1 ? ink : paper;
+      const channelErrors = [
+        Math.fround(diffusionScale * (adjustedR - output.r)),
+        Math.fround(diffusionScale * (adjustedG - output.g)),
+        Math.fround(diffusionScale * (adjustedB - output.b)),
+      ] as const;
+      const outputKey = attribute * 2 + decision;
+      verticalRunLengths[x] = previousRowKeys[x] === outputKey
+        ? Math.min(255, (verticalRunLengths[x] ?? 0) + 1)
+        : 1;
+      previousRowKeys[x] = outputKey;
+      const neighbors = phaseBalancedDiffusionKernel(
+        direction,
+        x,
+        y,
+        lineSuppression,
+        isSmoothSource(x, y) ? verticalRunLengths[x] ?? 0 : 0,
+      );
+      for (const [dx, dy, weight] of neighbors) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || nx >= ZX_SCREEN_WIDTH || ny < 0 || ny >= ZX_SCREEN_HEIGHT) continue;
+        const neighborOffset = (ny * ZX_SCREEN_WIDTH + nx) * 3;
+        for (let channel = 0; channel < 3; channel += 1) {
+          errors[neighborOffset + channel] = Math.fround(
+            (errors[neighborOffset + channel] ?? 0) +
+              Math.fround((channelErrors[channel] ?? 0) * weight),
+          );
+        }
+      }
+    }
+  }
+  return { pixels, plan: placement };
 }
 
 function renderLocalOrderedDither(
@@ -1389,6 +1585,7 @@ function remapReferenceGuide(
   guideKeys: Uint8Array,
   attributes: Uint8Array,
   cellHeight: AttributeHeight,
+  matrix: (typeof ORDERED_MATRICES)[keyof typeof ORDERED_MATRICES] | null = null,
 ): Uint8Array {
   const pixels = new Uint8Array(ZX_SCREEN_WIDTH * ZX_SCREEN_HEIGHT);
   for (let y = 0; y < ZX_SCREEN_HEIGHT; y += 1) {
@@ -1407,14 +1604,146 @@ function remapReferenceGuide(
         pixels[pixelOffset] = 0;
       } else {
         const distanceFromInk = inkCode - guideCode;
-        const phase = (x & 1) + 2 * (y & 1);
-        const paperMask =
-          REFERENCE_PAPER_MASK_BY_INK_DISTANCE[distanceFromInk] ?? 0b1111;
-        pixels[pixelOffset] = ((paperMask >> phase) & 1) === 1 ? 0 : 1;
+        if (matrix !== null) {
+          const paperMask =
+            REFERENCE_PAPER_MASK_BY_INK_DISTANCE[distanceFromInk] ?? 0b1111;
+          const paperCount = paperMask.toString(2).split("").filter((bit) => bit === "1").length;
+          const coverageLevel = Math.round(paperCount * matrix.levels / 4);
+          pixels[pixelOffset] = orderedThreshold(matrix, x, y) < coverageLevel ? 0 : 1;
+        } else {
+          const phase = (x & 1) + 2 * (y & 1);
+          const paperMask =
+            REFERENCE_PAPER_MASK_BY_INK_DISTANCE[distanceFromInk] ?? 0b1111;
+          pixels[pixelOffset] = ((paperMask >> phase) & 1) === 1 ? 0 : 1;
+        }
       }
     }
   }
   return pixels;
+}
+
+function checkerPhaseArtifactCorrection(
+  source: Uint8Array,
+  guideKeys: Uint8Array,
+  attributes: Uint8Array,
+  cellHeight: AttributeHeight,
+  provisionalBits: Uint8Array,
+): { readonly pixels: Uint8Array; readonly correctedPixelCount: number; readonly totalArtifactScore: number } {
+  const pixels = provisionalBits.slice();
+  const artifactScore = new Uint8Array(pixels.length);
+  const phaseCorrection = new Int8Array(pixels.length);
+  const correctedBlocks = new Uint8Array(Math.ceil(ZX_SCREEN_WIDTH / 2) * Math.ceil(ZX_SCREEN_HEIGHT / 2));
+  let correctedPixelCount = 0;
+  let totalArtifactScore = 0;
+  const cellIndex = (x: number, y: number) =>
+    Math.floor(y / cellHeight) * ZX_ATTRIBUTE_COLUMNS + Math.floor(x / CELL_WIDTH);
+  const sourceDifference = (x1: number, y1: number, x2: number, y2: number) => {
+    const a = (y1 * ZX_SCREEN_WIDTH + x1) * 4;
+    const b = (y2 * ZX_SCREEN_WIDTH + x2) * 4;
+    return Math.max(
+      Math.abs((source[a] ?? 0) - (source[b] ?? 0)),
+      Math.abs((source[a + 1] ?? 0) - (source[b + 1] ?? 0)),
+      Math.abs((source[a + 2] ?? 0) - (source[b + 2] ?? 0)),
+    );
+  };
+  const localCost = (x: number, y: number, candidate: number, colors: ReturnType<typeof decodeAttribute>) => {
+    let cost = 0;
+    const bitAt = (nx: number, ny: number) =>
+      nx === x && ny === y ? candidate : pixels[ny * ZX_SCREEN_WIDTH + nx] ?? 0;
+    for (let ny = Math.max(0, y - 1); ny <= Math.min(ZX_SCREEN_HEIGHT - 1, y + 2); ny += 1) {
+      for (let nx = Math.max(0, x - 1); nx <= Math.min(ZX_SCREEN_WIDTH - 1, x + 1); nx += 1) {
+        const bit = bitAt(nx, ny);
+        if (nx + 1 < ZX_SCREEN_WIDTH && bit === bitAt(nx + 1, ny)) cost += 1;
+        if (ny + 1 < ZX_SCREEN_HEIGHT && bit === bitAt(nx, ny + 1)) cost += 6;
+        if (nx + 1 < ZX_SCREEN_WIDTH && ny + 1 < ZX_SCREEN_HEIGHT && bit === bitAt(nx + 1, ny + 1)) cost += 1;
+      }
+    }
+    if (x % CELL_WIDTH <= 1 || x % CELL_WIDTH >= CELL_WIDTH - 2) cost += 6;
+    const sourceOffset = (y * ZX_SCREEN_WIDTH + x) * 4;
+    const rendered = candidate === 1 ? colors.ink : colors.paper;
+    cost += Math.round(squaredDistance(
+      source[sourceOffset] ?? 0,
+      source[sourceOffset + 1] ?? 0,
+      source[sourceOffset + 2] ?? 0,
+      rendered,
+    ) / 4096);
+    return cost;
+  };
+
+  for (let y = 2; y < ZX_SCREEN_HEIGHT - 1; y += 1) {
+    for (let x = 1; x < ZX_SCREEN_WIDTH - 1; x += 1) {
+      const offset = y * ZX_SCREEN_WIDTH + x;
+      const guide = (guideKeys[offset] ?? 0) & 7;
+      const above = (y - 1) * ZX_SCREEN_WIDTH + x;
+      const twoAbove = (y - 2) * ZX_SCREEN_WIDTH + x;
+      if ((pixels[offset] ?? 0) !== (pixels[above] ?? 0) || pixels[offset] !== (pixels[twoAbove] ?? 0)) continue;
+      const guideAbove = (guideKeys[above] ?? 0) & 7;
+      const guideTwoAbove = (guideKeys[twoAbove] ?? 0) & 7;
+      if (Math.max(guide, guideAbove, guideTwoAbove) - Math.min(guide, guideAbove, guideTwoAbove) > 1) continue;
+      if (cellIndex(x, y) !== cellIndex(x, y - 2)) continue;
+      const localX = x % CELL_WIDTH;
+      if (localX <= 1 || localX >= CELL_WIDTH - 2) continue;
+
+      let neighboringDifference = 0;
+      for (let ny = y - 2; ny <= y; ny += 1) {
+        const sideLeft = ny * ZX_SCREEN_WIDTH + x - 1;
+        const sideRight = ny * ZX_SCREEN_WIDTH + x + 1;
+        const sideGuidesDiffer =
+          ((guideKeys[sideLeft] ?? 0) & 7) !== guide ||
+          ((guideKeys[sideRight] ?? 0) & 7) !== guide;
+        const sideBitsDiffer =
+          (pixels[sideLeft] ?? 0) !== (pixels[offset] ?? 0) ||
+          (pixels[sideRight] ?? 0) !== (pixels[offset] ?? 0);
+        if (sideGuidesDiffer || sideBitsDiffer) {
+          neighboringDifference += 1;
+        }
+      }
+      if (neighboringDifference < 2) continue;
+      const horizontalGradient = Math.max(
+        sourceDifference(x - 1, y, x + 1, y),
+        sourceDifference(x - 1, y - 1, x + 1, y - 1),
+      );
+      const verticalGradient = Math.max(
+        sourceDifference(x, y - 1, x, y + 1),
+        sourceDifference(x - 1, y - 1, x - 1, y + 1),
+      );
+      if (horizontalGradient > verticalGradient * 1.5) continue;
+      let smooth = true;
+      for (let ny = y - 1; ny <= y + 1 && smooth; ny += 1) {
+        for (let nx = x - 1; nx <= x + 1; nx += 1) {
+          if (sourceDifference(x, y, nx, ny) > 48) smooth = false;
+        }
+      }
+      if (!smooth) continue;
+      const block = Math.floor(y / 2) * Math.ceil(ZX_SCREEN_WIDTH / 2) + Math.floor(x / 2);
+      if (correctedBlocks[block] !== 0) continue;
+      const colors = decodeAttribute(attributes[cellIndex(x, y)] ?? 0);
+      const sourceOffset = offset * 4;
+      if (squaredDistance(source[sourceOffset] ?? 0, source[sourceOffset + 1] ?? 0, source[sourceOffset + 2] ?? 0, colors.ink) < 1024 ||
+          squaredDistance(source[sourceOffset] ?? 0, source[sourceOffset + 1] ?? 0, source[sourceOffset + 2] ?? 0, colors.paper) < 1024) continue;
+      const oldBit = pixels[offset] ?? 0;
+      let oldCost = localCost(x, y, oldBit, colors);
+      let bestBit = oldBit;
+      let bestCost = oldCost;
+      for (const candidate of [1 - oldBit]) {
+        const candidateCost = localCost(x, y, candidate, colors);
+        if (candidateCost < bestCost) {
+          bestBit = candidate;
+          bestCost = candidateCost;
+        }
+      }
+      const score = Math.min(255, 24 + neighboringDifference * 16 + Math.max(0, verticalGradient - horizontalGradient));
+      artifactScore[offset] = score;
+      totalArtifactScore += score;
+      if (bestBit !== oldBit && bestCost + 3 < oldCost) {
+        pixels[offset] = bestBit;
+        phaseCorrection[offset] = bestBit === 1 ? 1 : -1;
+        correctedBlocks[block] = 1;
+        correctedPixelCount += 1;
+      }
+    }
+  }
+  return { pixels, correctedPixelCount, totalArtifactScore };
 }
 
 function dbsRenderedColor(
@@ -2528,6 +2857,12 @@ export function convertToZx(
   const paletteColorEnabled = (code: number) => enabledColors.has(code);
   const usesTwoPassDither =
     settings.dithering !== "none" && settings.ditheringAmount > 0;
+  const matrixGuided = settings.ditherEngineId === "error-diffusion-matrix-guided-v1";
+  const checkerPlacementV31 = settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-1";
+  const checkerPlacementV32 = settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-2";
+  const checkerPhaseV41 = settings.ditherEngineId === "error-diffusion-checker-phase-v4-1";
+  let artifactCorrection: ZxConversionResult["artifactCorrection"];
+  let checkerPlacementDiagnostics: ZxConversionResult["checkerPlacementDiagnostics"];
   const usesDiscreteNoDither =
     settings.ditherEngineId === "none-discrete-v2" ||
     (settings.ditherEngineId !== "none-v1" && settings.ditheringAmount === 0);
@@ -2603,6 +2938,14 @@ export function convertToZx(
       settings.ditherEngineId === "pattern-legal-mask-dbs-v1" ||
       settings.ditherEngineId === "error-diffusion-unrestricted-v2" ||
       settings.ditherEngineId === "error-diffusion-phase-balanced-v3" ||
+      settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-1" ||
+      settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-2" ||
+      settings.ditherEngineId === "error-diffusion-checker-phase-v4" ||
+      settings.ditherEngineId === "error-diffusion-checker-phase-v4-1" ||
+      settings.ditherEngineId === "error-diffusion-checker-phase-v4-2" ||
+      settings.ditherEngineId === "error-diffusion-checker-phase-v4-3" ||
+      settings.ditherEngineId === "error-diffusion-checker-phase-v5" ||
+      settings.ditherEngineId === "error-diffusion-matrix-guided-v1" ||
       settings.ditherEngineId === "error-diffusion-decorrelated-v3" ||
       settings.ditherEngineId === "error-diffusion-atkinson-v1" ||
       settings.ditherEngineId === "error-diffusion-riemersma-v1";
@@ -2684,7 +3027,12 @@ export function convertToZx(
               draftBrightCells,
             ),
       );
-      pixels = remapReferenceGuide(guideKeys, attributes, cellHeight);
+      pixels = remapReferenceGuide(
+        guideKeys,
+        attributes,
+        cellHeight,
+        matrixGuided ? matrix : null,
+      );
       if (optimizer === "zx-block-dbs-global-v1") {
         pixels = optimizeLegalMaskDbs(
           normalized,
@@ -2713,6 +3061,65 @@ export function convertToZx(
         attributes,
         cellHeight,
       );
+    }
+    if (checkerPhaseV41) {
+      const corrected = checkerPhaseArtifactCorrection(
+        normalized,
+        guideKeys,
+        attributes,
+        cellHeight,
+        pixels,
+      );
+      pixels = corrected.pixels;
+      artifactCorrection = {
+        correctedPixelCount: corrected.correctedPixelCount,
+        totalArtifactScore: corrected.totalArtifactScore,
+      };
+    }
+    if (checkerPlacementV31) {
+      const placement = applyCheckerPlacement(
+        normalized,
+        pixels,
+        ZX_SCREEN_WIDTH,
+        ZX_SCREEN_HEIGHT,
+        settings.errorDiffusionLineSuppression / 100,
+        (x, y) => {
+          const attribute = attributes[
+            Math.floor(y / cellHeight) * ZX_ATTRIBUTE_COLUMNS + Math.floor(x / CELL_WIDTH)
+          ] ?? 0;
+          const colors = decodeAttribute(attribute);
+          return { paper: colors.paper, ink: colors.ink, key: attribute };
+        },
+        CELL_WIDTH,
+        cellHeight,
+      );
+      pixels = placement.pixels;
+    }
+    if (checkerPlacementV32) {
+      const checkerResult = renderCheckerPlacementV32(
+        normalized,
+        pixels,
+        attributes,
+        cellHeight,
+        settings.ditheringAmount,
+        settings.errorDiffusionRandomization,
+        settings.errorDiffusionLineSuppression,
+      );
+      pixels = checkerResult.pixels;
+      if (checkerResult.plan !== null) {
+        checkerPlacementDiagnostics = {
+          changedPixels: checkerResult.plan.changedPixels,
+          changedBlocks: checkerResult.plan.changedBlocks,
+          fullBlocks: checkerResult.plan.fullBlocks,
+          eligibleBlocks: checkerResult.plan.eligibleBlocks,
+          intermediateCoverageBlocks: checkerResult.plan.intermediateCoverageBlocks,
+          checkerCandidateCount: checkerResult.plan.checkerCandidateCount,
+          sourceRejectedCandidates: checkerResult.plan.sourceRejectedCandidates,
+          structureRejectedCandidates: checkerResult.plan.structureRejectedCandidates,
+          edgeRejectedBlocks: checkerResult.plan.edgeRejectedBlocks,
+          acceptedCheckerBlocks: checkerResult.plan.acceptedCheckerBlocks,
+        };
+      }
     }
   } else if (usesDiscreteNoDither) {
     const draftBrightCells = calculateDraftBrightCells(normalized, cellHeight);
@@ -2808,5 +3215,7 @@ export function convertToZx(
     sourcePreviewRgba: normalized,
     previewRgba,
     score: Math.floor(totalScore / COST_SCALE),
+    ...(artifactCorrection === undefined ? {} : { artifactCorrection }),
+    ...(checkerPlacementDiagnostics === undefined ? {} : { checkerPlacementDiagnostics }),
   };
 }
