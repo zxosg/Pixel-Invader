@@ -659,6 +659,7 @@ function validateSettings(value: unknown): value is ConversionSettings {
       "ordered-cell-pattern-v3",
       "ordered-cell-pattern-v4",
       "pattern-legal-mask-dbs-v1",
+      "artistic-ordered-hybrid-v1",
       "error-diffusion-projected-v1",
       "error-diffusion-unrestricted-v2",
       "error-diffusion-decorrelated-v3",
@@ -667,6 +668,7 @@ function validateSettings(value: unknown): value is ConversionSettings {
       "error-diffusion-phase-balanced-v3",
       "error-diffusion-phase-balanced-checker-v3-1",
       "error-diffusion-phase-balanced-checker-v3-2",
+      "error-diffusion-phase-balanced-checker-v3-3",
       "error-diffusion-checker-phase-v4",
       "error-diffusion-checker-phase-v4-1",
       "error-diffusion-checker-phase-v4-2",
@@ -723,6 +725,10 @@ function validateSettings(value: unknown): value is ConversionSettings {
     integerRange(value.ditheringAmount, 0, 100) &&
     integerRange(value.errorDiffusionRandomization, 0, 100) &&
     integerRange(value.errorDiffusionLineSuppression, 0, 100) &&
+    (value.ditherEngineId !== "artistic-ordered-hybrid-v1" ||
+      value.platformId === "zx-spectrum" && value.modeId === "zx48-standard-256x192" ||
+      value.platformId === "sinclair-ql" && ["mode8-plain-256x256", "mode4-plain-512x256"].includes(String(value.modeId))) &&
+    (value.artisticPattern === undefined || ["auto", "checkerboard", "horizontal", "vertical"].includes(String(value.artisticPattern))) &&
     ["checkerboard-2x1", "bayer-2x2", "bayer-4x4", "bayer-8x8", "clustered-dot-4x4", "clustered-dot-8x8", "void-cluster-8x8"].includes(String(value.orderedMatrix)) &&
     value.structured.schemaVersion === 1 &&
     integerRange(value.structured.ditherAmountPermille, 0, 1000) &&

@@ -56,7 +56,8 @@ export function loadEnginePreferences(
       dither?.platforms.includes(target.platformId as never) === true &&
       (dither.targetModeIds === undefined || dither.targetModeIds.includes(target.modeId))
     );
-    return supportsTarget && isCompatibleEnginePair(attributeOptimizerId, ditherEngineId)
+    return supportsTarget &&
+      (target?.platformId === "sinclair-ql" || isCompatibleEnginePair(attributeOptimizerId, ditherEngineId))
       ? { attributeOptimizerId, ditherEngineId }
       : fallback;
   } catch {

@@ -28,6 +28,22 @@ export interface CheckerPlacementPlan {
   readonly acceptedCheckerBlocks: number;
 }
 
+export interface CheckerOnlyPlacementPlanV33 {
+  readonly masks: Uint8Array;
+  readonly blockColumns: number;
+  readonly changedPixels: number;
+  readonly changedBlocks: number;
+  readonly fullBlocks: number;
+  readonly eligibleBlocks: number;
+  readonly intermediateCoverageBlocks: number;
+  readonly checkerCandidateCount: number;
+  readonly sourceRejectedCandidates: number;
+  readonly structureRejectedCandidates: number;
+  readonly edgeRejectedBlocks: number;
+  readonly acceptedCheckerBlocks: number;
+  readonly phaseReorientedBlocks: number;
+}
+
 function popcount(value: number): number {
   let count = 0;
   for (let bit = value; bit !== 0; bit >>>= 1) count += bit & 1;
@@ -51,6 +67,16 @@ function colorSpan(first: RgbColor, second: RgbColor): number {
 
 function isChecker(mask: number): boolean {
   return mask === 0b1001 || mask === 0b0110;
+}
+
+function smoothstep(edge0: number, edge1: number, value: number): number {
+  const t = Math.max(0, Math.min(1, (value - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
+
+export function checkerPlacementStrengthV33(lineSuppression: number): number {
+  const suppression = Math.max(0, Math.min(100, lineSuppression)) / 100;
+  return suppression <= 0.35 ? 0 : smoothstep(0.35, 1, suppression);
 }
 
 function blockBit(
@@ -291,6 +317,168 @@ export function planCheckerPlacement(
     eligibleBlocks, intermediateCoverageBlocks, checkerCandidateCount,
     sourceRejectedCandidates, structureRejectedCandidates, edgeRejectedBlocks,
     acceptedCheckerBlocks,
+  };
+}
+
+/**
+ * Plans v3.3's deliberately narrow intervention. It only reorients existing
+ * two-and-two blocks to one of the two checker masks. The v3.2 planner above
+ * intentionally remains separate so its historical behavior is unchanged.
+ */
+export function planCheckerOnlyPlacementV33(
+  source: Uint8Array,
+  pixels: Uint8Array,
+  width: number,
+  height: number,
+  strength: number,
+  endpointAt: (x: number, y: number) => CheckerPlacementEndpointPair | null,
+  cellWidth = 0,
+  cellHeight = 0,
+): CheckerOnlyPlacementPlanV33 {
+  const blockColumns = Math.ceil(width / 2);
+  const blockRows = Math.ceil(height / 2);
+  const masks = new Uint8Array(blockColumns * blockRows);
+  masks.fill(255);
+  const checkerStrength = Math.max(0, Math.min(1, strength));
+  let changedPixels = 0;
+  let changedBlocks = 0;
+  let fullBlocks = 0;
+  let eligibleBlocks = 0;
+  let intermediateCoverageBlocks = 0;
+  let checkerCandidateCount = 0;
+  let sourceRejectedCandidates = 0;
+  let structureRejectedCandidates = 0;
+  let edgeRejectedBlocks = 0;
+  let acceptedCheckerBlocks = 0;
+  let phaseReorientedBlocks = 0;
+  if (checkerStrength === 0) {
+    return {
+      masks, blockColumns, changedPixels, changedBlocks, fullBlocks,
+      eligibleBlocks, intermediateCoverageBlocks, checkerCandidateCount,
+      sourceRejectedCandidates, structureRejectedCandidates, edgeRejectedBlocks,
+      acceptedCheckerBlocks, phaseReorientedBlocks,
+    };
+  }
+
+  const blockSourceCost = (
+    mask: number,
+    left: number,
+    top: number,
+    pair: CheckerPlacementEndpointPair,
+  ): number => {
+    let cost = 0;
+    for (let dy = 0; dy < 2; dy += 1) {
+      for (let dx = 0; dx < 2; dx += 1) {
+        const bit = (mask >> (dy * 2 + dx)) & 1;
+        cost += colorDistance(source, width, left + dx, top + dy, bit === 1 ? pair.ink : pair.paper);
+      }
+    }
+    return cost;
+  };
+  const samePair = (
+    first: CheckerPlacementEndpointPair,
+    second: CheckerPlacementEndpointPair,
+  ): boolean => first.key === second.key &&
+    first.paper.r === second.paper.r && first.paper.g === second.paper.g && first.paper.b === second.paper.b &&
+    first.ink.r === second.ink.r && first.ink.g === second.ink.g && first.ink.b === second.ink.b;
+  const continuityPenalty = (blockIndex: number, candidateMask: number): number => {
+    const leftNeighbor = blockIndex - 1;
+    const upperNeighbor = blockIndex - blockColumns;
+    let penalty = 0;
+    for (const neighbor of [leftNeighbor, upperNeighbor]) {
+      const neighborMask = masks[neighbor];
+      if (neighborMask !== undefined && isChecker(neighborMask) &&
+        (neighborMask & 1) !== (candidateMask & 1)) penalty += 2;
+    }
+    return penalty;
+  };
+  const phasePenalty = (left: number, top: number, mask: number): number =>
+    ((mask & 1) === (((left + top) & 1) ^ 1)) ? 0 : 1;
+
+  for (let top = 0; top + 1 < height; top += 2) {
+    for (let left = 0; left + 1 < width; left += 2) {
+      fullBlocks += 1;
+      if (
+        cellWidth > 0 && Math.floor(left / cellWidth) !== Math.floor((left + 1) / cellWidth) ||
+        cellHeight > 0 && Math.floor(top / cellHeight) !== Math.floor((top + 1) / cellHeight)
+      ) continue;
+      const blockIndex = Math.floor(top / 2) * blockColumns + Math.floor(left / 2);
+      if (sourceHasStrongEdge(source, width, height, left, top)) {
+        edgeRejectedBlocks += 1;
+        continue;
+      }
+      const endpoints = [
+        endpointAt(left, top), endpointAt(left + 1, top),
+        endpointAt(left, top + 1), endpointAt(left + 1, top + 1),
+      ];
+      if (endpoints.some((candidate) => candidate === null)) continue;
+      const pair = endpoints[0]!;
+      if (endpoints.some((candidate) => !samePair(pair, candidate!))) continue;
+      eligibleBlocks += 1;
+      const oldMask =
+        (pixels[top * width + left] ?? 0) |
+        ((pixels[top * width + left + 1] ?? 0) << 1) |
+        ((pixels[(top + 1) * width + left] ?? 0) << 2) |
+        ((pixels[(top + 1) * width + left + 1] ?? 0) << 3);
+      if (popcount(oldMask) !== 2) continue;
+      intermediateCoverageBlocks += 1;
+      // Store the original decision before looking at the next block. This
+      // makes continuity deterministic and does not let rejected candidates
+      // affect later blocks.
+      masks[blockIndex] = oldMask;
+      const oldSourceCost = blockSourceCost(oldMask, left, top, pair);
+      const oldStructureCost = localStructureCost(
+        pixels, masks, width, height, left, top, oldMask, blockColumns,
+      );
+      const endpointSpan = Math.max(1, colorSpan(pair.paper, pair.ink));
+      const sourceBudget = endpointSpan * (0.005 + checkerStrength * 0.020);
+      const preferredBit = ((left + top) & 1) ^ 1;
+      const preferredMask = preferredBit === 1 ? 0b1001 : 0b0110;
+      const candidateMasks = [preferredMask, preferredMask === 0b1001 ? 0b0110 : 0b1001];
+      const oldCost = oldSourceCost + checkerStrength * (
+        oldStructureCost + (isChecker(oldMask) ? -8 + phasePenalty(left, top, oldMask) + continuityPenalty(blockIndex, oldMask) : 0)
+      );
+      let bestMask = oldMask;
+      let bestCost = oldCost;
+      for (const mask of candidateMasks) {
+        if (mask === oldMask) continue;
+        const sourceCost = blockSourceCost(mask, left, top, pair);
+        if (sourceCost > oldSourceCost + sourceBudget) {
+          sourceRejectedCandidates += 1;
+          continue;
+        }
+        const structureCost = localStructureCost(
+          pixels, masks, width, height, left, top, mask, blockColumns,
+        );
+        if (structureCost > oldStructureCost + 6) {
+          structureRejectedCandidates += 1;
+          continue;
+        }
+        checkerCandidateCount += 1;
+        const cost = sourceCost + checkerStrength * (
+          structureCost - 8 + phasePenalty(left, top, mask) + continuityPenalty(blockIndex, mask)
+        );
+        // Candidate order is preferred phase first; the margin keeps nearly
+        // indistinguishable flips from creating pepper noise.
+        if (cost + 0.25 < bestCost) {
+          bestMask = mask;
+          bestCost = cost;
+        }
+      }
+      masks[blockIndex] = bestMask;
+      if (bestMask !== oldMask) {
+        changedBlocks += 1;
+        changedPixels += popcount(bestMask ^ oldMask);
+        acceptedCheckerBlocks += 1;
+        if (isChecker(oldMask)) phaseReorientedBlocks += 1;
+      }
+    }
+  }
+  return {
+    masks, blockColumns, changedPixels, changedBlocks, fullBlocks,
+    eligibleBlocks, intermediateCoverageBlocks, checkerCandidateCount,
+    sourceRejectedCandidates, structureRejectedCandidates, edgeRejectedBlocks,
+    acceptedCheckerBlocks, phaseReorientedBlocks,
   };
 }
 

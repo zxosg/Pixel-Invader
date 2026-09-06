@@ -59,6 +59,8 @@ describe("versioned conversion engines", () => {
       .toBe("error-diffusion");
     expect(ditherMethodForEngine("error-diffusion-phase-balanced-checker-v3-2"))
       .toBe("error-diffusion");
+    expect(ditherMethodForEngine("error-diffusion-phase-balanced-checker-v3-3"))
+      .toBe("error-diffusion");
     expect(ditherMethodForEngine("error-diffusion-checker-phase-v4"))
       .toBe("error-diffusion");
     expect(ditherMethodForEngine("error-diffusion-checker-phase-v4-1"))
@@ -172,6 +174,7 @@ describe("versioned conversion engines", () => {
       "error-diffusion-phase-balanced-v3",
       "error-diffusion-phase-balanced-checker-v3-1",
       "error-diffusion-phase-balanced-checker-v3-2",
+      "error-diffusion-phase-balanced-checker-v3-3",
       "error-diffusion-checker-phase-v4",
       "error-diffusion-checker-phase-v4-1",
       "error-diffusion-checker-phase-v4-2",

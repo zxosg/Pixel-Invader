@@ -1,0 +1,177 @@
+{
+  "schemaVersion": "1.0.0",
+  "engines": [
+    {
+      "id": "none-discrete-v2",
+      "label": "No dither",
+      "dithering": "none",
+      "amount": 0
+    },
+    {
+      "id": "ordered-strict-matrix-v6",
+      "label": "Strict matrix v6",
+      "dithering": "ordered",
+      "amount": 100
+    },
+    {
+      "id": "ordered-void-cluster-v1",
+      "label": "Void cluster v1",
+      "dithering": "ordered",
+      "amount": 100
+    },
+    {
+      "id": "error-diffusion-decorrelated-v3",
+      "label": "Decorrelated diffusion v3",
+      "dithering": "error-diffusion",
+      "amount": 100
+    },
+    {
+      "id": "ordered-cell-pattern-v4",
+      "label": "Structured cell v4",
+      "dithering": "ordered",
+      "amount": 100,
+      "optimizer": "zx-structured-global-v4"
+    },
+    {
+      "id": "artistic-ordered-hybrid-v1",
+      "label": "Artistic hybrid v1",
+      "dithering": "ordered",
+      "amount": 100
+    }
+  ],
+  "rows": [
+    {
+      "fixture": "gradient",
+      "metrics": [
+        {
+          "engineId": "none-discrete-v2",
+          "optimizerId": "zx-guide-reference-halo-v1",
+          "rgbError": 419578560,
+          "lowPass2x2Error": 407556576
+        },
+        {
+          "engineId": "ordered-strict-matrix-v6",
+          "optimizerId": "zx-guide-reference-halo-v1",
+          "rgbError": 914392800,
+          "lowPass2x2Error": 46010376
+        },
+        {
+          "engineId": "ordered-void-cluster-v1",
+          "optimizerId": "zx-guide-reference-halo-v1",
+          "rgbError": 914392800,
+          "lowPass2x2Error": 46010376
+        },
+        {
+          "engineId": "error-diffusion-decorrelated-v3",
+          "optimizerId": "zx-guide-reference-halo-v1",
+          "rgbError": 821443545,
+          "lowPass2x2Error": 82593497.25
+        },
+        {
+          "engineId": "ordered-cell-pattern-v4",
+          "optimizerId": "zx-structured-global-v4",
+          "rgbError": 673573560,
+          "lowPass2x2Error": 159089606
+        },
+        {
+          "engineId": "artistic-ordered-hybrid-v1",
+          "optimizerId": "zx-guide-reference-halo-v1",
+          "rgbError": 1007065800,
+          "lowPass2x2Error": 104612211
+        }
+      ]
+    },
+    {
+      "fixture": "diagonal-and-features",
+      "metrics": [
+        {
+          "engineId": "none-discrete-v2",
+          "optimizerId": "zx-guide-reference-halo-v1",
+          "rgbError": 148050000,
+          "lowPass2x2Error": 146188950
+        },
+        {
+          "engineId": "ordered-strict-matrix-v6",
+          "optimizerId": "zx-guide-reference-halo-v1",
+          "rgbError": 763242750,
+          "lowPass2x2Error": 18605775
+        },
+        {
+          "engineId": "ordered-void-cluster-v1",
+          "optimizerId": "zx-guide-reference-halo-v1",
+          "rgbError": 763242750,
+          "lowPass2x2Error": 18605775
+        },
+        {
+          "engineId": "error-diffusion-decorrelated-v3",
+          "optimizerId": "zx-guide-reference-halo-v1",
+          "rgbError": 613513125,
+          "lowPass2x2Error": 76768256.25
+        },
+        {
+          "engineId": "ordered-cell-pattern-v4",
+          "optimizerId": "zx-structured-global-v4",
+          "rgbError": 390850050,
+          "lowPass2x2Error": 97019850
+        },
+        {
+          "engineId": "artistic-ordered-hybrid-v1",
+          "optimizerId": "zx-guide-reference-halo-v1",
+          "rgbError": 1038537225,
+          "lowPass2x2Error": 178950056.25
+        }
+      ]
+    },
+    {
+      "fixture": "photograph",
+      "metrics": [
+        {
+          "engineId": "none-discrete-v2",
+          "optimizerId": "zx-guide-reference-halo-v1",
+          "rgbError": 509135946,
+          "lowPass2x2Error": 443039065
+        },
+        {
+          "engineId": "ordered-strict-matrix-v6",
+          "optimizerId": "zx-guide-reference-halo-v1",
+          "rgbError": 898640971,
+          "lowPass2x2Error": 180293463.75
+        },
+        {
+          "engineId": "ordered-void-cluster-v1",
+          "optimizerId": "zx-guide-reference-halo-v1",
+          "rgbError": 898640971,
+          "lowPass2x2Error": 180293463.75
+        },
+        {
+          "engineId": "error-diffusion-decorrelated-v3",
+          "optimizerId": "zx-guide-reference-halo-v1",
+          "rgbError": 692847386,
+          "lowPass2x2Error": 287200060
+        },
+        {
+          "engineId": "ordered-cell-pattern-v4",
+          "optimizerId": "zx-structured-global-v4",
+          "rgbError": 773650556,
+          "lowPass2x2Error": 160121277.5
+        },
+        {
+          "engineId": "artistic-ordered-hybrid-v1",
+          "optimizerId": "zx-guide-reference-halo-v1",
+          "rgbError": 912537396,
+          "lowPass2x2Error": 192164815
+        }
+      ]
+    }
+  ],
+  "columns": [
+    "adjusted source",
+    "No dither",
+    "Strict matrix v6",
+    "Void cluster v1",
+    "Decorrelated diffusion v3",
+    "Structured cell v4",
+    "Artistic hybrid v1"
+  ],
+  "notes": "All independent engine columns use Halo v1 and bayer-2x2 where applicable. Structured cell v4 requires zx-structured-global-v4, so its result is not a like-for-like optimizer comparison. Source has no output column. Artistic v1 has a fixed void-and-cluster seed (1729)."
+}

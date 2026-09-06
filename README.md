@@ -166,6 +166,19 @@ amount increases. The current strict-matrix v6 engine never extends the spatial
 period beyond the selected matrix. Consequently, small matrices have coarse
 representable coverage and may remain unchanged through low percentage ranges;
 representing intermediate coverage would require a larger period or noise.
+`Artistic ordered hybrid v1` is experimental. Its shared attribute-free core
+places canonical color pairs through nested checkerboard, horizontal, or
+vertical motifs. A fixed-seed void-and-cluster rank order fills the gaps between
+quarter coverage levels without restarting phase at hardware boundaries. Plain
+QL Mode 8 and Mode 4 use unrestricted palette pairs directly. ZX uses Bayer
+4×4's Halo-selected legal pairs and reconstructs a continuous target color from
+the guide over a sliding Bayer period; strong contours retain Bayer placement.
+No residual, per-cell quota, or post-threshold pixel move is applied. At 0% it
+follows the normal discrete no-dither path byte-for-byte. It supports ZX 8×1,
+8×2, 8×4, and 8×8 software attribute cells plus plain QL targets; it rejects
+PMD, mixed QL, vertical-spatial QL, and mixed ZX targets; and offers `Auto`,
+`Checkerboard`, `Horizontal`, and `Vertical` pattern preferences. Its fixed
+effective seed is persisted in conversion metadata.
 Error diffusion uses its unrestricted v2 guide by default. Historical engines,
 including the experimental hierarchical v5, remain selectable for benchmarks.
 The preview exposes adjusted source, pre-constraint dither, physical screen frames,

@@ -8,11 +8,15 @@ import {
   type QlRgbColor,
 } from "@retro-converter/sinclair-ql";
 import { adjustRgba } from "./adjustments.js";
+import { renderArtisticPaletteOrdered } from "./artistic-ordered.js";
 import { assertCompatibleEngines, ditherMethodForEngine } from "./engines.js";
 import {
   applyCheckerPlacement,
+  checkerPlacementStrengthV33,
+  planCheckerOnlyPlacementV33,
   planCheckerPlacement,
 } from "./checker-placement.js";
+import type { CheckerPlacementEndpointPair } from "./checker-placement.js";
 import { filterRgba } from "./filters.js";
 import { frameRgbaToDimensions } from "./geometry.js";
 import {
@@ -99,6 +103,39 @@ function sourcePixelIsSmooth(
     }
   }
   return true;
+}
+
+function applyCheckerOnlyPlacementV33(
+  source: Uint8Array,
+  phaseBits: Uint8Array,
+  width: number,
+  height: number,
+  lineSuppression: number,
+  endpointAt: (x: number, y: number) => CheckerPlacementEndpointPair | null,
+): void {
+  const strength = checkerPlacementStrengthV33(lineSuppression);
+  if (strength <= 0) return;
+  const plan = planCheckerOnlyPlacementV33(
+    source,
+    phaseBits,
+    width,
+    height,
+    strength,
+    endpointAt,
+  );
+  for (let top = 0; top + 1 < height; top += 2) {
+    for (let left = 0; left + 1 < width; left += 2) {
+      const mask = plan.masks[
+        Math.floor(top / 2) * plan.blockColumns + Math.floor(left / 2)
+      ] ?? 255;
+      if (mask === 255) continue;
+      for (let dy = 0; dy < 2; dy += 1) {
+        for (let dx = 0; dx < 2; dx += 1) {
+          phaseBits[(top + dy) * width + left + dx] = (mask >> (dy * 2 + dx)) & 1;
+        }
+      }
+    }
+  }
 }
 
 function distance(r: number, g: number, b: number, color: TemporalVirtualColor): number {
@@ -687,7 +724,8 @@ export function quantizeTemporalVirtual(
       settings.ditherEngineId === "error-diffusion-atkinson-v1";
     const phaseBalanced =
       settings.ditherEngineId === "error-diffusion-phase-balanced-v3" ||
-      settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-2";
+      settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-2" ||
+      settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-3";
     const checkerPhase =
       settings.ditherEngineId === "error-diffusion-checker-phase-v4";
     const checkerPhaseV43 =
@@ -1019,7 +1057,8 @@ function quantizeMixedResolutionV2(
   const atkinson = settings.ditherEngineId === "error-diffusion-atkinson-v1";
   const phaseBalanced =
     settings.ditherEngineId === "error-diffusion-phase-balanced-v3" ||
-    settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-2";
+    settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-2" ||
+    settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-3";
   const checkerPhase =
     settings.ditherEngineId === "error-diffusion-checker-phase-v4";
   const checkerPhaseV43 =
@@ -1218,10 +1257,17 @@ export function convertToQl(
     throw new RangeError("Sinclair QL mixed optimizer is invalid.");
   }
   const targetMode = settings.modeId;
+  if (
+    settings.ditherEngineId === "artistic-ordered-hybrid-v1" &&
+    targetMode !== "mode8-plain-256x256" &&
+    targetMode !== "mode4-plain-512x256"
+  ) throw new RangeError("Artistic ordered hybrid supports only plain Sinclair QL targets.");
   const checkerPlacementV31 =
     settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-1";
   const checkerPlacementV32 =
     settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-2";
+  const checkerPlacementV33 =
+    settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-3";
   if (
     targetMode !== "mode8-256x256" &&
     targetMode !== "mode4-512x256" &&
@@ -1513,6 +1559,45 @@ export function convertToQl(
         const ink = x % 2 === 0 ? candidate.highRight : candidate.highLeft;
         highIndices[pixel] = highBits[pixel] === 1 ? ink : paper;
       }
+    } else if (checkerPlacementV33) {
+      const sourceForHigh = useLegacyAverage
+        ? expandRgbaHorizontally2x(normalizedSource, lowWidth, QL_SCREEN_HEIGHT)
+        : normalizedSource;
+      const highBits = new Uint8Array(highIndices.length);
+      for (let pixel = 0; pixel < highIndices.length; pixel += 1) {
+        const x = pixel % highWidth;
+        const logicalX = Math.floor(x / 2);
+        const candidate = virtualPalette[virtualIndices[Math.floor(pixel / highWidth) * lowWidth + logicalX] ?? 0]!;
+        const paper = x % 2 === 0 ? candidate.highLeft : candidate.highRight;
+        const ink = x % 2 === 0 ? candidate.highRight : candidate.highLeft;
+        highBits[pixel] = paper !== ink && highIndices[pixel] === ink ? 1 : 0;
+      }
+      applyCheckerOnlyPlacementV33(
+        sourceForHigh,
+        highBits,
+        highWidth,
+        QL_SCREEN_HEIGHT,
+        settings.errorDiffusionLineSuppression,
+        (x, y) => {
+          const logicalX = Math.floor(x / 2);
+          const candidate = virtualPalette[virtualIndices[y * lowWidth + logicalX] ?? 0]!;
+          const left = palettes[1]![candidate.highLeft];
+          const right = palettes[1]![candidate.highRight];
+          return left === undefined || right === undefined
+            ? null
+            : x % 2 === 0
+              ? { paper: left, ink: right, key: candidate.highLeft * 16 + candidate.highRight }
+              : { paper: right, ink: left, key: candidate.highLeft * 16 + candidate.highRight };
+        },
+      );
+      for (let pixel = 0; pixel < highBits.length; pixel += 1) {
+        const x = pixel % highWidth;
+        const logicalX = Math.floor(x / 2);
+        const candidate = virtualPalette[virtualIndices[Math.floor(pixel / highWidth) * lowWidth + logicalX] ?? 0]!;
+        const paper = x % 2 === 0 ? candidate.highLeft : candidate.highRight;
+        const ink = x % 2 === 0 ? candidate.highRight : candidate.highLeft;
+        highIndices[pixel] = highBits[pixel] === 1 ? ink : paper;
+      }
     }
     const lowNativePreview = renderQlRgba(lowIndices, lowMode);
     const lowPreview = expandRgbaHorizontally2x(
@@ -1602,18 +1687,39 @@ export function convertToQl(
         selections[1]!.enabledColorIds,
       )
     : buildPlainPalette(palette, selections[0]!.enabledColorIds);
-  const virtualIndices = quantizeTemporalVirtual(
-    normalized,
-    width,
-    QL_SCREEN_HEIGHT,
-    virtualPalette,
-    settings,
-    usesMixing && (
-      settings.ditherEngineId === "ordered-local-tone-v3" ||
-      settings.ditherEngineId === "ordered-baseline-additive-v5" ||
-      settings.ditherEngineId === "ordered-strict-matrix-v6"
-    ),
-  );
+  const artisticPlain = !usesMixing &&
+    settings.ditherEngineId === "artistic-ordered-hybrid-v1" &&
+    settings.ditheringAmount > 0;
+  const virtualIndices = artisticPlain
+    ? (() => {
+        const enabled = selections[0]!.enabledColorIds;
+        const paletteIndices = renderArtisticPaletteOrdered(
+          normalized,
+          width,
+          QL_SCREEN_HEIGHT,
+          palette,
+          enabled,
+          settings.ditheringAmount,
+          settings.artisticPattern,
+        );
+        const virtualByPalette = new Uint8Array(palette.length);
+        for (let index = 0; index < enabled.length; index++) {
+          virtualByPalette[enabled[index]!] = index;
+        }
+        return Uint8Array.from(paletteIndices, (index) => virtualByPalette[index] ?? 0);
+      })()
+    : quantizeTemporalVirtual(
+        normalized,
+        width,
+        QL_SCREEN_HEIGHT,
+        virtualPalette,
+        settings,
+        usesMixing && (
+          settings.ditherEngineId === "ordered-local-tone-v3" ||
+          settings.ditherEngineId === "ordered-baseline-additive-v5" ||
+          settings.ditherEngineId === "ordered-strict-matrix-v6"
+        ),
+      );
   const firstIndices = new Uint8Array(virtualIndices.length);
   const secondIndices = new Uint8Array(virtualIndices.length);
   const matrix = ORDERED_MATRICES[settings.orderedMatrix];
@@ -1694,6 +1800,32 @@ export function convertToQl(
         }
       }
     }
+    for (let pixel = 0; pixel < phaseBits.length; pixel += 1) {
+      const pair = virtualPalette[virtualIndices[pixel] ?? 0]!;
+      firstIndices[pixel] = phaseBits[pixel] === 1 ? pair.second : pair.first;
+      secondIndices[pixel] = phaseBits[pixel] === 1 ? pair.first : pair.second;
+    }
+  } else if (checkerPlacementV33 && usesMixing) {
+    const phaseBits = new Uint8Array(virtualIndices.length);
+    for (let pixel = 0; pixel < virtualIndices.length; pixel += 1) {
+      const pair = virtualPalette[virtualIndices[pixel] ?? 0]!;
+      phaseBits[pixel] = pair.first !== pair.second && firstIndices[pixel] === pair.second ? 1 : 0;
+    }
+    applyCheckerOnlyPlacementV33(
+      normalized,
+      phaseBits,
+      width,
+      QL_SCREEN_HEIGHT,
+      settings.errorDiffusionLineSuppression,
+      (x, y) => {
+        const pair = virtualPalette[virtualIndices[y * width + x] ?? 0]!;
+        const first = palette[pair.first];
+        const second = palette[pair.second];
+        return first === undefined || second === undefined
+          ? null
+          : { paper: first, ink: second, key: pair.first * 16 + pair.second };
+      },
+    );
     for (let pixel = 0; pixel < phaseBits.length; pixel += 1) {
       const pair = virtualPalette[virtualIndices[pixel] ?? 0]!;
       firstIndices[pixel] = phaseBits[pixel] === 1 ? pair.second : pair.first;

@@ -1257,6 +1257,87 @@ describe("ZX conversion", () => {
     );
   });
 
+  it("keeps v3.3 identical to v3 through the 35% suppression gate", () => {
+    const source = new Uint8Array(256 * 192 * 4);
+    for (let pixel = 0; pixel < 256 * 192; pixel += 1) {
+      source[pixel * 4] = (pixel * 17) & 255;
+      source[pixel * 4 + 1] = (pixel * 29) & 255;
+      source[pixel * 4 + 2] = (pixel * 43) & 255;
+      source[pixel * 4 + 3] = 255;
+    }
+    const base = settings({
+      framing: "stretch",
+      resampling: "nearest",
+      dithering: "error-diffusion",
+      ditheringAmount: 100,
+      errorDiffusionRandomization: 0,
+      ditherEngineId: "error-diffusion-phase-balanced-v3",
+    });
+    for (const suppression of [0, 25, 35]) {
+      const v3 = convertToZx(source, 256, 192, {
+        ...base,
+        errorDiffusionLineSuppression: suppression,
+      });
+      const v33 = convertToZx(source, 256, 192, {
+        ...base,
+        ditherEngineId: "error-diffusion-phase-balanced-checker-v3-3",
+        errorDiffusionLineSuppression: suppression,
+      });
+      expect(v33.frames[0]?.encoded).toEqual(v3.frames[0]?.encoded);
+      expect(v33.preConstraintPreviewRgba).toEqual(v3.preConstraintPreviewRgba);
+      expect(v33.attributes).toEqual(v3.attributes);
+      expect(v33.checkerPlacementDiagnostics).toBeUndefined();
+    }
+  });
+
+  it("limits v3.3 changes to legal 50% checker blocks", () => {
+    const source = solid(256, 192, [128, 128, 128, 255]);
+    const base = settings({
+      framing: "stretch",
+      resampling: "nearest",
+      dithering: "error-diffusion",
+      ditheringAmount: 100,
+      errorDiffusionRandomization: 0,
+      errorDiffusionLineSuppression: 100,
+      ditherEngineId: "error-diffusion-phase-balanced-v3",
+      attributeOptimizerId: "zx-guide-reference-halo-v1",
+    });
+    const v3 = convertToZx(source, 256, 192, base);
+    const v33 = convertToZx(source, 256, 192, {
+      ...base,
+      ditherEngineId: "error-diffusion-phase-balanced-checker-v3-3",
+    });
+    for (let y = 0; y + 1 < 192; y += 2) {
+      for (let x = 0; x + 1 < 256; x += 2) {
+        const before = [
+          v3.pixels[y * 256 + x] ?? 0,
+          v3.pixels[y * 256 + x + 1] ?? 0,
+          v3.pixels[(y + 1) * 256 + x] ?? 0,
+          v3.pixels[(y + 1) * 256 + x + 1] ?? 0,
+        ];
+        const after = [
+          v33.pixels[y * 256 + x] ?? 0,
+          v33.pixels[y * 256 + x + 1] ?? 0,
+          v33.pixels[(y + 1) * 256 + x] ?? 0,
+          v33.pixels[(y + 1) * 256 + x + 1] ?? 0,
+        ];
+        const changed = after.filter((value, index) => value !== before[index]).length;
+        if (changed > 0) {
+          expect(before.reduce((sum, value) => sum + value, 0)).toBe(
+            after.reduce((sum, value) => sum + value, 0),
+          );
+          expect(changed).toBeGreaterThan(1);
+          const mask = (after[0] ?? 0) | ((after[1] ?? 0) << 1) |
+            ((after[2] ?? 0) << 2) | ((after[3] ?? 0) << 3);
+          expect([0b1001, 0b0110]).toContain(mask);
+        }
+      }
+    }
+    expect(v33.attributes).toEqual(v3.attributes);
+    expect(validateScreen(v33.screen)).toEqual([]);
+    expect(v33.checkerPlacementDiagnostics?.phaseReorientedBlocks ?? 0).toBeGreaterThanOrEqual(0);
+  });
+
   it("keeps checker-phase v4.1 corrections inside legal ZX output", () => {
     const source = solid(256, 192, [112, 112, 112, 255]);
     const result = convertToZx(source, 256, 192, settings({

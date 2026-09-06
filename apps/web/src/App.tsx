@@ -1020,6 +1020,7 @@ export function App() {
     );
   const [targetModeId, setTargetModeId] =
     useState<TargetModeId>(startupApplicationSettings.modeId);
+  const [artisticPattern, setArtisticPattern] = useState<NonNullable<ConversionSettings["artisticPattern"]>>("auto");
   const [orderedMatrix, setOrderedMatrix] = useState<OrderedMatrixId>(DEFAULT_CONVERSION_SETTINGS.orderedMatrix);
   const [amountEntry, setAmountEntry] = useState(String(startupApplicationSettings.ditheringAmount));
   const [errorDiffusionRandomization, setErrorDiffusionRandomization] = useState(
@@ -1733,6 +1734,7 @@ export function App() {
     errorDiffusionRandomization,
     errorDiffusionLineSuppression,
     orderedMatrix,
+    artisticPattern,
     structured: {
       ...structuredSettings,
       ditherAmountPermille: dithering === "none" ? 0 : amount * 10,
@@ -1895,7 +1897,7 @@ export function App() {
     screenFlickerSuppression,
     paletteSelections, dithering, amount, errorDiffusionRandomization,
     errorDiffusionLineSuppression,
-    orderedMatrix, selectedProfileId, targetModeId, attributeOptimizerId,
+    orderedMatrix, artisticPattern, selectedProfileId, targetModeId, attributeOptimizerId,
     ditherEngineId, qlMixedOptimizerId, structuredSettings,
     pmd85PaletteCalibrationId, pmd85CrtAspect, pmd85GapPolicy,
     workspaceMode,
@@ -2877,6 +2879,7 @@ export function App() {
       DEFAULT_CONVERSION_SETTINGS.errorDiffusionLineSuppression,
     );
     setOrderedMatrix(next.orderedMatrix);
+    setArtisticPattern(next.artisticPattern ?? "auto");
     setStructuredSettings(next.structured);
     setPmd85PaletteCalibrationId(next.pmd85.paletteCalibrationId);
     setPmd85CrtAspect(next.pmd85.crtAspect);
@@ -2964,6 +2967,7 @@ export function App() {
     setGamma(Number(settingsDraft.gamma));
     setAttributeHeight(settingsDraft.attributeHeight as AttributeHeight);
     setOrderedMatrix(settingsDraft.orderedMatrix as OrderedMatrixId);
+    setArtisticPattern((settingsDraft.artisticPattern as ConversionSettings["artisticPattern"]) ?? "auto");
     // Keep the engine in sync with the public dithering method. Applying a
     // preset above may have selected the preset's engine (often "none"), so
     // changing only the method would make the UI say Ordered while the worker
@@ -3079,7 +3083,8 @@ export function App() {
             !isCompatibleEnginePair(optimizerId, engine.id)
           ) continue;
           const matrixEffective =
-            engine.method === "ordered" && engine.family === undefined;
+            engine.method === "ordered" && engine.family === undefined &&
+            engine.id !== "artistic-ordered-hybrid-v1";
           const matrices = matrixEffective
             ? engine.orderedMatrixIds ?? ORDERED_MATRIX_IDS.slice(0, 4)
             : [orderedMatrix];
@@ -6359,7 +6364,8 @@ export function App() {
                 {(() => {
                   const compatible = DITHER_ENGINES.filter((engine) =>
                     engine.platforms.includes(selectedPlatformId as never) &&
-                    isCompatibleEnginePair(attributeOptimizerId, engine.id) &&
+                    (selectedPlatformId === "sinclair-ql" ||
+                      isCompatibleEnginePair(attributeOptimizerId, engine.id)) &&
                     (engine.targetModeIds === undefined || engine.targetModeIds.includes(targetModeId)) &&
                     (targetModeId !== "zx48-mixed-256x192" || !("family" in engine))
                   );
@@ -6418,7 +6424,19 @@ export function App() {
               <option value="error-diffusion">Error diffusion</option>
             </select>
           </label>
-          {dithering === "ordered" ? (
+          {ditherEngineId === "artistic-ordered-hybrid-v1" ? (
+            <label>
+              <span>Pattern preference</span>
+              <select value={artisticPattern} onChange={(event) => { setArtisticPattern(event.target.value as NonNullable<ConversionSettings["artisticPattern"]>); setState({ kind: "idle" }); }}>
+                <option value="auto">Auto</option>
+                <option value="checkerboard">Checkerboard</option>
+                <option value="horizontal">Horizontal</option>
+                <option value="vertical">Vertical</option>
+              </select>
+              {attributeHeight === 1 ? <small>8×1 cells use row-local alternating motifs.</small> : null}
+            </label>
+          ) : null}
+          {dithering === "ordered" && ditherEngineId !== "artistic-ordered-hybrid-v1" ? (
             <label>
               <span>Ordered matrix</span>
               <select value={orderedMatrix} onChange={(event) => { setOrderedMatrix(event.target.value as OrderedMatrixId); setState({ kind: "idle" }); }}>
@@ -6452,7 +6470,8 @@ export function App() {
                   const compatible = DITHER_ENGINES.filter((engine) =>
                     engine.method === "error-diffusion" &&
                     engine.platforms.includes(selectedPlatformId as never) &&
-                    isCompatibleEnginePair(attributeOptimizerId, engine.id) &&
+                    (selectedPlatformId === "sinclair-ql" ||
+                      isCompatibleEnginePair(attributeOptimizerId, engine.id)) &&
                     (engine.targetModeIds === undefined || engine.targetModeIds.includes(targetModeId))
                   );
                   const recommended = new Set<DitherEngineId>([
@@ -6539,6 +6558,7 @@ export function App() {
               {ditherEngineId === "error-diffusion-phase-balanced-v3" ||
               ditherEngineId === "error-diffusion-phase-balanced-checker-v3-1" ||
               ditherEngineId === "error-diffusion-phase-balanced-checker-v3-2" ||
+              ditherEngineId === "error-diffusion-phase-balanced-checker-v3-3" ||
               ditherEngineId === "error-diffusion-checker-phase-v4" ||
               ditherEngineId === "error-diffusion-checker-phase-v4-1" ||
               ditherEngineId === "error-diffusion-checker-phase-v4-2" ||
@@ -6547,7 +6567,7 @@ export function App() {
               ditherEngineId === "error-diffusion-matrix-guided-v1" ? (
                 <div
                   className="dithering-parameter"
-                    title="Reduces vertical diffusion runs and favors balanced alternating 2×2 placement; v3.1 adds local placement and v3.2 integrates checker decisions into v3 error propagation. At 0%, output matches Projected unrestricted v2."
+                    title="Reduces vertical diffusion runs and favors balanced alternating 2×2 placement; v3.1 adds local placement, v3.2 integrates checker decisions into v3 propagation, and v3.3 reorients only true 50% checker blocks. At 0%, output matches Projected unrestricted v2."
                 >
                   <RangeNumberControl
                     id="error-line-suppression"
@@ -6563,7 +6583,7 @@ export function App() {
                     onValidityChange={setSliderValidity}
                   />
                   <span className="control-help">
-                    Reduces vertical diffusion runs while retaining short 2×1 transitions. v3.1 applies local placement after v3; v3.2 integrates coverage-preserving 2×2 checker decisions into v3 error propagation. At 0%, output matches Projected unrestricted v2.
+                    Reduces vertical diffusion runs while retaining short 2×1 transitions. v3.1 applies local placement after v3; v3.2 integrates coverage-preserving 2×2 checker decisions into v3 propagation; v3.3 only reorients existing 50% checker blocks. At 0%, output matches Projected unrestricted v2.
                   </span>
                 </div>
               ) : null}

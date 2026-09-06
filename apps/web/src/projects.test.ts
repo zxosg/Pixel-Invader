@@ -7,7 +7,7 @@ import { encodeQlScreen } from "@retro-converter/sinclair-ql";
 import { PMD85_VRAM_BYTES } from "@retro-converter/pmd-85";
 import { createCompletedProject, validateCompletedProject } from "./projects.js";
 import { BUILT_IN_PROFILE, PMD85_BUILT_IN_PROFILES, QL_BUILT_IN_PROFILE } from "./profiles.js";
-import { sha256Hex } from "./artifacts.js";
+import { buildConversionMetadata, sha256Hex } from "./artifacts.js";
 
 const projectEncoder = new TextEncoder();
 const projectDecoder = new TextDecoder();
@@ -360,6 +360,18 @@ describe("completed project containers", () => {
 
     expect(validated.settings).toEqual(settings);
     expect(validated.manifest.schema_version).toBe("13.0.0");
+  });
+
+  it.each(["auto", "checkerboard", "horizontal", "vertical"] as const)("round-trips artistic hybrid %s and seed metadata", async (artisticPattern) => {
+    const settings = { ...DEFAULT_CONVERSION_SETTINGS, attributeOptimizerId: "zx-guide-reference-halo-v1" as const,
+      ditherEngineId: "artistic-ordered-hybrid-v1" as const, dithering: "ordered" as const,
+      ditheringAmount: 73, artisticPattern };
+    const metadata = await buildConversionMetadata({ sourceSha256: "11".repeat(32), sourceFormat: "png",
+      sourceWidth: 256, sourceHeight: 192, settings, scr: projectInput().scr,
+      previewRgba: new Uint8Array(256*192*4), score: 0, completedAtUtc: "2026-09-05T00:00:00.000Z" });
+    const project = await createCompletedProject({ ...projectInput(), settings, metadataJson: projectEncoder.encode(JSON.stringify(metadata)) });
+    expect((await validateCompletedProject(project)).settings).toEqual(settings);
+    expect(metadata.conversion.seed).toBe("artistic-void-cluster-v1:seed-1729");
   });
 
   it("round-trips Halo v2 influence and the experimental legal-mask engine", async () => {

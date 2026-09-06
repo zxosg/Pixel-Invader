@@ -10,6 +10,7 @@ const allEngines = [
   "error-diffusion-phase-balanced-v3",
   "error-diffusion-phase-balanced-checker-v3-1",
   "error-diffusion-phase-balanced-checker-v3-2",
+  "error-diffusion-phase-balanced-checker-v3-3",
   "error-diffusion-checker-phase-v4",
   "error-diffusion-checker-phase-v4-3",
 ];
@@ -23,8 +24,8 @@ const modes = [
   ["mode4-plain-512x256", 512, 4],
   ["mode8-mode4-mixed-512x256", 512, 4],
 ];
-const amounts = quick ? [50, 100] : [25, 50, 75, 100];
-const suppressions = quick ? [0, 50, 100] : [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+const amounts = quick ? [35, 100] : [25, 50, 75, 100];
+const suppressions = quick ? [0, 25, 50, 75, 100] : [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
 const randomizations = quick ? [0] : [0, 50, 100];
 
 function sourceFixture(width, height, kind) {

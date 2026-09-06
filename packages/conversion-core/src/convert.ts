@@ -6,6 +6,7 @@ import {
   serializeSoftwareScr,
   type ZxScreen,
 } from "@retro-converter/zx-spectrum";
+import { renderArtisticOrdered } from "./artistic-ordered.js";
 import { frameRgba } from "./geometry.js";
 import { adjustRgba, validateAdjustments } from "./adjustments.js";
 import { filterRgba, validateImageFilters } from "./filters.js";
@@ -37,6 +38,8 @@ import {
 import { assertCompatibleEngines, ditherMethodForEngine } from "./engines.js";
 import {
   applyCheckerPlacement,
+  checkerPlacementStrengthV33,
+  planCheckerOnlyPlacementV33,
   planCheckerPlacement,
 } from "./checker-placement.js";
 import { convertStructuredZx } from "./structured-zx.js";
@@ -387,8 +390,9 @@ function renderLocalErrorDiffusion(
   const riemersma = engineId === "error-diffusion-riemersma-v1";
   const checkerPlacementV31 = engineId === "error-diffusion-phase-balanced-checker-v3-1";
   const checkerPlacementV32 = engineId === "error-diffusion-phase-balanced-checker-v3-2";
+  const checkerPlacementV33 = engineId === "error-diffusion-phase-balanced-checker-v3-3";
   const phaseBalanced = engineId === "error-diffusion-phase-balanced-v3" ||
-    checkerPlacementV31 || checkerPlacementV32;
+    checkerPlacementV31 || checkerPlacementV32 || checkerPlacementV33;
   const checkerPhase = engineId === "error-diffusion-checker-phase-v4";
   const checkerPhaseV41 = engineId === "error-diffusion-checker-phase-v4-1";
   const checkerPhaseV42 = engineId === "error-diffusion-checker-phase-v4-2";
@@ -740,6 +744,124 @@ function renderCheckerPlacementV32(
           errors[neighborOffset + channel] = Math.fround(
             (errors[neighborOffset + channel] ?? 0) +
               Math.fround((channelErrors[channel] ?? 0) * weight),
+          );
+        }
+      }
+    }
+  }
+  return { pixels, plan: placement };
+}
+
+function renderCheckerPlacementV33(
+  source: Uint8Array,
+  basePixels: Uint8Array,
+  attributes: Uint8Array,
+  cellHeight: AttributeHeight,
+  amount: number,
+  randomization: number,
+  lineSuppression: number,
+): { readonly pixels: Uint8Array; readonly plan: ReturnType<typeof planCheckerOnlyPlacementV33> | null } {
+  const checkerStrength = checkerPlacementStrengthV33(lineSuppression);
+  if (checkerStrength <= 0) return { pixels: basePixels, plan: null };
+  const placement = planCheckerOnlyPlacementV33(
+    source,
+    basePixels,
+    ZX_SCREEN_WIDTH,
+    ZX_SCREEN_HEIGHT,
+    checkerStrength,
+    (x, y) => {
+      const attribute = attributes[
+        Math.floor(y / cellHeight) * ZX_ATTRIBUTE_COLUMNS + Math.floor(x / CELL_WIDTH)
+      ] ?? 0;
+      const colors = decodeAttribute(attribute);
+      return { paper: colors.paper, ink: colors.ink, key: attribute };
+    },
+    CELL_WIDTH,
+    cellHeight,
+  );
+  if (placement.changedBlocks === 0) return { pixels: basePixels, plan: placement };
+
+  // Re-run the v3 propagation pass with the accepted block decisions so the
+  // phase choice participates in subsequent error propagation. Unchanged
+  // pixels continue to use the original v3 decision exactly.
+  const pixels = basePixels.slice();
+  const errors = new Float32Array(ZX_SCREEN_WIDTH * ZX_SCREEN_HEIGHT * 3);
+  const verticalRunLengths = new Uint8Array(ZX_SCREEN_WIDTH);
+  const previousRowKeys = new Uint8Array(ZX_SCREEN_WIDTH);
+  previousRowKeys.fill(255);
+  const diffusionScale = Math.fround(amount / ERROR_SCALE);
+  const isChangedBlock = (x: number, y: number): boolean => {
+    const left = x & ~1;
+    const top = y & ~1;
+    if (left + 1 >= ZX_SCREEN_WIDTH || top + 1 >= ZX_SCREEN_HEIGHT) return false;
+    const blockIndex = Math.floor(top / 2) * placement.blockColumns + Math.floor(left / 2);
+    const mask = placement.masks[blockIndex];
+    if (mask === undefined || mask === 255) return false;
+    const baseMask =
+      (basePixels[top * ZX_SCREEN_WIDTH + left] ?? 0) |
+      ((basePixels[top * ZX_SCREEN_WIDTH + left + 1] ?? 0) << 1) |
+      ((basePixels[(top + 1) * ZX_SCREEN_WIDTH + left] ?? 0) << 2) |
+      ((basePixels[(top + 1) * ZX_SCREEN_WIDTH + left + 1] ?? 0) << 3);
+    return mask !== baseMask;
+  };
+  const plannedBit = (x: number, y: number): number => {
+    const left = x & ~1;
+    const top = y & ~1;
+    const blockIndex = Math.floor(top / 2) * placement.blockColumns + Math.floor(left / 2);
+    const mask = placement.masks[blockIndex] ?? 255;
+    return mask === 255 ? basePixels[y * ZX_SCREEN_WIDTH + x] ?? 0 :
+      (mask >> ((y - top) * 2 + x - left)) & 1;
+  };
+  const isSmoothSource = (x: number, y: number): boolean => {
+    const center = (y * ZX_SCREEN_WIDTH + x) * 4;
+    for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]] as const) {
+      if (nx < 0 || nx >= ZX_SCREEN_WIDTH || ny < 0 || ny >= ZX_SCREEN_HEIGHT) continue;
+      const neighbor = (ny * ZX_SCREEN_WIDTH + nx) * 4;
+      for (let channel = 0; channel < 3; channel += 1) {
+        if (Math.abs((source[center + channel] ?? 0) - (source[neighbor + channel] ?? 0)) > 48) return false;
+      }
+    }
+    return true;
+  };
+
+  for (let y = 0; y < ZX_SCREEN_HEIGHT; y += 1) {
+    const direction = y % 2 === 1 ? 1 : -1;
+    for (let step = 0; step < ZX_SCREEN_WIDTH; step += 1) {
+      const x = direction === 1 ? step : ZX_SCREEN_WIDTH - 1 - step;
+      const pixel = y * ZX_SCREEN_WIDTH + x;
+      const sourceOffset = pixel * 4;
+      const errorOffset = pixel * 3;
+      const adjustedR = Math.max(0, Math.min(255, (source[sourceOffset] ?? 0) + Math.trunc(errors[errorOffset] ?? 0) + diffusionNoiseOffset(x, y, 0, randomization, 8)));
+      const adjustedG = Math.max(0, Math.min(255, (source[sourceOffset + 1] ?? 0) + Math.trunc(errors[errorOffset + 1] ?? 0) + diffusionNoiseOffset(x, y, 1, randomization, 8)));
+      const adjustedB = Math.max(0, Math.min(255, (source[sourceOffset + 2] ?? 0) + Math.trunc(errors[errorOffset + 2] ?? 0) + diffusionNoiseOffset(x, y, 2, randomization, 8)));
+      const attribute = attributes[Math.floor(y / cellHeight) * ZX_ATTRIBUTE_COLUMNS + Math.floor(x / CELL_WIDTH)] ?? 0;
+      const { ink, paper } = decodeAttribute(attribute);
+      const decision = isChangedBlock(x, y) ? plannedBit(x, y) : basePixels[pixel] ?? 0;
+      pixels[pixel] = decision;
+      const output = decision === 1 ? ink : paper;
+      const channelErrors = [
+        Math.fround(diffusionScale * (adjustedR - output.r)),
+        Math.fround(diffusionScale * (adjustedG - output.g)),
+        Math.fround(diffusionScale * (adjustedB - output.b)),
+      ] as const;
+      const outputKey = attribute * 2 + decision;
+      verticalRunLengths[x] = previousRowKeys[x] === outputKey ? Math.min(255, (verticalRunLengths[x] ?? 0) + 1) : 1;
+      previousRowKeys[x] = outputKey;
+      const neighbors = phaseBalancedDiffusionKernel(
+        direction,
+        x,
+        y,
+        lineSuppression,
+        isSmoothSource(x, y) ? verticalRunLengths[x] ?? 0 : 0,
+      );
+      for (const [dx, dy, weight] of neighbors) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || nx >= ZX_SCREEN_WIDTH || ny < 0 || ny >= ZX_SCREEN_HEIGHT) continue;
+        const neighborOffset = (ny * ZX_SCREEN_WIDTH + nx) * 3;
+        for (let channel = 0; channel < 3; channel += 1) {
+          errors[neighborOffset + channel] = Math.fround(
+            (errors[neighborOffset + channel] ?? 0) + Math.fround((channelErrors[channel] ?? 0) * weight),
           );
         }
       }
@@ -2330,6 +2452,12 @@ function validateSettings(settings: ConversionSettings): void {
   if (ditherMethodForEngine(settings.ditherEngineId) !== settings.dithering) {
     throw new RangeError("Dither engine and dithering method do not match.");
   }
+  if (settings.ditherEngineId === "artistic-ordered-hybrid-v1" && settings.modeId !== "zx48-standard-256x192") {
+    throw new RangeError("Artistic ordered hybrid supports only single-screen ZX targets.");
+  }
+  if (settings.artisticPattern !== undefined && !["auto", "checkerboard", "horizontal", "vertical"].includes(settings.artisticPattern)) {
+    throw new RangeError("Invalid artistic pattern preference.");
+  }
   validateAdjustments(settings);
   validateImageFilters(settings);
   if (!Number.isInteger(settings.borderColor) || settings.borderColor < 0 || settings.borderColor > 7) {
@@ -2860,6 +2988,7 @@ export function convertToZx(
   const matrixGuided = settings.ditherEngineId === "error-diffusion-matrix-guided-v1";
   const checkerPlacementV31 = settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-1";
   const checkerPlacementV32 = settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-2";
+  const checkerPlacementV33 = settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-3";
   const checkerPhaseV41 = settings.ditherEngineId === "error-diffusion-checker-phase-v4-1";
   let artifactCorrection: ZxConversionResult["artifactCorrection"];
   let checkerPlacementDiagnostics: ZxConversionResult["checkerPlacementDiagnostics"];
@@ -2936,10 +3065,12 @@ export function convertToZx(
       settings.ditherEngineId === "ordered-clustered-dot-v1" ||
       settings.ditherEngineId === "ordered-void-cluster-v1" ||
       settings.ditherEngineId === "pattern-legal-mask-dbs-v1" ||
+      settings.ditherEngineId === "artistic-ordered-hybrid-v1" ||
       settings.ditherEngineId === "error-diffusion-unrestricted-v2" ||
       settings.ditherEngineId === "error-diffusion-phase-balanced-v3" ||
       settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-1" ||
       settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-2" ||
+      settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-3" ||
       settings.ditherEngineId === "error-diffusion-checker-phase-v4" ||
       settings.ditherEngineId === "error-diffusion-checker-phase-v4-1" ||
       settings.ditherEngineId === "error-diffusion-checker-phase-v4-2" ||
@@ -2959,7 +3090,13 @@ export function convertToZx(
           enabledColors,
           draftBrightCells,
         );
-    const matrix = ORDERED_MATRICES[settings.orderedMatrix];
+    // Artistic v1 owns placement, but deliberately uses the promoted Bayer
+    // 4×4 guide for Halo pair selection. That makes its legal pair and BRIGHT
+    // decisions comparable with the ordered baseline instead of introducing a
+    // second, hidden colour-balance model.
+    const matrix = ORDERED_MATRICES[settings.ditherEngineId === "artistic-ordered-hybrid-v1"
+      ? "bayer-4x4"
+      : settings.orderedMatrix];
     guideKeys = settings.dithering === "error-diffusion"
       ? renderLocalErrorDiffusion(
           normalized,
@@ -3121,6 +3258,33 @@ export function convertToZx(
         };
       }
     }
+    if (checkerPlacementV33) {
+      const checkerResult = renderCheckerPlacementV33(
+        normalized,
+        pixels,
+        attributes,
+        cellHeight,
+        settings.ditheringAmount,
+        settings.errorDiffusionRandomization,
+        settings.errorDiffusionLineSuppression,
+      );
+      pixels = checkerResult.pixels;
+      if (checkerResult.plan !== null) {
+        checkerPlacementDiagnostics = {
+          changedPixels: checkerResult.plan.changedPixels,
+          changedBlocks: checkerResult.plan.changedBlocks,
+          fullBlocks: checkerResult.plan.fullBlocks,
+          eligibleBlocks: checkerResult.plan.eligibleBlocks,
+          intermediateCoverageBlocks: checkerResult.plan.intermediateCoverageBlocks,
+          checkerCandidateCount: checkerResult.plan.checkerCandidateCount,
+          sourceRejectedCandidates: checkerResult.plan.sourceRejectedCandidates,
+          structureRejectedCandidates: checkerResult.plan.structureRejectedCandidates,
+          edgeRejectedBlocks: checkerResult.plan.edgeRejectedBlocks,
+          acceptedCheckerBlocks: checkerResult.plan.acceptedCheckerBlocks,
+          phaseReorientedBlocks: checkerResult.plan.phaseReorientedBlocks,
+        };
+      }
+    }
   } else if (usesDiscreteNoDither) {
     const draftBrightCells = calculateDraftBrightCells(normalized, cellHeight);
     if (settings.attributeOptimizerId === "zx-source-cell-v1") {
@@ -3176,6 +3340,12 @@ export function convertToZx(
     }
   } else {
     pixels = renderPixels(normalized, attributes, cellHeight, settings);
+  }
+  if (settings.ditherEngineId === "artistic-ordered-hybrid-v1" && settings.ditheringAmount > 0) {
+    pixels = renderArtisticOrdered(
+      normalized, attributes, cellHeight, settings.ditheringAmount,
+      settings.artisticPattern, pixels,
+    );
   }
   const totalScore = calculateRenderCost(
     normalized,

@@ -8,6 +8,7 @@ import type {
 } from "./types.js";
 
 export type EffectiveEngineParameter =
+  | "artistic-pattern"
   | "ordered-matrix"
   | "dithering-amount"
   | "error-randomization"
@@ -472,6 +473,21 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
     targetModeIds: ["zx48-standard-256x192"],
   },
   {
+    id: "artistic-ordered-hybrid-v1",
+    name: "Artistic ordered hybrid · experimental",
+    version: 1,
+    method: "ordered",
+    platforms: ["zx-spectrum", "sinclair-ql"],
+    compatibleAttributeOptimizerIds: ["zx-source-cell-v1", "zx-guide-local-v1", "zx-adaptive-v1", "zx-guide-reference-halo-v1", "zx-guide-reference-halo-v2", "zx-guide-reference-rgb-halo-v3"],
+    lifecycle: "experimental",
+    targetModeIds: [
+      "zx48-standard-256x192",
+      "mode8-plain-256x256",
+      "mode4-plain-512x256",
+    ],
+    effectiveParameterIds: ["dithering-amount", "artistic-pattern", "attribute-optimizer"],
+  },
+  {
     id: "pattern-legal-mask-dbs-v1",
     name: "Legal 2×2 mask DBS v1 · experimental",
     version: 1,
@@ -522,6 +538,17 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
     id: "error-diffusion-phase-balanced-checker-v3-2",
     name: "Phase-balanced checker quantization v3.2 · experimental",
     version: 32,
+    method: "error-diffusion",
+    platforms: ["zx-spectrum", "sinclair-ql"],
+    lifecycle: "experimental",
+    effectiveParameterIds: [
+      "dithering-amount", "error-randomization", "error-line-suppression",
+    ],
+  },
+  {
+    id: "error-diffusion-phase-balanced-checker-v3-3",
+    name: "Phase-balanced checker-only placement v3.3 · experimental",
+    version: 33,
     method: "error-diffusion",
     platforms: ["zx-spectrum", "sinclair-ql"],
     lifecycle: "experimental",

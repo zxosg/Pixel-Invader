@@ -388,6 +388,54 @@ describe("Sinclair QL conversion", () => {
     expect(full.previewRgba).not.toEqual(zero.previewRgba);
   });
 
+  it.each([
+    ["mode8-plain-256x256", 256, [0, 1, 2, 3, 4, 5, 6, 7]],
+    ["mode4-plain-512x256", 512, [0, 1, 2, 3]],
+  ] as const)("applies deterministic Artistic placement to %s", (modeId, width, colors) => {
+    const source = new Uint8Array([144, 144, 144, 255]);
+    const settings = {
+      ...DEFAULT_CONVERSION_SETTINGS,
+      platformId: "sinclair-ql" as const,
+      profileId: "org.retroconverter.sinclair-ql.default",
+      modeId,
+      framing: "stretch" as const,
+      dithering: "ordered" as const,
+      ditherEngineId: "artistic-ordered-hybrid-v1" as const,
+      ditheringAmount: 100,
+      artisticPattern: "checkerboard" as const,
+      paletteSelections: qlPaletteSelections(colors, 1),
+    };
+    const first = convertToQl(source, 1, 1, settings);
+    const second = convertToQl(source, 1, 1, settings);
+    expect(first.width).toBe(width);
+    expect(first.frames[0]!.encoded).toEqual(second.frames[0]!.encoded);
+    expect(new Set(first.frames[0]!.paletteIndices).size).toBeGreaterThan(1);
+    expect(first.frames[0]!.paletteIndices.every((index) => colors.includes(index as never))).toBe(true);
+
+    const zero = convertToQl(source, 1, 1, { ...settings, ditheringAmount: 0 });
+    const none = convertToQl(source, 1, 1, {
+      ...settings,
+      ditherEngineId: "none-discrete-v2",
+      dithering: "none",
+      ditheringAmount: 0,
+    });
+    expect(zero.frames[0]!.encoded).toEqual(none.frames[0]!.encoded);
+  }, 20_000);
+
+  it("rejects Artistic placement for temporal QL modes", () => {
+    expect(() => convertToQl(new Uint8Array([128, 128, 128, 255]), 1, 1, {
+      ...DEFAULT_CONVERSION_SETTINGS,
+      platformId: "sinclair-ql",
+      profileId: "org.retroconverter.sinclair-ql.default",
+      modeId: "mode8-256x256",
+      framing: "stretch",
+      dithering: "ordered",
+      ditherEngineId: "artistic-ordered-hybrid-v1",
+      ditheringAmount: 100,
+      paletteSelections: qlPaletteSelections([0, 1, 2, 3, 4, 5, 6, 7]),
+    })).toThrow(/plain Sinclair QL/);
+  });
+
   it("applies deterministic randomization in decorrelated diffusion v3", () => {
     const source = new Uint8Array([255, 128, 128, 255]);
     const convert = (randomization: number) => convertToQl(source, 1, 1, {
@@ -524,6 +572,39 @@ describe("Sinclair QL conversion", () => {
     };
     const first = convertToQl(source, 256, 256, settings);
     const second = convertToQl(source, 256, 256, settings);
+    expect(first.frames[0]?.encoded).toEqual(second.frames[0]?.encoded);
+    expect(first.frames[1]?.encoded).toEqual(second.frames[1]?.encoded);
+    expect(first.frames[0]?.encoded).toHaveLength(32_768);
+    expect(first.frames[1]?.encoded).toHaveLength(32_768);
+  });
+
+  it("keeps v3.3 QL temporal output deterministic and valid", () => {
+    const source = new Uint8Array(256 * 256 * 4);
+    for (let pixel = 0; pixel < 256 * 256; pixel += 1) {
+      const value = 96 + ((pixel * 13) % 96);
+      source[pixel * 4] = value;
+      source[pixel * 4 + 1] = value;
+      source[pixel * 4 + 2] = value;
+      source[pixel * 4 + 3] = 255;
+    }
+    const conversionSettings = {
+      ...DEFAULT_CONVERSION_SETTINGS,
+      platformId: "sinclair-ql" as const,
+      profileId: "org.retroconverter.sinclair-ql.default",
+      modeId: "mode8-mode4-mixed-512x256" as const,
+      framing: "stretch" as const,
+      paletteSelections: [
+        { screenIndex: 0, enabledColorIds: [0, 1, 2, 3, 4, 5, 6, 7] },
+        { screenIndex: 1, enabledColorIds: [0, 1, 2, 3] },
+      ],
+      dithering: "error-diffusion" as const,
+      ditherEngineId: "error-diffusion-phase-balanced-checker-v3-3" as const,
+      ditheringAmount: 100,
+      errorDiffusionLineSuppression: 100,
+      errorDiffusionRandomization: 0,
+    };
+    const first = convertToQl(source, 256, 256, conversionSettings);
+    const second = convertToQl(source, 256, 256, conversionSettings);
     expect(first.frames[0]?.encoded).toEqual(second.frames[0]?.encoded);
     expect(first.frames[1]?.encoded).toEqual(second.frames[1]?.encoded);
     expect(first.frames[0]?.encoded).toHaveLength(32_768);

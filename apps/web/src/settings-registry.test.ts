@@ -39,6 +39,17 @@ describe("settings registry", () => {
     expect(loadRegisteredValues({ ditheringAmount: "bad", unknown: true }).ditheringAmount).toBe(100);
   });
 
+  it("round-trips artistic pattern preferences and defaults older settings to auto", () => {
+    for (const artisticPattern of ["auto", "checkerboard", "horizontal", "vertical"]) {
+      const saved = serializeSettingsByScope(createSettingsDraft({ artisticPattern }));
+      expect(loadRegisteredValues(saved.conversion).artisticPattern).toBe(artisticPattern);
+    }
+    expect(loadRegisteredValues({}).artisticPattern).toBe("auto");
+    // Invalid persisted values are normalized to the safe, backward-compatible
+    // default by the registry loader.
+    expect(loadRegisteredValues({ artisticPattern: "invalid" }).artisticPattern).toBe("auto");
+  });
+
   it("accepts a normal opened conversion draft", () => {
     const draft = createSettingsDraft({
       profileId: "org.retroconverter.zx48.default", presetId: "default", modeId: "zx48-standard-256x192",

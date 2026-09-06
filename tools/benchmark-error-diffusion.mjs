@@ -12,6 +12,7 @@ const allEngines = [
   "error-diffusion-phase-balanced-v3",
   "error-diffusion-phase-balanced-checker-v3-1",
   "error-diffusion-phase-balanced-checker-v3-2",
+  "error-diffusion-phase-balanced-checker-v3-3",
   "error-diffusion-checker-phase-v4",
   "error-diffusion-checker-phase-v4-1",
   "error-diffusion-checker-phase-v4-2",
@@ -22,8 +23,8 @@ const engines = engineFilter === undefined
   ? allEngines
   : allEngines.filter((engine) => engineFilter.slice("--engines=".length).split(",").includes(engine));
 if (engines.length === 0) throw new RangeError("No selected ZX benchmark engines are registered.");
-const amounts = quick ? [50, 100] : [25, 50, 75, 100];
-const suppressions = quick ? [0, 50, 100] : [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+const amounts = quick ? [35, 100] : [25, 50, 75, 100];
+const suppressions = quick ? [0, 25, 50, 75, 100] : [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
 const randomizations = quick ? [0] : [0, 25, 50, 75, 100];
 const fixtureNames = quick
   ? ["flat", "horizontal-gradient", "vertical-edge"]
@@ -180,7 +181,7 @@ for (const fixtureName of fixtureNames) {
           const second = convertToZx(source, width, height, settings, "draft");
           const digest = createHash("sha256").update(first.screen.pixels).update(first.screen.attributes).digest("hex");
           const checkerDiagnostics = first.checkerPlacementDiagnostics;
-          rows.push({ fixture: fixtureName, engine, amount, suppression, randomization, elapsedMs, deterministic: digest === createHash("sha256").update(second.screen.pixels).update(second.screen.attributes).digest("hex"), digest, ...metrics(source, first.previewRgba, first.screen.pixels, first.screen.attributes, first.attributeHeight), checkerPlacementChangedPixels: checkerDiagnostics?.changedPixels ?? 0, checkerPlacementChangedBlocks: checkerDiagnostics?.changedBlocks ?? 0, checkerPlacementEligibleBlocks: checkerDiagnostics?.eligibleBlocks ?? 0, checkerPlacementIntermediateBlocks: checkerDiagnostics?.intermediateCoverageBlocks ?? 0, checkerPlacementCheckerCandidates: checkerDiagnostics?.checkerCandidateCount ?? 0, checkerPlacementAcceptedCheckerBlocks: checkerDiagnostics?.acceptedCheckerBlocks ?? 0 });
+          rows.push({ fixture: fixtureName, engine, amount, suppression, randomization, elapsedMs, deterministic: digest === createHash("sha256").update(second.screen.pixels).update(second.screen.attributes).digest("hex"), digest, ...metrics(source, first.previewRgba, first.screen.pixels, first.screen.attributes, first.attributeHeight), checkerPlacementChangedPixels: checkerDiagnostics?.changedPixels ?? 0, checkerPlacementChangedBlocks: checkerDiagnostics?.changedBlocks ?? 0, checkerPlacementFullBlocks: checkerDiagnostics?.fullBlocks ?? 0, checkerPlacementEligibleBlocks: checkerDiagnostics?.eligibleBlocks ?? 0, checkerPlacementIntermediateBlocks: checkerDiagnostics?.intermediateCoverageBlocks ?? 0, checkerPlacementCheckerCandidates: checkerDiagnostics?.checkerCandidateCount ?? 0, checkerPlacementAcceptedCheckerBlocks: checkerDiagnostics?.acceptedCheckerBlocks ?? 0, checkerPlacementPhaseReorientedBlocks: checkerDiagnostics?.phaseReorientedBlocks ?? 0, checkerPlacementSourceRejectedCandidates: checkerDiagnostics?.sourceRejectedCandidates ?? 0, checkerPlacementStructureRejectedCandidates: checkerDiagnostics?.structureRejectedCandidates ?? 0, checkerPlacementEdgeRejectedBlocks: checkerDiagnostics?.edgeRejectedBlocks ?? 0 });
         }
       }
     }
