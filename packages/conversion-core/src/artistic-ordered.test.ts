@@ -55,6 +55,16 @@ describe("Artistic ordered hybrid v1", () => {
     const none = convertToZx(source,256,192,{...settings,ditherEngineId:"none-discrete-v2",dithering:"none",ditheringAmount:0},"draft");
     expect(zero.frames[0]!.encoded).toEqual(none.frames[0]!.encoded);
   });
+  it("uses the same Artistic carrier for 8x1 and 8x2", () => {
+    const sourceRows = fixture((_x, y) => y % 2 === 0 ? [32, 32, 32] : [224, 224, 224]);
+    const attributes8x1 = new Uint8Array(32 * 192).fill(71);
+    const attributes8x2 = new Uint8Array(32 * 96).fill(71);
+    const guide = new Uint8Array(256 * 192);
+    for (let y = 0; y < 192; y++) guide.fill(y % 2 === 0 ? 0 : 1, y * 256, (y + 1) * 256);
+    const one = renderArtisticOrdered(sourceRows, attributes8x1, 1, 31, "checkerboard", guide, 4);
+    const two = renderArtisticOrdered(sourceRows, attributes8x2, 2, 31, "checkerboard", guide, 4);
+    expect(one).toEqual(two);
+  });
   it.each(["on", "off", "auto"] as const)("preserves palette flats with BRIGHT %s", (brightMode) => {
     for (let code=0;code<8;code++) {
       const c=zxColor(code,brightMode!=="off");

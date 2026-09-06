@@ -183,8 +183,16 @@ export function renderArtisticPairField(
     // colour, rather than pair-relative bits, keeps the target continuous when
     // legal attribute pairs change, without restarting at an 8x8 boundary.
     const support = Math.max(2, Math.min(8, Math.round(guidePeriod) * 2));
-    const leftRadius = Math.floor((support - 1) / 2);
-    const rightRadius = support - leftRadius - 1;
+    const supportX = support;
+    // 8x1 rows still have independent legal pairs, but their dither carrier
+    // must use the same two-dimensional area envelope as 8x2 and 8x4. The
+    // projection is performed against each row's own pair, so this does not
+    // make pixels illegal when pairs change between scanlines.
+    const supportY = support;
+    const leftRadius = Math.floor((supportX - 1) / 2);
+    const rightRadius = supportX - leftRadius - 1;
+    const topRadius = Math.floor((supportY - 1) / 2);
+    const bottomRadius = supportY - topRadius - 1;
     for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
       const index = y * width + x;
       const sample = samples[index]!;
@@ -196,7 +204,7 @@ export function renderArtisticPairField(
         linear[source[sourceOffset + 2]!]!,
       ] as const;
       const centerLuma = weights[0] * center[0] + weights[1] * center[1] + weights[2] * center[2];
-      for (let ny = Math.max(0, y - leftRadius); ny <= Math.min(height - 1, y + rightRadius); ny++) {
+      for (let ny = Math.max(0, y - topRadius); ny <= Math.min(height - 1, y + bottomRadius); ny++) {
         for (let nx = Math.max(0, x - leftRadius); nx <= Math.min(width - 1, x + rightRadius); nx++) {
           const sourceNeighbor = (ny * width + nx) * 4;
           const neighborSource = [
@@ -366,7 +374,9 @@ export function renderArtisticOrdered(
           : Math.max(0, Math.min(1, 0.5 + (projected - 0.5) / scale)),
       };
     },
-    cellHeight === 1,
+    // The Bayer-guided path uses the shared square carrier so 8x1 matches
+    // 8x2. Keep the legacy row-only fallback for direct, unguided calls.
+    cellHeight === 1 && _referencePixels === undefined,
     _referencePixels,
     guidePeriod,
   );
