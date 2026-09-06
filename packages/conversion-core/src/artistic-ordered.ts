@@ -150,6 +150,7 @@ export function renderArtisticPairField(
   pairAt: (x: number, y: number) => ArtisticPairSample,
   rowOnly = false,
   referenceValues?: Uint8Array,
+  guidePeriod = 4,
 ): Uint8Array {
   const length = width * height;
   const samples = new Array<CanonicalSample>(length);
@@ -178,9 +179,12 @@ export function renderArtisticPairField(
       guideLinear[index * 3 + 2] = linear[color.b]!;
       bayerValues[index] = referenceValues[index]!;
     }
-    // A sliding 4x4 box contains one complete Bayer period. Averaging actual
-    // rendered colour, rather than pair-relative bits, produces a continuous
-    // target across attribute changes without an aligned cell restart.
+    // The area envelope is twice the guide period. Averaging actual rendered
+    // colour, rather than pair-relative bits, keeps the target continuous when
+    // legal attribute pairs change, without restarting at an 8x8 boundary.
+    const support = Math.max(2, Math.min(8, Math.round(guidePeriod) * 2));
+    const leftRadius = Math.floor((support - 1) / 2);
+    const rightRadius = support - leftRadius - 1;
     for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
       const index = y * width + x;
       const sample = samples[index]!;
@@ -192,8 +196,8 @@ export function renderArtisticPairField(
         linear[source[sourceOffset + 2]!]!,
       ] as const;
       const centerLuma = weights[0] * center[0] + weights[1] * center[1] + weights[2] * center[2];
-      for (let ny = Math.max(0, y - 1); ny <= Math.min(height - 1, y + 2); ny++) {
-        for (let nx = Math.max(0, x - 1); nx <= Math.min(width - 1, x + 2); nx++) {
+      for (let ny = Math.max(0, y - leftRadius); ny <= Math.min(height - 1, y + rightRadius); ny++) {
+        for (let nx = Math.max(0, x - leftRadius); nx <= Math.min(width - 1, x + rightRadius); nx++) {
           const sourceNeighbor = (ny * width + nx) * 4;
           const neighborSource = [
             linear[source[sourceNeighbor]!]!,
@@ -260,9 +264,9 @@ export function renderArtisticPairField(
     }
   }
   edgeBand.set(strongEdge);
-  // Follow an antialiased contour for at most two pixels. Dilation is limited
+  // Follow an antialiased contour for one pixel. Dilation is limited
   // to weak edge candidates, so smooth checkerboard interiors are unaffected.
-  for (let iteration = 0; iteration < 2; iteration++) {
+  for (let iteration = 0; iteration < 1; iteration++) {
     const expanded = edgeBand.slice();
     for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
       const index = y * width + x;
@@ -334,6 +338,7 @@ export function renderArtisticOrdered(
   amount: number,
   preference: ArtisticPatternPreference = "auto",
   _referencePixels?: Uint8Array,
+  guidePeriod = 4,
 ): Uint8Array {
   const width = 256;
   const pairs = Array.from({ length: 128 }, (_, attribute) => decodeAttribute(attribute));
@@ -363,6 +368,7 @@ export function renderArtisticOrdered(
     },
     cellHeight === 1,
     _referencePixels,
+    guidePeriod,
   );
 }
 

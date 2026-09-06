@@ -3345,6 +3345,7 @@ export function convertToZx(
     pixels = renderArtisticOrdered(
       normalized, attributes, cellHeight, settings.ditheringAmount,
       settings.artisticPattern, pixels,
+      settings.orderedMatrix === "bayer-2x2" ? 2 : 4,
     );
   }
   const totalScore = calculateRenderCost(

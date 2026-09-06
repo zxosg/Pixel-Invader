@@ -144,6 +144,31 @@ describe("Artistic ordered hybrid v1", () => {
     const b=renderArtisticOrdered(gray,new Uint8Array(768).fill(71),8,100,"checkerboard",second);
     for(let y=2;y<190;y++) for(let x=2;x<254;x++) expect(a[y*256+x]).toBe(b[y*256+x]);
   });
+  it.each([2, 4] as const)("uses a continuous Bayer area envelope for the %ix%i guide", (period) => {
+    const gray = fixture(() => [160, 160, 160]);
+    const guide = new Uint8Array(256 * 192);
+    const matrix = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+    for (let y = 0; y < 192; y++) for (let x = 0; x < 256; x++) {
+      const threshold = matrix[(y & 3) * 4 + (x & 3)]! / 16;
+      guide[y * 256 + x] = 0.5 > threshold ? 1 : 0;
+    }
+    const rendered = renderArtisticPairField(
+      gray, 256, 192, 100, "checkerboard",
+      () => ({ first: black, second: white, firstValue: 0, secondValue: 1, coverage: 0.5 }),
+      false, guide, period,
+    );
+    for (const x of [7, 8, 15, 16]) {
+      const left = rendered.slice(x - 1, x + 1).reduce((sum, bit) => sum + bit, 0);
+      const right = rendered.slice(x + 1, x + 3).reduce((sum, bit) => sum + bit, 0);
+      expect(Math.abs(left - right)).toBeLessThanOrEqual(2);
+    }
+    for (let top = 0; top < 192; top += 8) for (let left = 0; left < 256; left += 8) {
+      let count = 0;
+      for (let y = top; y < top + 8; y++) for (let x = left; x < left + 8; x++) count += rendered[y * 256 + x]!;
+      expect(count).toBeGreaterThan(0);
+      expect(count).toBeLessThan(64);
+    }
+  });
   it("uses Bayer 4×4's Halo pairs and preserves rendered tone",()=>{
     const artistic=convertToZx(source,256,192,{...base,ditheringAmount:33},"high");
     const bayer=convertToZx(source,256,192,{
