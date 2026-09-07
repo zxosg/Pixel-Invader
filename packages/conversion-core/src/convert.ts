@@ -9,7 +9,7 @@ import {
 import { renderArtisticOrdered } from "./artistic-ordered.js";
 import { frameRgba } from "./geometry.js";
 import { adjustRgba, validateAdjustments } from "./adjustments.js";
-import { filterRgba, validateImageFilters } from "./filters.js";
+import { adaptiveDitherPrefilter, filterRgba, validateImageFilters } from "./filters.js";
 import {
   normalizedOrderedOffset,
   ORDERED_MATRICES,
@@ -2452,8 +2452,10 @@ function validateSettings(settings: ConversionSettings): void {
   if (ditherMethodForEngine(settings.ditherEngineId) !== settings.dithering) {
     throw new RangeError("Dither engine and dithering method do not match.");
   }
-  if (settings.ditherEngineId === "artistic-ordered-hybrid-v1" && settings.modeId !== "zx48-standard-256x192") {
-    throw new RangeError("Artistic ordered hybrid supports only single-screen ZX targets.");
+  if (settings.ditherEngineId === "artistic-ordered-hybrid-v1" &&
+      settings.modeId !== "zx48-standard-256x192" &&
+      settings.modeId !== "zx48-mixed-256x192") {
+    throw new RangeError("Artistic ordered hybrid supports only standard or mixed ZX targets.");
   }
   if (settings.artisticPattern !== undefined && !["auto", "checkerboard", "horizontal", "vertical"].includes(settings.artisticPattern)) {
     throw new RangeError("Invalid artistic pattern preference.");
@@ -2643,8 +2645,11 @@ export function convertToZx(
     throw new RangeError("ZX Spectrum mode is invalid.");
   }
   const framed = frameRgba(sourceRgba, sourceWidth, sourceHeight, settings);
+  const orderedSource = settings.dithering === "ordered" && settings.ditheringAmount > 0
+    ? adaptiveDitherPrefilter(framed, ZX_SCREEN_WIDTH, ZX_SCREEN_HEIGHT, settings.modeId === "zx48-mixed-256x192" ? 16 : 10)
+    : framed;
   const filtered = filterRgba(
-    framed,
+    orderedSource,
     ZX_SCREEN_WIDTH,
     ZX_SCREEN_HEIGHT,
     settings,
@@ -2840,9 +2845,15 @@ export function convertToZx(
       gamma: 100,
       smoothing: 0,
       sharpening: 0,
-      ditherEngineId: "none-discrete-v2",
-      dithering: "none",
-      ditheringAmount: 0,
+      ditherEngineId: settings.ditherEngineId === "artistic-ordered-hybrid-v1"
+        ? "artistic-ordered-hybrid-v1"
+        : "none-discrete-v2",
+      dithering: settings.ditherEngineId === "artistic-ordered-hybrid-v1"
+        ? "ordered"
+        : "none",
+      ditheringAmount: settings.ditherEngineId === "artistic-ordered-hybrid-v1"
+        ? settings.ditheringAmount
+        : 0,
       structured: {
         ...settings.structured,
         ditherAmountPermille: 0,

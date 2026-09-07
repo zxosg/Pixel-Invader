@@ -15,8 +15,9 @@ import {
 } from "@retro-converter/pmd-85";
 import { adjustRgba } from "./adjustments.js";
 import { assertCompatibleEngines, ditherMethodForEngine } from "./engines.js";
-import { filterRgba } from "./filters.js";
+import { adaptiveDitherPrefilter, filterRgba } from "./filters.js";
 import { decorrelatedDiffusionKernel } from "./diffusion.js";
+import { artisticCoverage, renderArtisticPairField } from "./artistic-ordered.js";
 import { frameRgbaToDimensions } from "./geometry.js";
 import { ORDERED_MATRICES, orderedThreshold } from "./matrices.js";
 import type {
@@ -440,8 +441,11 @@ export function convertToPmd85(
     sourceHeight,
     settings,
   );
+  const orderedSource = !spatial && settings.dithering === "ordered" && settings.ditheringAmount > 0
+    ? adaptiveDitherPrefilter(framed, PMD85_SCREEN_WIDTH, PMD85_SCREEN_HEIGHT, 8)
+    : framed;
   const normalized = adjustRgba(
-    filterRgba(framed, PMD85_SCREEN_WIDTH, PMD85_SCREEN_HEIGHT, settings),
+    filterRgba(orderedSource, PMD85_SCREEN_WIDTH, PMD85_SCREEN_HEIGHT, settings),
     settings,
   );
   if (spatial) {
@@ -689,6 +693,34 @@ export function convertToPmd85(
         for (const [dx, dy, weight] of decorrelatedDiffusionKernel(direction)) {
           addDiffusionError(errors, x + dx, y + dy, channelErrors, weight);
         }
+      }
+    }
+  }
+
+  if (settings.ditherEngineId === "artistic-ordered-hybrid-v1" && settings.ditheringAmount > 0) {
+    const reference = new Uint8Array(PMD85_SCREEN_WIDTH * PMD85_SCREEN_HEIGHT);
+    for (let y = 0; y < PMD85_SCREEN_HEIGHT; y += 1) for (let x = 0; x < PMD85_SCREEN_WIDTH; x += 1) {
+      const byte = pixelMasks[y * PMD85_VISIBLE_BYTES_PER_LINE + Math.floor(x / 6)] ?? 0;
+      reference[y * PMD85_SCREEN_WIDTH + x] = (byte >> (x % 6)) & 1;
+    }
+    const artisticPixels = renderArtisticPairField(
+      normalized, PMD85_SCREEN_WIDTH, PMD85_SCREEN_HEIGHT,
+      settings.ditheringAmount, settings.artisticPattern ?? "checkerboard",
+      (x, y) => {
+        const cell = Math.floor(y / cellHeight) * PMD85_VISIBLE_BYTES_PER_LINE + Math.floor(x / 6);
+        const ink = foregroundPalette[cellInks[cell] ?? 0]!;
+        const offset = (y * PMD85_SCREEN_WIDTH + x) * 4;
+        const projected = artisticCoverage(normalized[offset]!, normalized[offset + 1]!, normalized[offset + 2]!, black, ink);
+        const scale = settings.ditheringAmount / 100;
+        return { first: black, second: ink, firstValue: 0, secondValue: 1,
+          coverage: Math.max(0, Math.min(1, 0.5 + (projected - 0.5) / scale)) };
+      }, false, reference, settings.orderedMatrix === "bayer-2x2" ? 2 : 4,
+    );
+    pixelMasks.fill(0);
+    for (let y = 0; y < PMD85_SCREEN_HEIGHT; y += 1) for (let x = 0; x < PMD85_SCREEN_WIDTH; x += 1) {
+      if (artisticPixels[y * PMD85_SCREEN_WIDTH + x] !== 0) {
+        const index = y * PMD85_VISIBLE_BYTES_PER_LINE + Math.floor(x / 6);
+        pixelMasks[index] = (pixelMasks[index] ?? 0) | (1 << (x % 6));
       }
     }
   }

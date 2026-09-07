@@ -8,7 +8,7 @@ import {
   type QlRgbColor,
 } from "@retro-converter/sinclair-ql";
 import { adjustRgba } from "./adjustments.js";
-import { renderArtisticPaletteOrdered } from "./artistic-ordered.js";
+import { artisticCoverage, renderArtisticPaletteOrdered, renderArtisticPairField } from "./artistic-ordered.js";
 import { assertCompatibleEngines, ditherMethodForEngine } from "./engines.js";
 import {
   applyCheckerPlacement,
@@ -18,6 +18,7 @@ import {
 } from "./checker-placement.js";
 import type { CheckerPlacementEndpointPair } from "./checker-placement.js";
 import { filterRgba } from "./filters.js";
+import { adaptiveDitherPrefilter } from "./filters.js";
 import { frameRgbaToDimensions } from "./geometry.js";
 import {
   normalizedOrderedOffset,
@@ -1260,8 +1261,11 @@ export function convertToQl(
   if (
     settings.ditherEngineId === "artistic-ordered-hybrid-v1" &&
     targetMode !== "mode8-plain-256x256" &&
-    targetMode !== "mode4-plain-512x256"
-  ) throw new RangeError("Artistic ordered hybrid supports only plain Sinclair QL targets.");
+    targetMode !== "mode4-plain-512x256" &&
+    targetMode !== "mode8-256x256" &&
+    targetMode !== "mode4-512x256" &&
+    targetMode !== "mode8-mode4-mixed-512x256"
+  ) throw new RangeError("Artistic ordered hybrid does not support this Sinclair QL target.");
   const checkerPlacementV31 =
     settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-1";
   const checkerPlacementV32 =
@@ -1341,7 +1345,12 @@ export function convertToQl(
         ? { width: 4, height: 3 }
         : { width: 2, height: 3 },
     );
-    const filtered = filterRgba(framed, width, QL_SCREEN_HEIGHT, settings);
+    const filtered = filterRgba(
+      settings.dithering === "ordered" && settings.ditheringAmount > 0
+        ? adaptiveDitherPrefilter(framed, width, QL_SCREEN_HEIGHT, 16)
+        : framed,
+      width, QL_SCREEN_HEIGHT, settings,
+    );
     const normalized = adjustRgba(filtered, settings);
     const optimized = optimizeVerticalSpatialPixels(
       normalized,
@@ -1410,7 +1419,9 @@ export function convertToQl(
         : { width: 2, height: 3 },
     );
     const filtered = filterRgba(
-      framed,
+      settings.dithering === "ordered" && settings.ditheringAmount > 0
+        ? adaptiveDitherPrefilter(framed, useLegacyAverage ? lowWidth : highWidth, QL_SCREEN_HEIGHT, 16)
+        : framed,
       useLegacyAverage ? lowWidth : highWidth,
       QL_SCREEN_HEIGHT,
       settings,
@@ -1678,7 +1689,12 @@ export function convertToQl(
       ? { width: 4, height: 3 }
       : { width: 2, height: 3 },
   );
-  const filtered = filterRgba(framed, width, QL_SCREEN_HEIGHT, settings);
+  const filtered = filterRgba(
+    settings.dithering === "ordered" && settings.ditheringAmount > 0
+      ? adaptiveDitherPrefilter(framed, width, QL_SCREEN_HEIGHT, usesMixing ? 16 : 10)
+      : framed,
+    width, QL_SCREEN_HEIGHT, settings,
+  );
   const normalized = adjustRgba(filtered, settings);
   const virtualPalette = usesMixing
     ? buildTemporalCrossPalette(
@@ -1720,6 +1736,9 @@ export function convertToQl(
           settings.ditherEngineId === "ordered-strict-matrix-v6"
         ),
       );
+  const artisticMixed = usesMixing &&
+    settings.ditherEngineId === "artistic-ordered-hybrid-v1" &&
+    settings.ditheringAmount > 0;
   const firstIndices = new Uint8Array(virtualIndices.length);
   const secondIndices = new Uint8Array(virtualIndices.length);
   const matrix = ORDERED_MATRICES[settings.orderedMatrix];
@@ -1738,7 +1757,40 @@ export function convertToQl(
     firstIndices[pixel] = swap ? pair.second : pair.first;
     secondIndices[pixel] = swap ? pair.first : pair.second;
   }
-  if (checkerPlacementV31 && usesMixing) {
+  if (artisticMixed) {
+    const artisticPixels = renderArtisticPairField(
+      normalized,
+      width,
+      QL_SCREEN_HEIGHT,
+      settings.ditheringAmount,
+      settings.artisticPattern ?? "checkerboard",
+      (x, y) => {
+        const pair = virtualPalette[virtualIndices[y * width + x] ?? 0]!;
+        const first = palette[pair.first]!;
+        const second = palette[pair.second]!;
+        const projected = artisticCoverage(
+          normalized[(y * width + x) * 4]!,
+          normalized[(y * width + x) * 4 + 1]!,
+          normalized[(y * width + x) * 4 + 2]!,
+          first,
+          second,
+        );
+        const scale = settings.ditheringAmount / 100;
+        return {
+          first,
+          second,
+          firstValue: pair.first,
+          secondValue: pair.second,
+          coverage: Math.max(0, Math.min(1, 0.5 + (projected - 0.5) / scale)),
+        };
+      },
+    );
+    for (let pixel = 0; pixel < artisticPixels.length; pixel += 1) {
+      const pair = virtualPalette[virtualIndices[pixel] ?? 0]!;
+      firstIndices[pixel] = artisticPixels[pixel]!;
+      secondIndices[pixel] = artisticPixels[pixel] === pair.first ? pair.second : pair.first;
+    }
+  } else if (checkerPlacementV31 && usesMixing) {
     const phaseBits = new Uint8Array(virtualIndices.length);
     for (let pixel = 0; pixel < virtualIndices.length; pixel += 1) {
       const pair = virtualPalette[virtualIndices[pixel] ?? 0]!;

@@ -726,8 +726,9 @@ function validateSettings(value: unknown): value is ConversionSettings {
     integerRange(value.errorDiffusionRandomization, 0, 100) &&
     integerRange(value.errorDiffusionLineSuppression, 0, 100) &&
     (value.ditherEngineId !== "artistic-ordered-hybrid-v1" ||
-      value.platformId === "zx-spectrum" && value.modeId === "zx48-standard-256x192" ||
-      value.platformId === "sinclair-ql" && ["mode8-plain-256x256", "mode4-plain-512x256"].includes(String(value.modeId))) &&
+      value.platformId === "zx-spectrum" && ["zx48-standard-256x192", "zx48-mixed-256x192"].includes(String(value.modeId)) ||
+      value.platformId === "sinclair-ql" && ["mode8-plain-256x256", "mode4-plain-512x256", "mode8-256x256", "mode4-512x256", "mode8-mode4-mixed-512x256"].includes(String(value.modeId)) ||
+      value.platformId === "pmd-85") &&
     (value.artisticPattern === undefined || ["auto", "checkerboard", "horizontal", "vertical"].includes(String(value.artisticPattern))) &&
     ["checkerboard-2x1", "bayer-2x2", "bayer-4x4", "bayer-8x8", "clustered-dot-4x4", "clustered-dot-8x8", "void-cluster-8x8"].includes(String(value.orderedMatrix)) &&
     value.structured.schemaVersion === 1 &&

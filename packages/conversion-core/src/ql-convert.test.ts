@@ -422,8 +422,8 @@ describe("Sinclair QL conversion", () => {
     expect(zero.frames[0]!.encoded).toEqual(none.frames[0]!.encoded);
   }, 20_000);
 
-  it("rejects Artistic placement for temporal QL modes", () => {
-    expect(() => convertToQl(new Uint8Array([128, 128, 128, 255]), 1, 1, {
+  it("applies Artistic placement to temporal QL modes", () => {
+    const result = convertToQl(new Uint8Array([128, 128, 128, 255]), 1, 1, {
       ...DEFAULT_CONVERSION_SETTINGS,
       platformId: "sinclair-ql",
       profileId: "org.retroconverter.sinclair-ql.default",
@@ -433,7 +433,9 @@ describe("Sinclair QL conversion", () => {
       ditherEngineId: "artistic-ordered-hybrid-v1",
       ditheringAmount: 100,
       paletteSelections: qlPaletteSelections([0, 1, 2, 3, 4, 5, 6, 7]),
-    })).toThrow(/plain Sinclair QL/);
+    });
+    expect(result.frames).toHaveLength(2);
+    expect(result.frames[0]!.paletteIndices).not.toEqual(result.frames[1]!.paletteIndices);
   });
 
   it("applies deterministic randomization in decorrelated diffusion v3", () => {

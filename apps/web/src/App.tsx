@@ -1221,6 +1221,8 @@ export function App() {
 
   useEffect(() => {
     const mixedTarget = targetModeId === "zx48-mixed-256x192" ||
+      targetModeId === "mode8-256x256" ||
+      targetModeId === "mode4-512x256" ||
       targetModeId === "mode8-mode4-mixed-512x256";
     const unavailable = new Set<PreviewContent>();
     if (workspaceMode !== "palette") unavailable.add("pre-attribute");
@@ -5590,6 +5592,8 @@ export function App() {
       }`
       : paletteResultLabel;
   const hasMixedScreenTarget = targetModeId === "zx48-mixed-256x192" ||
+    targetModeId === "mode8-256x256" ||
+    targetModeId === "mode4-512x256" ||
     targetModeId === "mode8-mode4-mixed-512x256";
   const paletteConversionStatusText = state.kind === "idle" ? image === null
     ? "Import an image to begin."
