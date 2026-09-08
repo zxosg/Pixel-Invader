@@ -36,6 +36,16 @@ export {
 } from "./palette-selections.js";
 export * from "./vertical-spatial-mix.js";
 export {
+  checkerCarrierStrengthV44,
+  renderGrayscaleArtisticCarrier,
+  renderGrayscaleCheckerPhaseV44,
+  renderGrayscaleDiffusionReference,
+  type GrayscaleCheckerDiagnostics,
+  type GrayscaleCheckerPhaseOptions,
+  type GrayscaleCheckerResult,
+  type GrayscaleDiffusionReference,
+} from "./grayscale-checker-v44.js";
+export {
   convertStructuredZx,
   quantizedOklab,
   validateStructuredSettings,

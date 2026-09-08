@@ -118,6 +118,7 @@ export const ATTRIBUTE_OPTIMIZERS: readonly AttributeOptimizerDescriptor[] = [
       "ordered-strict-matrix-v6",
       "ordered-void-cluster-v1",
       "artistic-ordered-hybrid-v1",
+      "error-diffusion-checker-phase-v4-4",
       "error-diffusion-decorrelated-v3",
     ],
     defaultDitherEngineId: "error-diffusion-decorrelated-v3",
@@ -567,6 +568,17 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
     version: 4,
     method: "error-diffusion",
     platforms: ["zx-spectrum", "sinclair-ql"],
+    lifecycle: "experimental",
+    effectiveParameterIds: [
+      "dithering-amount", "error-randomization", "error-line-suppression",
+    ],
+  },
+  {
+    id: "error-diffusion-checker-phase-v4-4",
+    name: "Artistic-carrier checker diffusion v4.4 · experimental",
+    version: 44,
+    method: "error-diffusion",
+    platforms: ["zx-spectrum", "sinclair-ql", "pmd-85"],
     lifecycle: "experimental",
     effectiveParameterIds: [
       "dithering-amount", "error-randomization", "error-line-suppression",

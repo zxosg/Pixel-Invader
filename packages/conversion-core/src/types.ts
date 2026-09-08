@@ -80,6 +80,7 @@ export type DitherEngineId =
   | "error-diffusion-phase-balanced-checker-v3-2"
   | "error-diffusion-phase-balanced-checker-v3-3"
   | "error-diffusion-checker-phase-v4"
+  | "error-diffusion-checker-phase-v4-4"
   | "error-diffusion-checker-phase-v4-1"
   | "error-diffusion-checker-phase-v4-2"
   | "error-diffusion-checker-phase-v4-3"

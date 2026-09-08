@@ -129,6 +129,19 @@ function pmdHardwareModeForTarget(mode: Pmd85TargetModeId): Pmd85ModeId {
   return mode;
 }
 
+function targetProducesMultipleFrames(
+  platformId: ConversionSettings["platformId"],
+  modeId: TargetModeId,
+): boolean {
+  return modeId.includes("vertical-spatial") ||
+    modeId === "zx48-mixed-256x192" ||
+    (platformId === "sinclair-ql" && (
+      modeId === "mode8-256x256" ||
+      modeId === "mode4-512x256" ||
+      modeId === "mode8-mode4-mixed-512x256"
+    ));
+}
+
 function spatialSplitPreview(
   physical: Uint8Array,
   analytic: Uint8Array,
@@ -1070,7 +1083,7 @@ export function App() {
   const [inputPreviewStage, setInputPreviewStage] =
     useState<"source" | "pre-constraint">("source");
   const [outputPreviewStage, setOutputPreviewStage] =
-    useState<"screen-1" | "screen-2" | "merged">("screen-1");
+    useState<"screen-1" | "screen-2" | "merged">("merged");
   const [benchmarkRows, setBenchmarkRows] =
     useState<readonly ConversionBenchmarkRow[]>([]);
   const [benchmarkRunning, setBenchmarkRunning] = useState(false);
@@ -1139,7 +1152,10 @@ export function App() {
     if (preset !== undefined) applySettings(preset.settings);
     setTargetModeId(startupApplicationSettings.modeId);
     setFraming(startupApplicationSettings.framing);
-    setDithering(startupApplicationSettings.dithering);
+    // The preset application above also restores its dither engine. Reconcile
+    // the persisted public method afterward so first image import cannot send
+    // an Ordered/Error-diffusion method with the preset's no-dither engine.
+    switchDithering(startupApplicationSettings.dithering);
     setAmountEntry(String(startupApplicationSettings.ditheringAmount));
   }, []);
 
@@ -1220,15 +1236,18 @@ export function App() {
   }, [targetModeId]);
 
   useEffect(() => {
-    const mixedTarget = targetModeId === "zx48-mixed-256x192" ||
+    const mixedScreenTarget = targetModeId === "zx48-mixed-256x192" ||
       targetModeId === "mode8-256x256" ||
       targetModeId === "mode4-512x256" ||
       targetModeId === "mode8-mode4-mixed-512x256";
+    const mixedResolutionTarget = targetModeId === "mode8-mode4-mixed-512x256";
     const unavailable = new Set<PreviewContent>();
     if (workspaceMode !== "palette") unavailable.add("pre-attribute");
-    if (!mixedTarget) {
+    if (!mixedScreenTarget) {
       unavailable.add("screen-1");
       unavailable.add("screen-2");
+    }
+    if (!mixedResolutionTarget) {
       unavailable.add("merged-low");
       unavailable.add("merged-high");
     }
@@ -1456,18 +1475,10 @@ export function App() {
     const profile = profiles.find(
       (candidate) => candidate.id === selectedProfileId,
     );
-    const targetProducesMultipleFrames = targetModeId.includes("vertical-spatial") ||
-      targetModeId === "zx48-mixed-256x192" ||
-      (
-        profile?.platform_id === "sinclair-ql" &&
-        (
-          targetModeId === "mode8-256x256" ||
-          targetModeId === "mode4-512x256" ||
-          targetModeId === "mode8-mode4-mixed-512x256"
-        )
-      );
+    const producesMultipleFrames = profile !== undefined &&
+      targetProducesMultipleFrames(profile.platform_id, targetModeId);
     if (
-      !targetProducesMultipleFrames &&
+      !producesMultipleFrames &&
       outputPreviewStage !== "screen-1"
     ) {
       setOutputPreviewStage("screen-1");
@@ -2228,6 +2239,11 @@ export function App() {
     // must not route through applySettings(), which also applies preset-owned
     // framing, crop, resampling, and source image adjustments.
     setTargetModeId(next.modeId);
+    setOutputPreviewStage(
+      targetProducesMultipleFrames(next.platformId, next.modeId)
+        ? "merged"
+        : "screen-1",
+    );
     setAttributeOptimizerId(next.attributeOptimizerId);
     setAttributeHeight(next.attributeHeight);
     setScreenFlickerSuppression(next.screenFlickerSuppression);
@@ -2549,6 +2565,9 @@ export function App() {
     if (content === "image" || content === "source-image") setInputPreviewStage("source");
     if (content === "screen-1") setOutputPreviewStage("screen-1");
     if (content === "screen-2") setOutputPreviewStage("screen-2");
+    if ((side === "result" && content === "image") || content === "result-image") {
+      setOutputPreviewStage("merged");
+    }
     if (content === "merged-low" || content === "merged-high") {
       setOutputPreviewStage("merged");
       setQlMixedDisplayResolution(content === "merged-low" ? "low" : "high");
@@ -2814,6 +2833,11 @@ export function App() {
   ) {
     setFraming(next.framing);
     setTargetModeId(next.modeId);
+    setOutputPreviewStage(
+      targetProducesMultipleFrames(next.platformId, next.modeId)
+        ? "merged"
+        : "screen-1",
+    );
     setAttributeOptimizerId(next.attributeOptimizerId);
     setDitherEngineId(next.ditherEngineId);
     setQlMixedOptimizerId(next.qlMixedOptimizerId);
@@ -2995,7 +3019,7 @@ export function App() {
     charsetWorkerRef.current = null;
     pendingModeHighRef.current = next;
     setWorkspaceMode(next);
-    setOutputPreviewStage("screen-1");
+    setOutputPreviewStage("merged");
     setInspection(null);
     if (next === "tilemap") {
       if (selectedPlatformId !== "zx-spectrum") {
@@ -5540,20 +5564,16 @@ export function App() {
     const width = displayedResult.width;
     const height = displayedResult.height;
     const encode = (rgba: Uint8Array) => rgbaPngDataUrl(rgba, width, height);
-    const mergedLow = displayedResult.platformId === "sinclair-ql" &&
-      displayedResult.modeId === "mode8-mode4-mixed-512x256"
-      ? renderQlMixedDisplayPreview(first.previewRgba, second.previewRgba, width, "low")
-      : displayedResult.mergedPreviewRgba;
-    const mergedHigh = displayedResult.platformId === "sinclair-ql" &&
-      displayedResult.modeId === "mode8-mode4-mixed-512x256"
-      ? renderQlMixedDisplayPreview(first.previewRgba, second.previewRgba, width, "high")
-      : displayedResult.mergedPreviewRgba;
-    return {
+    const previews: Partial<Record<"screen-1" | "screen-2" | "merged-low" | "merged-high", string>> = {
       "screen-1": encode(first.previewRgba),
       "screen-2": encode(second.previewRgba),
-      "merged-low": encode(mergedLow),
-      "merged-high": encode(mergedHigh),
     };
+    if (displayedResult.platformId === "sinclair-ql" &&
+      displayedResult.modeId === "mode8-mode4-mixed-512x256") {
+      previews["merged-low"] = encode(renderQlMixedDisplayPreview(first.previewRgba, second.previewRgba, width, "low"));
+      previews["merged-high"] = encode(renderQlMixedDisplayPreview(first.previewRgba, second.previewRgba, width, "high"));
+    }
+    return previews;
   }, [displayedResult]);
   const preAttributePreviewDataUrl = displayedResult === null
     ? null
@@ -5571,7 +5591,10 @@ export function App() {
     if (mixedScreenWindowImages === null || !(content in mixedScreenWindowImages)) {
       return <p>Convert a mixed two-screen target to view this stage.</p>;
     }
-    return <img className="preview-difference-image" src={mixedScreenWindowImages[content as keyof typeof mixedScreenWindowImages]} alt={`${content} preview`} />;
+    const image = mixedScreenWindowImages[content as keyof typeof mixedScreenWindowImages];
+    return typeof image === "string"
+      ? <img className="preview-difference-image" src={image} alt={`${content} preview`} />
+      : <p>This preview is not available for the selected target.</p>;
   };
   const retainedDraftVisible = draftPreviewResult(draftState) !== null;
   const bitmapEditorEdited = bitmapEditorOriginalResult !== null || bitmapEditorRevertSource !== null;
@@ -5595,6 +5618,7 @@ export function App() {
     targetModeId === "mode8-256x256" ||
     targetModeId === "mode4-512x256" ||
     targetModeId === "mode8-mode4-mixed-512x256";
+  const hasQlMixedResolutionTarget = targetModeId === "mode8-mode4-mixed-512x256";
   const paletteConversionStatusText = state.kind === "idle" ? image === null
     ? "Import an image to begin."
     : draftState.kind === "scheduled" ? "Draft preview scheduled…"
@@ -6536,42 +6560,50 @@ export function App() {
               {amountValid ? null : <span className="field-error" id="amount-error">Invalid value</span>}
             </fieldset>
           ) : null}
-          {dithering === "error-diffusion" ? (
+          {dithering === "error-diffusion" || (
+            isQl &&
+            targetModeId === "mode8-mode4-mixed-512x256" &&
+            ditherEngineId === "artistic-ordered-hybrid-v1"
+          ) ? (
             <>
-              <div
-                className="dithering-parameter"
-                title="Deterministically breaks repeating Error-diffusion patterns."
-              >
-                <RangeNumberControl
-                  id="error-randomization"
-                  label="Error randomization"
-                  value={errorDiffusionRandomization}
-                  min={0}
-                  max={100}
-                  unit="%"
-                  onChange={(value) => {
-                    setErrorDiffusionRandomization(value);
-                    setState({ kind: "idle" });
-                  }}
-                  onValidityChange={setSliderValidity}
-                />
-                <span className="control-help">
-                  Deterministically breaks repeating Error-diffusion patterns.
-                </span>
-              </div>
+              {dithering === "error-diffusion" ? <div
+                  className="dithering-parameter"
+                  title="Deterministically breaks repeating Error-diffusion patterns."
+                >
+                  <RangeNumberControl
+                    id="error-randomization"
+                    label="Error randomization"
+                    value={errorDiffusionRandomization}
+                    min={0}
+                    max={100}
+                    unit="%"
+                    onChange={(value) => {
+                      setErrorDiffusionRandomization(value);
+                      setState({ kind: "idle" });
+                    }}
+                    onValidityChange={setSliderValidity}
+                  />
+                  <span className="control-help">
+                    Deterministically breaks repeating Error-diffusion patterns.
+                  </span>
+                </div> : null}
               {ditherEngineId === "error-diffusion-phase-balanced-v3" ||
               ditherEngineId === "error-diffusion-phase-balanced-checker-v3-1" ||
               ditherEngineId === "error-diffusion-phase-balanced-checker-v3-2" ||
               ditherEngineId === "error-diffusion-phase-balanced-checker-v3-3" ||
               ditherEngineId === "error-diffusion-checker-phase-v4" ||
+              ditherEngineId === "error-diffusion-checker-phase-v4-4" ||
               ditherEngineId === "error-diffusion-checker-phase-v4-1" ||
               ditherEngineId === "error-diffusion-checker-phase-v4-2" ||
               ditherEngineId === "error-diffusion-checker-phase-v4-3" ||
               ditherEngineId === "error-diffusion-checker-phase-v5" ||
-              ditherEngineId === "error-diffusion-matrix-guided-v1" ? (
+              ditherEngineId === "error-diffusion-matrix-guided-v1" ||
+              (isQl &&
+                targetModeId === "mode8-mode4-mixed-512x256" &&
+                ditherEngineId === "artistic-ordered-hybrid-v1") ? (
                 <div
                   className="dithering-parameter"
-                    title="Reduces vertical diffusion runs and favors balanced alternating 2×2 placement; v3.1 adds local placement, v3.2 integrates checker decisions into v3 propagation, and v3.3 reorients only true 50% checker blocks. At 0%, output matches Projected unrestricted v2."
+                    title="Reduces vertical diffusion runs and favors balanced alternating 2×2 placement; v3.1 adds local placement, v3.2 integrates checker decisions into v3 propagation, v3.3 reorients only true 50% checker blocks, and v4.4 adds a checker carrier whose strength follows line suppression from 0% to 100%. At 0%, output matches Projected unrestricted v2."
                 >
                   <RangeNumberControl
                     id="error-line-suppression"
@@ -6587,7 +6619,7 @@ export function App() {
                     onValidityChange={setSliderValidity}
                   />
                   <span className="control-help">
-                    Reduces vertical diffusion runs while retaining short 2×1 transitions. v3.1 applies local placement after v3; v3.2 integrates coverage-preserving 2×2 checker decisions into v3 propagation; v3.3 only reorients existing 50% checker blocks. At 0%, output matches Projected unrestricted v2.
+                    Reduces vertical diffusion runs while retaining short 2×1 transitions. v3.1 applies local placement after v3; v3.2 integrates coverage-preserving 2×2 checker decisions into v3 propagation; v3.3 only reorients existing 50% checker blocks; v4.4 uses an artistic checker carrier as a conservative v3 tie-breaker. In QL Mode 8/4 mixed Artistic checker mode, line suppression scales the mixed-resolution checker carrier from 0% to 100%. For v4.4, line suppression directly controls carrier strength from 0% to 100%; it does not change the underlying tone diffusion. At 0%, output matches Projected unrestricted v2.
                   </span>
                 </div>
               ) : null}
@@ -7808,15 +7840,19 @@ export function App() {
                   >
                     <option value="image">Source image</option>
                     <option value="result-image">Result image</option>
-                    <option value="pre-attribute" disabled={workspaceMode !== "palette"}>Pre-attribute dither</option>
-                    <option value="screen-1" disabled={!hasMixedScreenTarget}>Screen 1</option>
-                    <option value="screen-2" disabled={!hasMixedScreenTarget}>Screen 2</option>
-                    <option value="merged-low" disabled={!hasMixedScreenTarget}>Merged · low resolution</option>
-                    <option value="merged-high" disabled={!hasMixedScreenTarget}>Merged · high resolution</option>
+                    {workspaceMode === "palette" ? <option value="pre-attribute">Pre-attribute dither</option> : null}
+                    {hasMixedScreenTarget ? <>
+                      <option value="screen-1">Screen 1</option>
+                      <option value="screen-2">Screen 2</option>
+                    </> : null}
+                    {hasQlMixedResolutionTarget ? <>
+                      <option value="merged-low">Merged · low resolution</option>
+                      <option value="merged-high">Merged · high resolution</option>
+                    </> : null}
                     <option value="palette-usage">Palette usage</option>
-                    <option value="tile-usage" disabled={workspaceMode !== "tilemap"}>Used tiles</option>
+                    {workspaceMode === "tilemap" ? <option value="tile-usage">Used tiles</option> : null}
                     <option value="unified-editor">Unified editor</option>
-                    <option value="bitmap-editor" disabled={workspaceMode !== "palette"}>Bitmap editor</option>
+                    {workspaceMode === "palette" ? <option value="bitmap-editor">Bitmap editor</option> : null}
                     <option value="difference">Difference heatmap</option>
                     <option value="inspector">Inspector</option>
                   </select>
@@ -7968,15 +8004,19 @@ export function App() {
                   >
                     <option value="image">Result image</option>
                     <option value="source-image">Source image</option>
-                    <option value="pre-attribute" disabled={workspaceMode !== "palette"}>Pre-attribute dither</option>
-                    <option value="screen-1" disabled={!hasMixedScreenTarget}>Screen 1</option>
-                    <option value="screen-2" disabled={!hasMixedScreenTarget}>Screen 2</option>
-                    <option value="merged-low" disabled={!hasMixedScreenTarget}>Merged · low resolution</option>
-                    <option value="merged-high" disabled={!hasMixedScreenTarget}>Merged · high resolution</option>
+                    {workspaceMode === "palette" ? <option value="pre-attribute">Pre-attribute dither</option> : null}
+                    {hasMixedScreenTarget ? <>
+                      <option value="screen-1">Screen 1</option>
+                      <option value="screen-2">Screen 2</option>
+                    </> : null}
+                    {hasQlMixedResolutionTarget ? <>
+                      <option value="merged-low">Merged · low resolution</option>
+                      <option value="merged-high">Merged · high resolution</option>
+                    </> : null}
                     <option value="palette-usage">Palette usage</option>
-                    <option value="tile-usage" disabled={workspaceMode !== "tilemap"}>Used tiles</option>
+                    {workspaceMode === "tilemap" ? <option value="tile-usage">Used tiles</option> : null}
                     <option value="unified-editor">Unified editor</option>
-                    <option value="bitmap-editor" disabled={workspaceMode !== "palette"}>Bitmap editor</option>
+                    {workspaceMode === "palette" ? <option value="bitmap-editor">Bitmap editor</option> : null}
                     <option value="difference">Difference heatmap</option>
                     <option value="inspector">Inspector</option>
                   </select>

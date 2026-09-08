@@ -954,3 +954,59 @@ v1.0 is done only when:
 - Retained accessibility requirements pass their automated/manual checks.
 - Security, malformed-input, compatibility, and release-evidence gates pass.
 - All remaining MUST requirements pass or have approved documented waivers.
+
+## TODO — Adaptive checker/dispersed carrier after v4.4
+
+Status: planned; v4.4 remains the fixed-checker baseline.
+
+The next experimental carrier should extend the v4.4 architecture without
+changing v3, v4, or v4.4 output. The carrier family must remain separate from
+the tone-diffusion stage: suppression controls carrier strength, while the
+neutral diffusion path controls tone.
+
+### Candidate carriers
+
+- Preserve the current global 2×2 checker phase as the primary carrier.
+- Add the complementary checker phase as a deterministic phase variant.
+- Add a dispersed 4×4 carrier using the existing artistic ordered ranks.
+- Evaluate a diagonal carrier only with strong edge and directional-gradient
+  protection.
+- Do not use horizontal or vertical stripe carriers as default candidates,
+  because they can reinforce the existing line artifacts.
+
+### Adaptive selection
+
+- Use checker placement in smooth intermediate-tone regions.
+- Attenuate or disable the carrier near strong edges, dominant gradients,
+  silhouettes, and solid endpoints.
+- Consider the dispersed 4×4 carrier only when checker repetition becomes
+  locally excessive.
+- Keep the matrix origin global and deterministic; never reset it per cell.
+- Select patterns by local source mismatch, tone error, vertical/horizontal/
+  diagonal run cost, 2×1 artifact count, and phase continuity.
+- Feed the selected endpoint back into diffusion immediately; do not perform
+  independent final bitmap flips or geometric pixel moves.
+
+### Implementation sequence
+
+1. Extract a carrier-family interface from the v4.4 checker decision.
+2. Add grayscale-only benchmark variants for checker phase A/B, dispersed 4×4,
+   and diagonal carriers.
+3. Compare flat fields, horizontal/vertical/diagonal gradients, hard edges,
+   sky-like fields, and real project images.
+4. Reject any carrier that increases vertical artifacts, horizontal 2×1
+   artifacts, herringbone texture, tone drift, or edge displacement.
+5. Implement adaptive checker/dispersed selection as a new experimental engine
+   only after the grayscale benchmark and visual review pass.
+6. Extend to unrestricted color pairs, then QL modes, and finally ZX attribute
+   constrained output.
+
+### Acceptance gates
+
+- v4.4 output remains byte-identical.
+- Checker occupancy improves over v4.4 in smooth intermediate fields.
+- Vertical, horizontal, and diagonal artifact scores do not exceed v4.4 beyond
+  the agreed tolerance.
+- Flat-field tone and variance remain equivalent to v4.4.
+- Strong edges and silhouettes remain visually unchanged.
+- Output remains deterministic and valid for every supported target.

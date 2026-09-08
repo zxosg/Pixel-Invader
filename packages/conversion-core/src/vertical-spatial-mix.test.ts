@@ -256,4 +256,29 @@ describe("vertical spatial mixing v1", () => {
     ]);
     expect(pmd.frames[0]?.encoded).toHaveLength(16_384);
   });
+
+  it("supports checker-phase v4.4 in regular PMD 85 cell mode", () => {
+    const input = new Uint8Array([128, 128, 128, 255]);
+    const settings = {
+      ...DEFAULT_CONVERSION_SETTINGS,
+      platformId: "pmd-85" as const,
+      modeId: "pmd85-2-tv" as const,
+      attributeOptimizerId: "pmd85-cell-v1" as const,
+      ditherEngineId: "error-diffusion-checker-phase-v4-4" as const,
+      dithering: "error-diffusion" as const,
+      ditheringAmount: 35,
+      errorDiffusionLineSuppression: 75,
+      paletteSelections: [{ screenIndex: 0, enabledColorIds: [0, 1] }],
+      pmd85: { ...DEFAULT_CONVERSION_SETTINGS.pmd85, mode: "pmd85-2-tv" as const },
+    };
+    const foreground = [
+      { r: 255, g: 255, b: 255 },
+      { r: 255, g: 0, b: 0 },
+    ];
+    const first = convertToPmd85(input, 1, 1, settings, foreground);
+    const second = convertToPmd85(input, 1, 1, settings, foreground);
+    expect(first).toEqual(second);
+    expect(first.frames[0]?.encoded.length).toBeGreaterThan(0);
+    expect(first.pixelMasks.length).toBeGreaterThan(0);
+  });
 });

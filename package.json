@@ -10,6 +10,7 @@
     "benchmark:corpus": "node tools/summarize-benchmark-corpus.mjs",
     "benchmark:error-diffusion": "pnpm --filter @retro-converter/conversion-core build && node tools/benchmark-error-diffusion.mjs",
     "benchmark:error-diffusion:ql": "pnpm --filter @retro-converter/conversion-core build && node tools/benchmark-error-diffusion-ql.mjs",
+    "benchmark:checker-gray-v44": "pnpm --filter @retro-converter/conversion-core build && pnpm --filter @retro-converter/image-codecs build && node tools/benchmark-checker-gray-v44.mjs",
     "check": "pnpm run typecheck && pnpm run test",
     "dev": "pnpm --filter @retro-converter/zx-spectrum build && pnpm --filter @retro-converter/sinclair-ql build && pnpm --filter @retro-converter/web dev",
     "test": "vitest run",

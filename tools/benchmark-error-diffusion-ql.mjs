@@ -13,6 +13,7 @@ const allEngines = [
   "error-diffusion-phase-balanced-checker-v3-3",
   "error-diffusion-checker-phase-v4",
   "error-diffusion-checker-phase-v4-3",
+  "error-diffusion-checker-phase-v4-4",
 ];
 const engineFilter = process.argv.find((argument) => argument.startsWith("--engines="));
 const engines = engineFilter === undefined

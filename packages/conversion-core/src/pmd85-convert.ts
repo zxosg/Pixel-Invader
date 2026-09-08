@@ -18,6 +18,7 @@ import { assertCompatibleEngines, ditherMethodForEngine } from "./engines.js";
 import { adaptiveDitherPrefilter, filterRgba } from "./filters.js";
 import { decorrelatedDiffusionKernel } from "./diffusion.js";
 import { artisticCoverage, renderArtisticPairField } from "./artistic-ordered.js";
+import { checkerCarrierStrengthV44 } from "./grayscale-checker-v44.js";
 import { frameRgbaToDimensions } from "./geometry.js";
 import { ORDERED_MATRICES, orderedThreshold } from "./matrices.js";
 import type {
@@ -295,7 +296,8 @@ function buildDitherGuide(
   const guide = new Uint8Array(PMD85_SCREEN_WIDTH * PMD85_SCREEN_HEIGHT);
   guide.fill(GUIDE_BLACK);
   const usesDiffusion =
-    settings.ditherEngineId === "error-diffusion-decorrelated-v3" &&
+    (settings.ditherEngineId === "error-diffusion-decorrelated-v3" ||
+      settings.ditherEngineId === "error-diffusion-checker-phase-v4-4") &&
     settings.ditheringAmount > 0;
   const usesOrdered = (
     settings.ditherEngineId === "ordered-strict-matrix-v6" ||
@@ -536,7 +538,10 @@ export function convertToPmd85(
   const cellRows = PMD85_SCREEN_HEIGHT / cellHeight;
   const cellInks = new Uint8Array(PMD85_VISIBLE_BYTES_PER_LINE * cellRows);
   const supportedCells = new Uint8Array(cellInks.length);
-  const usesDiffusion = settings.ditherEngineId === "error-diffusion-decorrelated-v3" && settings.ditheringAmount > 0;
+  const usesDiffusion = (
+    settings.ditherEngineId === "error-diffusion-decorrelated-v3" ||
+    settings.ditherEngineId === "error-diffusion-checker-phase-v4-4"
+  ) && settings.ditheringAmount > 0;
   const errors = usesDiffusion ? new Int32Array(baseLinear.length) : null;
   const orderedMatrix = settings.ditherEngineId === "ordered-void-cluster-v1"
     ? ORDERED_MATRICES["void-cluster-8x8"]
@@ -697,7 +702,18 @@ export function convertToPmd85(
     }
   }
 
-  if (settings.ditherEngineId === "artistic-ordered-hybrid-v1" && settings.ditheringAmount > 0) {
+  const checkerCarrier = settings.ditherEngineId === "error-diffusion-checker-phase-v4-4" &&
+    settings.ditheringAmount > 0 && settings.errorDiffusionLineSuppression > 0;
+  if (
+    (settings.ditherEngineId === "artistic-ordered-hybrid-v1" || checkerCarrier) &&
+    settings.ditheringAmount > 0
+  ) {
+    const carrierAmount = checkerCarrier
+      ? settings.ditheringAmount * checkerCarrierStrengthV44(
+          100,
+          settings.errorDiffusionLineSuppression,
+        )
+      : settings.ditheringAmount;
     const reference = new Uint8Array(PMD85_SCREEN_WIDTH * PMD85_SCREEN_HEIGHT);
     for (let y = 0; y < PMD85_SCREEN_HEIGHT; y += 1) for (let x = 0; x < PMD85_SCREEN_WIDTH; x += 1) {
       const byte = pixelMasks[y * PMD85_VISIBLE_BYTES_PER_LINE + Math.floor(x / 6)] ?? 0;
@@ -705,13 +721,13 @@ export function convertToPmd85(
     }
     const artisticPixels = renderArtisticPairField(
       normalized, PMD85_SCREEN_WIDTH, PMD85_SCREEN_HEIGHT,
-      settings.ditheringAmount, settings.artisticPattern ?? "checkerboard",
+      carrierAmount, checkerCarrier ? "checkerboard" : settings.artisticPattern ?? "checkerboard",
       (x, y) => {
         const cell = Math.floor(y / cellHeight) * PMD85_VISIBLE_BYTES_PER_LINE + Math.floor(x / 6);
         const ink = foregroundPalette[cellInks[cell] ?? 0]!;
         const offset = (y * PMD85_SCREEN_WIDTH + x) * 4;
         const projected = artisticCoverage(normalized[offset]!, normalized[offset + 1]!, normalized[offset + 2]!, black, ink);
-        const scale = settings.ditheringAmount / 100;
+        const scale = carrierAmount / 100;
         return { first: black, second: ink, firstValue: 0, secondValue: 1,
           coverage: Math.max(0, Math.min(1, 0.5 + (projected - 0.5) / scale)) };
       }, false, reference, settings.orderedMatrix === "bayer-2x2" ? 2 : 4,

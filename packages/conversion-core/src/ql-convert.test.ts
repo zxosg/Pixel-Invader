@@ -15,6 +15,43 @@ function qlPaletteSelections(colors: readonly number[], screens: 1 | 2 = 2) {
 }
 
 describe("Sinclair QL conversion", () => {
+  it.each([
+    ["mode8-plain-256x256", 256, 1],
+    ["mode4-plain-512x256", 512, 1],
+    ["mode8-256x256", 256, 2],
+    ["mode4-512x256", 512, 2],
+    ["mode8-mode4-mixed-512x256", 512, 2],
+  ] as const)("supports v4.4 in %s", (modeId, expectedWidth, screenCount) => {
+    const source = new Uint8Array([128, 128, 128, 255]);
+    const selections = Array.from({ length: screenCount }, (_, screenIndex) => ({
+      screenIndex,
+      enabledColorIds: (modeId.startsWith("mode4-") ||
+        (screenIndex === 1 && modeId === "mode8-mode4-mixed-512x256"))
+        ? [0, 1, 2, 3]
+        : [0, 1, 2, 3, 4, 5, 6, 7],
+    }));
+    const settings = {
+      ...DEFAULT_CONVERSION_SETTINGS,
+      platformId: "sinclair-ql" as const,
+      profileId: "org.retroconverter.sinclair-ql.default",
+      modeId,
+      framing: "stretch" as const,
+      resampling: "nearest" as const,
+      dithering: "error-diffusion" as const,
+      ditherEngineId: "error-diffusion-checker-phase-v4-4" as const,
+      ditheringAmount: 35,
+      errorDiffusionLineSuppression: 75,
+      paletteSelections: selections,
+    };
+    const first = convertToQl(source, 1, 1, settings);
+    const second = convertToQl(source, 1, 1, settings);
+    expect(first).toEqual(second);
+    expect(first.width).toBe(expectedWidth);
+    expect(first.frames).toHaveLength(screenCount);
+    expect(first.frames.every((frame) => frame.encoded.length === 32_768)).toBe(true);
+    expect(first.previewRgba).toHaveLength(expectedWidth * 256 * 4);
+  }, 20_000);
+
   it("uses genuine paired 512-wide samples in mixed optimizer v2", () => {
     const source = new Uint8Array(512 * 4);
     for (let x = 0; x < 512; x += 1) {
@@ -437,6 +474,72 @@ describe("Sinclair QL conversion", () => {
     expect(result.frames).toHaveLength(2);
     expect(result.frames[0]!.paletteIndices).not.toEqual(result.frames[1]!.paletteIndices);
   });
+
+  it("lets Artistic temporal endpoint swapping control the two screen frames", () => {
+    const convert = (screenFlickerSuppression: boolean) => convertToQl(
+      new Uint8Array([128, 128, 128, 255]),
+      1,
+      1,
+      {
+        ...DEFAULT_CONVERSION_SETTINGS,
+        platformId: "sinclair-ql",
+        profileId: "org.retroconverter.sinclair-ql.default",
+        modeId: "mode8-256x256",
+        framing: "stretch",
+        dithering: "ordered",
+        ditherEngineId: "artistic-ordered-hybrid-v1",
+        ditheringAmount: 100,
+        errorDiffusionLineSuppression: 100,
+        artisticPattern: "checkerboard",
+        screenFlickerSuppression,
+        paletteSelections: qlPaletteSelections([0, 7]),
+      },
+    );
+    const disabled = convert(false);
+    const enabled = convert(true);
+    const differs = (left: Uint8Array, right: Uint8Array) =>
+      left.some((value, index) => value !== right[index]);
+
+    expect(differs(disabled.frames[0]!.paletteIndices, enabled.frames[0]!.paletteIndices)).toBe(true);
+    expect(differs(disabled.frames[1]!.paletteIndices, enabled.frames[1]!.paletteIndices)).toBe(true);
+    expect(enabled.mergedPreviewRgba).toEqual(disabled.mergedPreviewRgba);
+  }, 20_000);
+
+  it("applies suppression-scaled Artistic checker placement to QL mixed resolution", () => {
+    const source = new Uint8Array(512 * 256 * 4);
+    for (let y = 0; y < 256; y += 1) for (let x = 0; x < 512; x += 1) {
+      const value = Math.round((x + y) * 255 / (512 + 256 - 2));
+      const offset = (y * 512 + x) * 4;
+      source[offset] = value;
+      source[offset + 1] = value;
+      source[offset + 2] = value;
+      source[offset + 3] = 255;
+    }
+    const convert = (suppression: number) => convertToQl(source, 512, 256, {
+      ...DEFAULT_CONVERSION_SETTINGS,
+      platformId: "sinclair-ql",
+      profileId: "org.retroconverter.sinclair-ql.default",
+      modeId: "mode8-mode4-mixed-512x256",
+      framing: "stretch",
+      resampling: "nearest",
+      dithering: "ordered",
+      ditherEngineId: "artistic-ordered-hybrid-v1",
+      ditheringAmount: 35,
+      errorDiffusionLineSuppression: suppression,
+      artisticPattern: "checkerboard",
+      paletteSelections: [
+        { screenIndex: 0, enabledColorIds: [0, 1, 2, 3, 4, 5, 6, 7] },
+        { screenIndex: 1, enabledColorIds: [0, 1, 2, 3] },
+      ],
+    });
+    const low = convert(25);
+    const high = convert(75);
+    expect(low.frames).toHaveLength(2);
+    expect(high.frames).toHaveLength(2);
+    expect(low.frames[0]!.encoded).not.toEqual(high.frames[0]!.encoded);
+    expect(low.frames[1]!.encoded).not.toEqual(high.frames[1]!.encoded);
+    expect(high.frames[1]!.encoded).toEqual(convert(75).frames[1]!.encoded);
+  }, 20_000);
 
   it("applies deterministic randomization in decorrelated diffusion v3", () => {
     const source = new Uint8Array([255, 128, 128, 255]);

@@ -1127,6 +1127,97 @@ describe("ZX conversion", () => {
     expect(validateScreen(v41.screen)).toEqual([]);
   });
 
+  it("integrates checker-phase v4.4 into the ZX conversion path", () => {
+    const source = new Uint8Array(256 * 192 * 4);
+    for (let y = 0; y < 192; y += 1) for (let x = 0; x < 256; x += 1) {
+      const value = Math.round((x + y) * 255 / (256 + 192 - 2));
+      const offset = (y * 256 + x) * 4;
+      source[offset] = value;
+      source[offset + 1] = value;
+      source[offset + 2] = value;
+      source[offset + 3] = 255;
+    }
+    const base = settings({
+      framing: "stretch",
+      resampling: "nearest",
+      dithering: "error-diffusion",
+      ditherEngineId: "error-diffusion-checker-phase-v4-4",
+      ditheringAmount: 35,
+      errorDiffusionLineSuppression: 30,
+      errorDiffusionRandomization: 0,
+    });
+    const first = convertToZx(source, 256, 192, base, "draft");
+    const second = convertToZx(source, 256, 192, base, "draft");
+    expect(first.previewRgba).toEqual(second.previewRgba);
+    expect(first.screen.pixels).toEqual(second.screen.pixels);
+    expect(validateScreen(first.screen)).toEqual([]);
+  });
+
+  it("supports checker-phase v4.4 in ZX mixed mode", () => {
+    const source = new Uint8Array(256 * 192 * 4);
+    for (let y = 0; y < 192; y += 1) for (let x = 0; x < 256; x += 1) {
+      const value = Math.round((x + y) * 255 / (256 + 192 - 2));
+      const offset = (y * 256 + x) * 4;
+      source[offset] = value;
+      source[offset + 1] = value;
+      source[offset + 2] = value;
+      source[offset + 3] = 255;
+    }
+    const base = settings({
+      modeId: "zx48-mixed-256x192",
+      framing: "stretch",
+      resampling: "nearest",
+      dithering: "error-diffusion",
+      ditherEngineId: "error-diffusion-checker-phase-v4-4",
+      ditheringAmount: 35,
+      errorDiffusionLineSuppression: 75,
+      errorDiffusionRandomization: 0,
+    });
+    const first = convertToZx(source, 256, 192, base, "draft");
+    const second = convertToZx(source, 256, 192, base, "draft");
+    const neutral = convertToZx(source, 256, 192, {
+      ...base,
+      errorDiffusionLineSuppression: 0,
+    }, "draft");
+    expect(first.frames).toHaveLength(2);
+    expect(first.frames).toEqual(second.frames);
+    expect(first.previewRgba).toEqual(second.previewRgba);
+    expect(first.frames[0]?.paletteIndices).not.toEqual(neutral.frames[0]?.paletteIndices);
+    expect(first.frames.every((frame) => frame.encoded.length > 0)).toBe(true);
+  });
+
+  it("keeps the application tone stage independent from suppression", () => {
+    const source = new Uint8Array(256 * 192 * 4);
+    for (let y = 0; y < 192; y += 1) for (let x = 0; x < 256; x += 1) {
+      const value = Math.round((x * 3 + y * 2) * 255 / (256 * 3 + 192 * 2 - 5));
+      const offset = (y * 256 + x) * 4;
+      source[offset] = value;
+      source[offset + 1] = value;
+      source[offset + 2] = value;
+      source[offset + 3] = 255;
+    }
+    const base = settings({
+      framing: "stretch",
+      dithering: "error-diffusion",
+      ditheringAmount: 35,
+      errorDiffusionLineSuppression: 50,
+      errorDiffusionRandomization: 0,
+      attributeOptimizerId: "zx-guide-reference-halo-v1",
+    });
+    const v3 = convertToZx(source, 256, 192, {
+      ...base,
+      ditherEngineId: "error-diffusion-phase-balanced-v3",
+      errorDiffusionLineSuppression: 0,
+    }, "draft");
+    const v44 = convertToZx(source, 256, 192, {
+      ...base,
+      ditherEngineId: "error-diffusion-checker-phase-v4-4",
+    }, "draft");
+    expect(v44.preConstraintPreviewRgba).toEqual(v3.preConstraintPreviewRgba);
+    expect(v44.attributes).toEqual(v3.attributes);
+    expect(v44.screen.pixels).not.toEqual(v3.screen.pixels);
+  });
+
   it("keeps v3.1 identical to v3 when checker placement is disabled", () => {
     const source = solid(256, 192, [128, 128, 128, 255]);
     const base = settings({

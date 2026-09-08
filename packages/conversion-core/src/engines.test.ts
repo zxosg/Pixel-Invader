@@ -63,6 +63,8 @@ describe("versioned conversion engines", () => {
       .toBe("error-diffusion");
     expect(ditherMethodForEngine("error-diffusion-checker-phase-v4"))
       .toBe("error-diffusion");
+    expect(ditherMethodForEngine("error-diffusion-checker-phase-v4-4"))
+      .toBe("error-diffusion");
     expect(ditherMethodForEngine("error-diffusion-checker-phase-v4-1"))
       .toBe("error-diffusion");
     expect(ditherMethodForEngine("error-diffusion-checker-phase-v4-2"))
@@ -110,6 +112,16 @@ describe("versioned conversion engines", () => {
       "sinclair-ql",
       "ql-vertical-spatial-uniform-v1",
       "vertical-spatial-error-diffusion-v1",
+    )).not.toThrow();
+    expect(() => assertCompatibleEngines(
+      "sinclair-ql",
+      "zx-adaptive-v1",
+      "error-diffusion-checker-phase-v4-4",
+    )).not.toThrow();
+    expect(() => assertCompatibleEngines(
+      "pmd-85",
+      "pmd85-cell-v1",
+      "error-diffusion-checker-phase-v4-4",
     )).not.toThrow();
     expect(() => assertCompatibleEngines(
       "zx-spectrum",
@@ -176,6 +188,7 @@ describe("versioned conversion engines", () => {
       "error-diffusion-phase-balanced-checker-v3-2",
       "error-diffusion-phase-balanced-checker-v3-3",
       "error-diffusion-checker-phase-v4",
+      "error-diffusion-checker-phase-v4-4",
       "error-diffusion-checker-phase-v4-1",
       "error-diffusion-checker-phase-v4-2",
       "error-diffusion-checker-phase-v4-3",

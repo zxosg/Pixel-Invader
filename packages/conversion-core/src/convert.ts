@@ -6,7 +6,12 @@ import {
   serializeSoftwareScr,
   type ZxScreen,
 } from "@retro-converter/zx-spectrum";
-import { renderArtisticOrdered } from "./artistic-ordered.js";
+import {
+  artisticCoverage,
+  renderArtisticOrdered,
+  renderArtisticPairField,
+} from "./artistic-ordered.js";
+import { checkerCarrierStrengthV44 } from "./grayscale-checker-v44.js";
 import { frameRgba } from "./geometry.js";
 import { adjustRgba, validateAdjustments } from "./adjustments.js";
 import { adaptiveDitherPrefilter, filterRgba, validateImageFilters } from "./filters.js";
@@ -2457,6 +2462,11 @@ function validateSettings(settings: ConversionSettings): void {
       settings.modeId !== "zx48-mixed-256x192") {
     throw new RangeError("Artistic ordered hybrid supports only standard or mixed ZX targets.");
   }
+  if (settings.ditherEngineId === "error-diffusion-checker-phase-v4-4" &&
+      settings.modeId !== "zx48-standard-256x192" &&
+      settings.modeId !== "zx48-mixed-256x192") {
+    throw new RangeError("Artistic-carrier checker diffusion v4.4 supports only standard or mixed ZX targets.");
+  }
   if (settings.artisticPattern !== undefined && !["auto", "checkerboard", "horizontal", "vertical"].includes(settings.artisticPattern)) {
     throw new RangeError("Invalid artistic pattern preference.");
   }
@@ -2655,6 +2665,7 @@ export function convertToZx(
     settings,
   );
   const normalized = adjustRgba(filtered, settings);
+  const checkerPhaseV44 = settings.ditherEngineId === "error-diffusion-checker-phase-v4-4";
   if (
     settings.modeId !== "zx48-vertical-spatial-256x192" &&
     (
@@ -2803,6 +2814,46 @@ export function convertToZx(
     const endpointTwo = new Uint8Array(normalized.length);
     const unrestrictedMerged = new Uint8Array(normalized.length);
     const combinedPalette = [...firstPhysicalPalette, ...secondPhysicalPalette];
+    const mixedCarrierAmount = checkerPhaseV44 &&
+      settings.ditheringAmount > 0 &&
+      settings.errorDiffusionLineSuppression > 0
+      ? settings.ditheringAmount * checkerCarrierStrengthV44(
+          100,
+          settings.errorDiffusionLineSuppression,
+        )
+      : 0;
+    const mixedCarrierPixels = mixedCarrierAmount > 0
+      ? renderArtisticPairField(
+          normalized,
+          ZX_SCREEN_WIDTH,
+          ZX_SCREEN_HEIGHT,
+          mixedCarrierAmount,
+          "checkerboard",
+          (x, y) => {
+            const pair = virtualPalette[virtualIndices[y * ZX_SCREEN_WIDTH + x] ?? 0]!;
+            const first = combinedPalette[pair.first]!;
+            const second = combinedPalette[pair.second]!;
+            const offset = (y * ZX_SCREEN_WIDTH + x) * 4;
+            const projected = artisticCoverage(
+              normalized[offset]!,
+              normalized[offset + 1]!,
+              normalized[offset + 2]!,
+              first,
+              second,
+            );
+            const scale = mixedCarrierAmount / 100;
+            return {
+              first,
+              second,
+              firstValue: pair.first,
+              secondValue: pair.second,
+              coverage: scale === 0
+                ? projected
+                : Math.max(0, Math.min(1, 0.5 + (projected - 0.5) / scale)),
+            };
+          },
+        )
+      : null;
     for (let pixel = 0; pixel < virtualIndices.length; pixel += 1) {
       const pair = virtualPalette[virtualIndices[pixel] ?? 0]!;
       const x = pixel % ZX_SCREEN_WIDTH;
@@ -2815,8 +2866,15 @@ export function convertToZx(
         pair.first !== pair.second &&
         ((Math.floor(x / CELL_WIDTH) +
           Math.floor(y / settings.attributeHeight)) & 1) === 1;
-      const first = combinedPalette[swap ? pair.second : pair.first]!;
-      const second = combinedPalette[swap ? pair.first : pair.second]!;
+      const carrierFirst = mixedCarrierPixels?.[pixel];
+      const firstValue = carrierFirst === undefined
+        ? (swap ? pair.second : pair.first)
+        : carrierFirst;
+      const secondValue = carrierFirst === undefined
+        ? (swap ? pair.first : pair.second)
+        : carrierFirst === pair.first ? pair.second : pair.first;
+      const first = combinedPalette[firstValue]!;
+      const second = combinedPalette[secondValue]!;
       const offset = pixel * 4;
       endpointOne[offset] = first.r;
       endpointOne[offset + 1] = first.g;
@@ -3083,6 +3141,7 @@ export function convertToZx(
       settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-2" ||
       settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-3" ||
       settings.ditherEngineId === "error-diffusion-checker-phase-v4" ||
+      settings.ditherEngineId === "error-diffusion-checker-phase-v4-4" ||
       settings.ditherEngineId === "error-diffusion-checker-phase-v4-1" ||
       settings.ditherEngineId === "error-diffusion-checker-phase-v4-2" ||
       settings.ditherEngineId === "error-diffusion-checker-phase-v4-3" ||
@@ -3358,6 +3417,23 @@ export function convertToZx(
       settings.artisticPattern, pixels,
       settings.orderedMatrix === "bayer-2x2" ? 2 : 4,
     );
+  }
+  if (checkerPhaseV44 && settings.ditheringAmount > 0 && settings.errorDiffusionLineSuppression > 0) {
+    const strength = checkerCarrierStrengthV44(
+      100,
+      settings.errorDiffusionLineSuppression,
+    );
+    if (strength > 0) {
+      pixels = renderArtisticOrdered(
+        normalized,
+        attributes,
+        cellHeight,
+        settings.ditheringAmount * strength,
+        "checkerboard",
+        pixels,
+        cellHeight === 1 ? 2 : 4,
+      );
+    }
   }
   const totalScore = calculateRenderCost(
     normalized,

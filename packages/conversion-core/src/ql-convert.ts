@@ -9,6 +9,7 @@ import {
 } from "@retro-converter/sinclair-ql";
 import { adjustRgba } from "./adjustments.js";
 import { artisticCoverage, renderArtisticPaletteOrdered, renderArtisticPairField } from "./artistic-ordered.js";
+import { checkerCarrierStrengthV44 } from "./grayscale-checker-v44.js";
 import { assertCompatibleEngines, ditherMethodForEngine } from "./engines.js";
 import {
   applyCheckerPlacement,
@@ -294,6 +295,27 @@ function expandRgbaHorizontally2x(
       const left = (y * width * 2 + x * 2) * 4;
       output.set(source.subarray(sourceOffset, sourceOffset + 4), left);
       output.set(source.subarray(sourceOffset, sourceOffset + 4), left + 4);
+    }
+  }
+  return output;
+}
+
+function collapseRgbaHorizontally2x(
+  source: Uint8Array,
+  width: number,
+  height: number,
+): Uint8Array {
+  if ((width & 1) !== 0) throw new RangeError("QL mixed source width must be even.");
+  const output = new Uint8Array((width / 2) * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width / 2; x += 1) {
+      const left = (y * width + x * 2) * 4;
+      const right = left + 4;
+      const target = (y * (width / 2) + x) * 4;
+      output[target] = ((source[left] ?? 0) + (source[right] ?? 0)) >> 1;
+      output[target + 1] = ((source[left + 1] ?? 0) + (source[right + 1] ?? 0)) >> 1;
+      output[target + 2] = ((source[left + 2] ?? 0) + (source[right + 2] ?? 0)) >> 1;
+      output[target + 3] = 255;
     }
   }
   return output;
@@ -1272,6 +1294,13 @@ export function convertToQl(
     settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-2";
   const checkerPlacementV33 =
     settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-3";
+  const checkerPhaseV44 =
+    settings.ditherEngineId === "error-diffusion-checker-phase-v4-4";
+  if (
+    checkerPhaseV44 &&
+    (targetMode === "mode8-vertical-spatial-256x256" ||
+      targetMode === "mode4-vertical-spatial-512x256")
+  ) throw new RangeError("Artistic-carrier checker diffusion does not support vertical spatial QL targets.");
   if (
     targetMode !== "mode8-256x256" &&
     targetMode !== "mode4-512x256" &&
@@ -1478,6 +1507,35 @@ export function convertToQl(
           : candidate.highRight;
       }
     }
+    const mixedResolutionCarrier =
+      (checkerPhaseV44 || settings.ditherEngineId === "artistic-ordered-hybrid-v1") &&
+      settings.ditheringAmount > 0 &&
+      settings.errorDiffusionLineSuppression > 0;
+    if (mixedResolutionCarrier) {
+      const sourceForLow = useLegacyAverage
+        ? normalizedSource
+        : collapseRgbaHorizontally2x(normalizedSource, highWidth, QL_SCREEN_HEIGHT);
+      const carrierAmount = settings.ditherEngineId === "artistic-ordered-hybrid-v1"
+        ? settings.ditheringAmount * Math.max(
+            0,
+            Math.min(100, settings.errorDiffusionLineSuppression),
+          ) / 100
+        : settings.ditheringAmount * checkerCarrierStrengthV44(
+            100,
+            settings.errorDiffusionLineSuppression,
+          );
+      lowIndices.set(renderArtisticPaletteOrdered(
+        sourceForLow,
+        lowWidth,
+        QL_SCREEN_HEIGHT,
+        palettes[0]!,
+        selections[0]!.enabledColorIds,
+        carrierAmount,
+        settings.ditherEngineId === "artistic-ordered-hybrid-v1"
+          ? settings.artisticPattern ?? "checkerboard"
+          : "checkerboard",
+      ));
+    }
     if (checkerPlacementV31) {
       const sourceForHigh = useLegacyAverage
         ? expandRgbaHorizontally2x(normalizedSource, lowWidth, QL_SCREEN_HEIGHT)
@@ -1609,6 +1667,64 @@ export function convertToQl(
         const ink = x % 2 === 0 ? candidate.highRight : candidate.highLeft;
         highIndices[pixel] = highBits[pixel] === 1 ? ink : paper;
       }
+    } else if (
+      (checkerPhaseV44 || settings.ditherEngineId === "artistic-ordered-hybrid-v1") &&
+      settings.ditheringAmount > 0 &&
+      settings.errorDiffusionLineSuppression > 0
+    ) {
+      const sourceForHigh = useLegacyAverage
+        ? expandRgbaHorizontally2x(normalizedSource, lowWidth, QL_SCREEN_HEIGHT)
+        : normalizedSource;
+      const carrierAmount = settings.ditherEngineId === "artistic-ordered-hybrid-v1"
+        ? settings.ditheringAmount * Math.max(
+            0,
+            Math.min(100, settings.errorDiffusionLineSuppression),
+          ) / 100
+        : settings.ditheringAmount * checkerCarrierStrengthV44(
+            100,
+            settings.errorDiffusionLineSuppression,
+          );
+      const carrierPixels = renderArtisticPairField(
+        sourceForHigh,
+        highWidth,
+        QL_SCREEN_HEIGHT,
+        carrierAmount,
+        settings.ditherEngineId === "artistic-ordered-hybrid-v1"
+          ? settings.artisticPattern ?? "checkerboard"
+          : "checkerboard",
+        (x, y) => {
+          const logicalX = Math.floor(x / 2);
+          const candidate = virtualPalette[
+            virtualIndices[y * lowWidth + logicalX] ?? 0
+          ]!;
+          const firstValue = x % 2 === 0 ? candidate.highLeft : candidate.highRight;
+          const secondValue = x % 2 === 0 ? candidate.highRight : candidate.highLeft;
+          const first = palettes[1]![firstValue]!;
+          const second = palettes[1]![secondValue]!;
+          const offset = (y * highWidth + x) * 4;
+          const projected = artisticCoverage(
+            sourceForHigh[offset]!,
+            sourceForHigh[offset + 1]!,
+            sourceForHigh[offset + 2]!,
+            first,
+            second,
+          );
+          const scale = carrierAmount / 100;
+          return {
+            first,
+            second,
+            firstValue,
+            secondValue,
+            coverage: scale === 0
+              ? projected
+              : Math.max(0, Math.min(1, 0.5 + (projected - 0.5) / scale)),
+          };
+        },
+        false,
+        highIndices,
+        4,
+      );
+      highIndices.set(carrierPixels);
     }
     const lowNativePreview = renderQlRgba(lowIndices, lowMode);
     const lowPreview = expandRgbaHorizontally2x(
@@ -1706,7 +1822,9 @@ export function convertToQl(
   const artisticPlain = !usesMixing &&
     settings.ditherEngineId === "artistic-ordered-hybrid-v1" &&
     settings.ditheringAmount > 0;
-  const virtualIndices = artisticPlain
+  const checkerPlain = !usesMixing && checkerPhaseV44 &&
+    settings.ditheringAmount > 0 && settings.errorDiffusionLineSuppression > 0;
+  const virtualIndices = artisticPlain || checkerPlain
     ? (() => {
         const enabled = selections[0]!.enabledColorIds;
         const paletteIndices = renderArtisticPaletteOrdered(
@@ -1715,8 +1833,13 @@ export function convertToQl(
           QL_SCREEN_HEIGHT,
           palette,
           enabled,
-          settings.ditheringAmount,
-          settings.artisticPattern,
+          artisticPlain
+            ? settings.ditheringAmount
+            : settings.ditheringAmount * checkerCarrierStrengthV44(
+                100,
+                settings.errorDiffusionLineSuppression,
+              ),
+          artisticPlain ? settings.artisticPattern : "checkerboard",
         );
         const virtualByPalette = new Uint8Array(palette.length);
         for (let index = 0; index < enabled.length; index++) {
@@ -1738,7 +1861,16 @@ export function convertToQl(
       );
   const artisticMixed = usesMixing &&
     settings.ditherEngineId === "artistic-ordered-hybrid-v1" &&
-    settings.ditheringAmount > 0;
+    settings.ditheringAmount > 0 &&
+    settings.errorDiffusionLineSuppression > 0;
+  const checkerMixed = usesMixing && checkerPhaseV44 &&
+    settings.ditheringAmount > 0 && settings.errorDiffusionLineSuppression > 0;
+  const artisticMixedCarrierAmount = artisticMixed
+    ? settings.ditheringAmount * Math.max(
+        0,
+        Math.min(100, settings.errorDiffusionLineSuppression),
+      ) / 100
+    : 0;
   const firstIndices = new Uint8Array(virtualIndices.length);
   const secondIndices = new Uint8Array(virtualIndices.length);
   const matrix = ORDERED_MATRICES[settings.orderedMatrix];
@@ -1757,13 +1889,18 @@ export function convertToQl(
     firstIndices[pixel] = swap ? pair.second : pair.first;
     secondIndices[pixel] = swap ? pair.first : pair.second;
   }
-  if (artisticMixed) {
+  if (artisticMixed || checkerMixed) {
     const artisticPixels = renderArtisticPairField(
       normalized,
       width,
       QL_SCREEN_HEIGHT,
-      settings.ditheringAmount,
-      settings.artisticPattern ?? "checkerboard",
+      artisticMixed
+        ? artisticMixedCarrierAmount
+        : settings.ditheringAmount * checkerCarrierStrengthV44(
+            100,
+            settings.errorDiffusionLineSuppression,
+          ),
+      artisticMixed ? settings.artisticPattern ?? "checkerboard" : "checkerboard",
       (x, y) => {
         const pair = virtualPalette[virtualIndices[y * width + x] ?? 0]!;
         const first = palette[pair.first]!;
@@ -1775,7 +1912,12 @@ export function convertToQl(
           first,
           second,
         );
-        const scale = settings.ditheringAmount / 100;
+        const scale = (artisticMixed
+          ? artisticMixedCarrierAmount
+          : settings.ditheringAmount * checkerCarrierStrengthV44(
+              100,
+              settings.errorDiffusionLineSuppression,
+            )) / 100;
         return {
           first,
           second,
@@ -1787,8 +1929,16 @@ export function convertToQl(
     );
     for (let pixel = 0; pixel < artisticPixels.length; pixel += 1) {
       const pair = virtualPalette[virtualIndices[pixel] ?? 0]!;
-      firstIndices[pixel] = artisticPixels[pixel]!;
-      secondIndices[pixel] = artisticPixels[pixel] === pair.first ? pair.second : pair.first;
+      // Artistic temporal placement supplies the preferred phase, but the
+      // user-facing endpoint-swap toggle must still decide whether that phase
+      // is allowed to reorder the two screens. Without this guard the carrier
+      // silently swapped endpoints even when Screen flicker suppression was
+      // disabled, making the toggle appear ineffective.
+      const swap = settings.screenFlickerSuppression &&
+        pair.first !== pair.second &&
+        artisticPixels[pixel] === pair.second;
+      firstIndices[pixel] = swap ? pair.second : pair.first;
+      secondIndices[pixel] = swap ? pair.first : pair.second;
     }
   } else if (checkerPlacementV31 && usesMixing) {
     const phaseBits = new Uint8Array(virtualIndices.length);
