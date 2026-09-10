@@ -43,7 +43,7 @@ Use **Binary .scr** for ZX output. Basic QL modes export one screen binary;
 mixed QL modes export two alternating screen binaries and provide a fixed 50/50
 merged preview.
 
-PMD 85 profiles support all five hardware interpretations, calibrated palettes,
+PMD 85 profiles support all six hardware interpretations, calibrated palettes,
 288×256 previews, and exact 16 KiB binary import/export. Imported PMD files can
 be reinterpreted without changing their source bytes. PMD 85-2 TV/CV blink bits
 are displayed as static Bright/Dim intensity and preserved by unchanged export;

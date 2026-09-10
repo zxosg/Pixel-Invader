@@ -361,6 +361,13 @@ vertical mirrors operate in source coordinates first, followed by clockwise
 rotation of 0, 90, 180, or 270 degrees. Orientation settings are explicit
 conversion inputs and do not reapply EXIF orientation after decoding.
 
+After framing and resampling, signed output-pixel pan offsets translate the
+rescaled source bitmap. Each offset is clamped to one output-frame dimension in
+its direction. Pixels outside the shifted bitmap use the configured background,
+repeat its nearest edge, or wrap modulo its rescaled dimensions according to the
+selected `background`, `clamp`, or `wrap` edge mode. This stage does not alter
+Fill's independent source-crop focal offsets.
+
 Bilinear coordinates use 16.16 fixed point at the same pixel centers. For each
 axis, let `s` be the source-span divided by the rendered destination span,
 represented as 16.16 fixed point and rounded to nearest; the filter scale is
@@ -397,7 +404,7 @@ The filter executes as separable horizontal and vertical passes. Horizontal
 intermediates retain exact channel-times-Q14 integers without clipping. The
 vertical result is divided once by Q28 with signed nearest rounding and clipped
 to `0..255`. Together with scale-aware bilinear minification, this is geometry
-algorithm version `rc-geometry-3`.
+algorithm version `rc-geometry-4`.
 
 ## 5.2 Image filters and adjustments
 

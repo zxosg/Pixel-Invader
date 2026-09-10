@@ -16,6 +16,10 @@ const PALETTES: Readonly<Record<Pmd85ModeId, readonly Pmd85RgbColor[]>> = {
     { r: 80, g: 255, b: 80 }, { r: 255, g: 255, b: 80 },
     { r: 80, g: 255, b: 255 }, { r: 255, g: 255, b: 255 },
   ],
+  "pmd85-3-tv": [
+    { r: 255, g: 255, b: 255 }, { r: 184, g: 184, b: 184 },
+    { r: 119, g: 119, b: 119 }, { r: 68, g: 68, b: 68 },
+  ],
   "pmd85-3-pal": [
     { r: 255, g: 255, b: 255 }, { r: 80, g: 255, b: 80 },
     { r: 255, g: 80, b: 80 }, { r: 160, g: 0, b: 0 },
@@ -63,7 +67,6 @@ function settings(mode: Pmd85ModeId, engine: ConversionSettings["ditherEngineId"
     pmd85: {
       mode,
       paletteCalibrationId: mode === "pmd85-colorace" ? "pure-rgb" : "emulator-soft",
-      crtAspect: "square-pixel",
       gapPolicy: "zero",
     },
   };
@@ -276,6 +279,29 @@ describe("PMD 85 hardware-aware conversion", () => {
     expect(Math.max(...decoded.attributes)).toBeLessThanOrEqual(1);
   });
 
+  it("new PMD 85-3 TV/CV output may emit all four native intensity attributes", () => {
+    const input = new Uint8Array(PMD85_SCREEN_WIDTH * PMD85_SCREEN_HEIGHT * 4);
+    const levels = [255, 184, 119, 68];
+    for (let y = 0; y < PMD85_SCREEN_HEIGHT; y += 1) {
+      for (let x = 0; x < PMD85_SCREEN_WIDTH; x += 1) {
+        const value = levels[Math.floor(x / 72)]!;
+        const offset = (y * PMD85_SCREEN_WIDTH + x) * 4;
+        input[offset] = value;
+        input[offset + 1] = value;
+        input[offset + 2] = value;
+        input[offset + 3] = 255;
+      }
+    }
+    const result = convertToPmd85(
+      input,
+      288,
+      256,
+      settings("pmd85-3-tv", "none-discrete-v2", 0),
+      PALETTES["pmd85-3-tv"],
+    );
+    expect(new Set(result.attributes)).toEqual(new Set([0, 1, 2, 3]));
+  });
+
   it.each(["ordered-strict-matrix-v6", "ordered-void-cluster-v1", "error-diffusion-decorrelated-v3"] as const)(
     "%s at 0% equals the no-dither baseline",
     (engine) => {
@@ -343,7 +369,7 @@ describe("PMD 85 hardware-aware conversion", () => {
     },
   );
 
-  it("frames 4:3 PMD output using its 32:27 physical pixel aspect", () => {
+  it("frames PMD output using square pixels", () => {
     const rgba = new Uint8Array(256 * 204 * 4);
     for (let offset = 0; offset < rgba.length; offset += 4) {
       rgba[offset] = 255;
@@ -352,19 +378,20 @@ describe("PMD 85 hardware-aware conversion", () => {
       rgba[offset + 3] = 255;
     }
     const base = settings("pmd85-2-tv", "none-discrete-v2", 0);
-    const physical = convertToPmd85(
+    const converted = convertToPmd85(
       rgba,
       256,
       204,
       {
         ...base,
         framing: "fit",
-        pmd85: { ...base.pmd85, crtAspect: "approximate-4:3" },
       },
       PALETTES["pmd85-2-tv"],
     );
-    expect(physical.sourcePreviewRgba[0]).toBe(0);
-    expect(physical.sourcePreviewRgba[8 * 4]).toBe(255);
-    expect(physical.sourcePreviewRgba[287 * 4]).toBe(0);
+    expect(converted.pixelAspectRatio).toBe(1);
+    expect(converted.sourcePreviewRgba[0]).toBe(0);
+    expect(converted.sourcePreviewRgba[16 * 4]).toBe(255);
+    expect(converted.sourcePreviewRgba[271 * 4]).toBe(255);
+    expect(converted.sourcePreviewRgba[287 * 4]).toBe(0);
   });
 });

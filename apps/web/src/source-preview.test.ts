@@ -19,18 +19,43 @@ describe("source preview framing fallback", () => {
       mirrorVertical: false,
       fillOffsetX: null,
       fillOffsetY: null,
+      panOffsetX: 0,
+      panOffsetY: 0,
+      panEdgeMode: "background" as const,
       crop: { x: 0, y: 0, width: 1, height: 2 },
     };
     const fit = frameFallbackSourcePreview(
       solid(1, 2), 1, 2, "zx-spectrum", "zx48-standard-256x192",
-      "square-pixel", { ...common, framing: "fit" },
+      { ...common, framing: "fit" },
     );
     const stretch = frameFallbackSourcePreview(
       solid(1, 2), 1, 2, "zx-spectrum", "zx48-standard-256x192",
-      "square-pixel", { ...common, framing: "stretch" },
+      { ...common, framing: "stretch" },
     );
     expect([...fit.rgba.subarray(0, 4)]).toEqual([1, 2, 3, 255]);
     expect([...stretch.rgba.subarray(0, 4)]).toEqual([255, 0, 0, 255]);
     expect(fit.rgba).not.toEqual(stretch.rgba);
+  });
+
+  it("applies output-pixel panning in the fallback preview", () => {
+    const preview = frameFallbackSourcePreview(
+      solid(1, 1), 1, 1, "zx-spectrum", "zx48-standard-256x192",
+      {
+        background: { r: 1, g: 2, b: 3 },
+        framing: "stretch",
+        resampling: "nearest",
+        rotation: 0,
+        mirrorHorizontal: false,
+        mirrorVertical: false,
+        fillOffsetX: null,
+        fillOffsetY: null,
+        panOffsetX: 1,
+        panOffsetY: 0,
+        panEdgeMode: "background",
+        crop: { x: 0, y: 0, width: 1, height: 1 },
+      },
+    );
+    expect([...preview.rgba.subarray(0, 4)]).toEqual([1, 2, 3, 255]);
+    expect([...preview.rgba.subarray(4, 8)]).toEqual([255, 0, 0, 255]);
   });
 });

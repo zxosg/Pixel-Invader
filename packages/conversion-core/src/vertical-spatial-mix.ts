@@ -65,6 +65,7 @@ export interface VerticalSpatialDitherOptions {
   readonly amount: number;
   readonly orderedMatrix: OrderedMatrixId;
   readonly errorRandomization: number;
+  readonly swapRows?: boolean;
 }
 
 const DEFAULT_VERTICAL_SPATIAL_DITHER: VerticalSpatialDitherOptions = {
@@ -242,6 +243,7 @@ export function validateVerticalSpatialMixSettings(
     ![
       "vertical-spatial-uniform-v1",
       "vertical-spatial-detail-v1",
+      "vertical-spatial-pmd-detail-v2",
     ].includes(settings.algorithmId) ||
     settings.calibrationId !== "srgb-ideal-v1"
   ) {
@@ -310,7 +312,7 @@ function diagnostics(
     analyticPreviewRgba: preview,
     colorCost,
     stripeCost,
-    totalCost: 5 * colorCost + stripeCost +
+    totalCost: (algorithmId === "vertical-spatial-pmd-detail-v2" ? 80 : 5) * colorCost + stripeCost +
       (detailCost === undefined ? 0 : Math.floor(detailCost / 20)),
     ...(detailCost === undefined ? {} : { detailCost }),
     ...(phaseChanges === undefined ? {} : { phaseChanges }),
@@ -364,6 +366,10 @@ export function optimizeVerticalSpatialPixels(
       }
       upperIndices[(logicalY * 2) * width + x] = bestUpper;
       upperIndices[(logicalY * 2 + 1) * width + x] = bestLower;
+      if (ditherOptions.swapRows === true && bestUpper !== bestLower && ((logicalY + x) & 1) === 1) {
+        upperIndices[(logicalY * 2) * width + x] = bestLower;
+        upperIndices[(logicalY * 2 + 1) * width + x] = bestUpper;
+      }
       const actual = pairCost(baseTarget, targetOffset, linearPalette[bestUpper]!, linearPalette[bestLower]!);
       colorCost += actual.color;
       stripeCost += actual.stripe;
@@ -494,6 +500,198 @@ export function optimizeVerticalSpatialPmd(
   return { pixelMasks, attributes, diagnostics: diagnostics(new Uint8Array(), width, height, colorCost, stripeCost) };
 }
 
+function bestPmdDetailState(
+  target: Int32Array,
+  offset: number,
+  upperOn: LinearColor,
+  lowerOn: LinearColor,
+): { state: number; cost: PairCost } {
+  const black = { r: 0, g: 0, b: 0 };
+  let bestStateValue = 0;
+  let best = pairCost(target, offset, black, black);
+  let bestObjective = 80 * best.color + best.stripe;
+  for (let state = 1; state < 4; state += 1) {
+    const cost = pairCost(
+      target,
+      offset,
+      (state & 2) === 0 ? black : upperOn,
+      (state & 1) === 0 ? black : lowerOn,
+    );
+    const objective = 80 * cost.color + cost.stripe;
+    if (objective < bestObjective || (objective === bestObjective && state < bestStateValue)) {
+      bestStateValue = state;
+      best = cost;
+      bestObjective = objective;
+    }
+  }
+  return { state: bestStateValue, cost: best };
+}
+
+function sourceDetailCost(
+  source: Uint8Array,
+  offset: number,
+  output: LinearColor,
+): number {
+  const dr = (VERTICAL_SPATIAL_SRGB_TO_LINEAR_Q16[source[offset] ?? 0] ?? 0) - output.r;
+  const dg = (VERTICAL_SPATIAL_SRGB_TO_LINEAR_Q16[source[offset + 1] ?? 0] ?? 0) - output.g;
+  const db = (VERTICAL_SPATIAL_SRGB_TO_LINEAR_Q16[source[offset + 2] ?? 0] ?? 0) - output.b;
+  return Math.floor((dr * dr + dg * dg + db * db) / 3);
+}
+
+function refineVerticalSpatialPmdOrientation(
+  physicalSource: Uint8Array,
+  width: number,
+  height: number,
+  palette: readonly Pmd85RgbColor[],
+  pixelMasks: Uint8Array,
+  attributes: Uint8Array,
+  colorCost: number,
+  stripeCost: number,
+): CellPlanes {
+  const outputMasks = pixelMasks.slice();
+  const outputAttributes = attributes.slice();
+  const linearPalette = palette.map(linearColor);
+  const bytesPerRow = width / 6;
+  const black = { r: 0, g: 0, b: 0 };
+  let detailCost = 0;
+  let phaseChanges = 0;
+  for (let logicalY = 0; logicalY < height / 2; logicalY += 1) {
+    for (let byteX = 0; byteX < bytesPerRow; byteX += 1) {
+      const upperIndex = (logicalY * 2) * bytesPerRow + byteX;
+      const lowerIndex = upperIndex + bytesPerRow;
+      const upperMask = outputMasks[upperIndex] ?? 0;
+      const lowerMask = outputMasks[lowerIndex] ?? 0;
+      const upperAttribute = outputAttributes[upperIndex] ?? 0;
+      const lowerAttribute = outputAttributes[lowerIndex] ?? 0;
+      let originalDetail = 0;
+      let swappedDetail = 0;
+      let rowsDiffer = upperMask !== lowerMask || upperAttribute !== lowerAttribute;
+      for (let pixel = 0; pixel < 6; pixel += 1) {
+        const upperColor = (upperMask & (1 << pixel)) === 0
+          ? black
+          : linearPalette[upperAttribute]!;
+        const lowerColor = (lowerMask & (1 << pixel)) === 0
+          ? black
+          : linearPalette[lowerAttribute]!;
+        const x = byteX * 6 + pixel;
+        const upperSource = ((logicalY * 2) * width + x) * 4;
+        const lowerSource = (((logicalY * 2) + 1) * width + x) * 4;
+        originalDetail += sourceDetailCost(physicalSource, upperSource, upperColor) +
+          sourceDetailCost(physicalSource, lowerSource, lowerColor);
+        swappedDetail += sourceDetailCost(physicalSource, upperSource, lowerColor) +
+          sourceDetailCost(physicalSource, lowerSource, upperColor);
+      }
+      const swap = swappedDetail < originalDetail ||
+        (rowsDiffer && swappedDetail === originalDetail && ((logicalY + byteX) & 1) === 1);
+      detailCost += swap ? swappedDetail : originalDetail;
+      if (!swap) continue;
+      outputMasks[upperIndex] = lowerMask;
+      outputMasks[lowerIndex] = upperMask;
+      outputAttributes[upperIndex] = lowerAttribute;
+      outputAttributes[lowerIndex] = upperAttribute;
+      phaseChanges += 1;
+    }
+  }
+  return {
+    pixelMasks: outputMasks,
+    attributes: outputAttributes,
+    diagnostics: diagnostics(
+      new Uint8Array(), width, height, colorCost, stripeCost,
+      "vertical-spatial-pmd-detail-v2", detailCost, phaseChanges,
+    ),
+  };
+}
+
+export function optimizeVerticalSpatialPmdDetail(
+  physicalSource: Uint8Array,
+  width: number,
+  height: number,
+  palette: readonly Pmd85RgbColor[],
+  enabled: readonly number[],
+  ditherOptions: VerticalSpatialDitherOptions = DEFAULT_VERTICAL_SPATIAL_DITHER,
+): CellPlanes {
+  const baseTarget = buildVerticalSpatialTarget(physicalSource, width, height);
+  // Version 2 diffuses at logical-pixel resolution. Version 1 intentionally
+  // retains its cell-wide error accumulator for historical reproduction.
+  const dither = createSpatialDitherTarget(baseTarget, width, height, 1, ditherOptions);
+  const target = dither.target;
+  const linearPalette = palette.map(linearColor);
+  const bytesPerRow = width / 6;
+  const pixelMasks = new Uint8Array(bytesPerRow * height);
+  const attributes = new Uint8Array(bytesPerRow * height);
+  let colorCost = 0;
+  let stripeCost = 0;
+  for (let logicalY = 0; logicalY < height / 2; logicalY += 1) {
+    const direction = dither.direction(logicalY);
+    for (let step = 0; step < bytesPerRow; step += 1) {
+      const byteX = direction === 1 ? step : bytesPerRow - 1 - step;
+      let bestUpper = enabled[0] ?? 0;
+      let bestLower = bestUpper;
+      let bestTotal = Number.POSITIVE_INFINITY;
+      let bestStripe = Number.POSITIVE_INFINITY;
+      for (const upper of enabled) {
+        for (const lower of enabled) {
+          let candidateColor = 0;
+          let candidateStripe = 0;
+          for (let pixel = 0; pixel < 6; pixel += 1) {
+            const result = bestPmdDetailState(
+              target,
+              (logicalY * width + byteX * 6 + pixel) * 3,
+              linearPalette[upper]!,
+              linearPalette[lower]!,
+            );
+            candidateColor += result.cost.color;
+            candidateStripe += result.cost.stripe;
+          }
+          const candidateTotal = 80 * candidateColor + candidateStripe;
+          const candidateTuple = [candidateTotal, candidateStripe, Number(upper !== lower), upper, lower];
+          const bestTuple = [bestTotal, bestStripe, Number(bestUpper !== bestLower), bestUpper, bestLower];
+          if (candidateTuple.some((value, index) =>
+            value < bestTuple[index]! && candidateTuple.slice(0, index).every((prior, priorIndex) => prior === bestTuple[priorIndex])
+          )) {
+            bestUpper = upper;
+            bestLower = lower;
+            bestTotal = candidateTotal;
+            bestStripe = candidateStripe;
+          }
+        }
+      }
+      const upperIndex = (logicalY * 2) * bytesPerRow + byteX;
+      const lowerIndex = upperIndex + bytesPerRow;
+      attributes[upperIndex] = bestUpper;
+      attributes[lowerIndex] = bestLower;
+      let upperMask = 0;
+      let lowerMask = 0;
+      for (let pixelStep = 0; pixelStep < 6; pixelStep += 1) {
+        const pixel = direction === 1 ? pixelStep : 5 - pixelStep;
+        const x = byteX * 6 + pixel;
+        dither.prepareCell(logicalY, x);
+        const targetOffset = (logicalY * width + x) * 3;
+        const result = bestPmdDetailState(
+          target,
+          targetOffset,
+          linearPalette[bestUpper]!,
+          linearPalette[bestLower]!,
+        );
+        if ((result.state & 2) !== 0) upperMask |= 1 << pixel;
+        if ((result.state & 1) !== 0) lowerMask |= 1 << pixel;
+        const upperColor = (result.state & 2) === 0 ? { r: 0, g: 0, b: 0 } : linearPalette[bestUpper]!;
+        const lowerColor = (result.state & 1) === 0 ? { r: 0, g: 0, b: 0 } : linearPalette[bestLower]!;
+        const actual = pairCost(baseTarget, targetOffset, upperColor, lowerColor);
+        colorCost += actual.color;
+        stripeCost += actual.stripe;
+        dither.commitCell(logicalY, x, [mixedLinear(upperColor, lowerColor)]);
+      }
+      pixelMasks[upperIndex] = upperMask;
+      pixelMasks[lowerIndex] = lowerMask;
+    }
+  }
+  if (ditherOptions.swapRows === false) {
+    return { pixelMasks, attributes, diagnostics: diagnostics(new Uint8Array(), width, height, colorCost, stripeCost, "vertical-spatial-pmd-detail-v2") };
+  }
+  return refineVerticalSpatialPmdOrientation(physicalSource, width, height, palette, pixelMasks, attributes, colorCost, stripeCost);
+}
+
 interface ZxAttributeCandidate {
   readonly value: number;
   readonly paper: LinearColor;
@@ -599,13 +797,16 @@ export function optimizeVerticalSpatialZx(
       dither.commitCell(logicalY, byteX, realized);
     }
   }
-  if (optimizationStyle === "detail-preserving") {
+  const shouldSwap = ditherOptions.swapRows === true ||
+    (optimizationStyle === "detail-preserving" && ditherOptions.swapRows !== false);
+  if (shouldSwap) {
     return refineVerticalSpatialZxOrientation(
       physicalSource,
       pixelMasks,
       attributes,
       colorCost,
       stripeCost,
+      optimizationStyle === "detail-preserving" ? "vertical-spatial-detail-v1" : "vertical-spatial-uniform-v1",
     );
   }
   return { pixelMasks, attributes, diagnostics: diagnostics(new Uint8Array(), width, height, colorCost, stripeCost) };
@@ -638,6 +839,7 @@ function refineVerticalSpatialZxOrientation(
   sourceAttributes: Uint8Array,
   colorCost: number,
   stripeCost: number,
+  algorithmId: "vertical-spatial-uniform-v1" | "vertical-spatial-detail-v1" = "vertical-spatial-detail-v1",
 ): CellPlanes {
   const width = 256;
   const bytesPerRow = 32;
@@ -716,7 +918,7 @@ function refineVerticalSpatialZxOrientation(
     attributes,
     diagnostics: diagnostics(
       new Uint8Array(), width, 192, colorCost, stripeCost,
-      "vertical-spatial-detail-v1", detailCost, phaseChanges,
+      algorithmId, detailCost, phaseChanges,
     ),
   };
 }

@@ -8,7 +8,12 @@ import {
   type QlRgbColor,
 } from "@retro-converter/sinclair-ql";
 import { adjustRgba } from "./adjustments.js";
-import { artisticCoverage, renderArtisticPaletteOrdered, renderArtisticPairField } from "./artistic-ordered.js";
+import {
+  artisticCoverage,
+  artisticThreshold,
+  renderArtisticPaletteOrdered,
+  renderArtisticPairField,
+} from "./artistic-ordered.js";
 import { checkerCarrierStrengthV44 } from "./grayscale-checker-v44.js";
 import { assertCompatibleEngines, ditherMethodForEngine } from "./engines.js";
 import {
@@ -105,6 +110,125 @@ function sourcePixelIsSmooth(
     }
   }
   return true;
+}
+
+interface ArtisticCandidateColor {
+  readonly r: number;
+  readonly g: number;
+  readonly b: number;
+}
+
+function candidateColorDistance(
+  r: number,
+  g: number,
+  b: number,
+  color: ArtisticCandidateColor,
+): number {
+  const dr = r - color.r;
+  const dg = g - color.g;
+  const db = b - color.b;
+  return dr * dr + dg * dg + db * db;
+}
+
+function sourceHasDominantGradient(
+  source: Uint8Array,
+  width: number,
+  height: number,
+  x: number,
+  y: number,
+): boolean {
+  const at = (nx: number, ny: number, channel: number): number =>
+    source[(ny * width + nx) * 4 + channel] ?? 0;
+  let horizontal = 0;
+  let vertical = 0;
+  for (let channel = 0; channel < 3; channel += 1) {
+    horizontal += Math.abs(
+      at(Math.min(width - 1, x + 1), y, channel) -
+      at(Math.max(0, x - 1), y, channel),
+    );
+    vertical += Math.abs(
+      at(x, Math.min(height - 1, y + 1), channel) -
+      at(x, Math.max(0, y - 1), channel),
+    );
+  }
+  const dominant = Math.max(horizontal, vertical);
+  const perpendicular = Math.min(horizontal, vertical);
+  return dominant >= 16 && dominant > perpendicular * 1.5;
+}
+
+/**
+ * Turn a neutral mixed-mode candidate field into a conservative Artistic
+ * checker field. The neutral candidate remains the anchor, so suppression 0
+ * is an exact identity path; only a legal neighboring candidate may replace
+ * it, and only where a checker threshold can represent an intermediate local
+ * tone without crossing an edge.
+ */
+function applyArtisticCheckerCandidateField<T>(
+  source: Uint8Array,
+  width: number,
+  height: number,
+  baseIndices: Uint8Array,
+  candidates: readonly T[],
+  colorAt: (candidate: T) => ArtisticCandidateColor,
+  strength: number,
+): Uint8Array {
+  if (strength <= 0) return baseIndices;
+  const output = baseIndices.slice();
+  const boundedStrength = Math.max(0, Math.min(1, strength));
+  const sourceBudget = 4096 + boundedStrength * 8192;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      if (!sourcePixelIsSmooth(source, width, height, x, y) ||
+          sourceHasDominantGradient(source, width, height, x, y)) continue;
+      const pixel = y * width + x;
+      const offset = pixel * 4;
+      const r = source[offset] ?? 0;
+      const g = source[offset + 1] ?? 0;
+      const b = source[offset + 2] ?? 0;
+      const anchorIndex = baseIndices[pixel] ?? 0;
+      const anchor = colorAt(candidates[anchorIndex]!);
+      const anchorError = candidateColorDistance(r, g, b, anchor);
+      let alternateIndex = -1;
+      let alternateCoverage = 0;
+      let alternateError = Number.POSITIVE_INFINITY;
+
+      for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
+        if (candidateIndex === anchorIndex) continue;
+        const alternate = colorAt(candidates[candidateIndex]!);
+        const coverage = artisticCoverage(r, g, b, anchor, alternate);
+        // A neutral diffusion field may have already collapsed to one solid
+        // endpoint. Keep the far side of the projection available when the
+        // alternate candidate is a substantially better local representation;
+        // otherwise a flat 50% field cannot recover its pair-average carrier.
+        if (coverage <= 0.12) continue;
+        const mixed = {
+          r: anchor.r + (alternate.r - anchor.r) * coverage,
+          g: anchor.g + (alternate.g - anchor.g) * coverage,
+          b: anchor.b + (alternate.b - anchor.b) * coverage,
+        };
+        const error = candidateColorDistance(r, g, b, mixed);
+        if (
+          error < alternateError ||
+          (error === alternateError && candidateIndex < alternateIndex)
+        ) {
+          alternateIndex = candidateIndex;
+          alternateCoverage = coverage;
+          alternateError = error;
+        }
+      }
+
+      if (alternateIndex < 0 || alternateError > anchorError + sourceBudget) continue;
+      const effectiveCoverage = alternateCoverage * boundedStrength;
+      if (
+        effectiveCoverage <= 0.05 ||
+        effectiveCoverage >= 0.95 ||
+        artisticThreshold(x, y, "checkerboard") >= effectiveCoverage
+      ) continue;
+      output[pixel] = alternateIndex;
+    }
+  }
+  return output;
 }
 
 function applyCheckerOnlyPlacementV33(
@@ -1392,6 +1516,7 @@ export function convertToQl(
         amount: settings.ditheringAmount,
         orderedMatrix: settings.orderedMatrix,
         errorRandomization: settings.errorDiffusionRandomization,
+        swapRows: settings.verticalSpatialMix?.swapRows === true,
       },
     );
     const encoded = encodeQlScreen(optimized.upperIndices, hardwareMode);
@@ -1462,7 +1587,7 @@ export function convertToQl(
       palettes[1]!,
       selections[1]!.enabledColorIds,
     );
-    const virtualIndices = useLegacyAverage
+    let virtualIndices = useLegacyAverage
       ? quantizeTemporalVirtual(
           normalizedSource,
           lowWidth,
@@ -1482,6 +1607,33 @@ export function convertToQl(
           palettes[1]!,
           settings,
         );
+    const sourceForLow = useLegacyAverage
+      ? normalizedSource
+      : collapseRgbaHorizontally2x(normalizedSource, highWidth, QL_SCREEN_HEIGHT);
+    const checkerMixedCandidateStrength = checkerPhaseV44
+      ? settings.ditheringAmount * checkerCarrierStrengthV44(
+          100,
+          settings.errorDiffusionLineSuppression,
+        ) / 100
+      : 0;
+    if (checkerMixedCandidateStrength > 0) {
+      virtualIndices = applyArtisticCheckerCandidateField(
+        sourceForLow,
+        lowWidth,
+        QL_SCREEN_HEIGHT,
+        virtualIndices,
+        virtualPalette,
+        (candidate) => {
+          const low = mixedPrediction(
+            candidate,
+            palettes[0]!,
+            palettes[1]!,
+          ).low;
+          return { r: low[0], g: low[1], b: low[2] };
+        },
+        checkerMixedCandidateStrength,
+      );
+    }
     const lowIndices = new Uint8Array(lowWidth * QL_SCREEN_HEIGHT);
     const highIndices = new Uint8Array(highWidth * QL_SCREEN_HEIGHT);
     for (let y = 0; y < QL_SCREEN_HEIGHT; y += 1) {
@@ -1497,6 +1649,8 @@ export function convertToQl(
           stableNeighbor &&
           (settings.ditherEngineId === "error-diffusion-matrix-guided-v1"
             ? orderedThreshold(matrix, x, y) < matrix.levels / 2
+            : settings.ditherEngineId === "error-diffusion-checker-phase-v4-4"
+              ? artisticThreshold(x, y, "checkerboard") < 0.5
             : (y & 1) === 0);
         const highOffset = y * highWidth + x * 2;
         highIndices[highOffset] = swapHighPair
@@ -1508,13 +1662,10 @@ export function convertToQl(
       }
     }
     const mixedResolutionCarrier =
-      (checkerPhaseV44 || settings.ditherEngineId === "artistic-ordered-hybrid-v1") &&
+      settings.ditherEngineId === "artistic-ordered-hybrid-v1" &&
       settings.ditheringAmount > 0 &&
       settings.errorDiffusionLineSuppression > 0;
     if (mixedResolutionCarrier) {
-      const sourceForLow = useLegacyAverage
-        ? normalizedSource
-        : collapseRgbaHorizontally2x(normalizedSource, highWidth, QL_SCREEN_HEIGHT);
       const carrierAmount = settings.ditherEngineId === "artistic-ordered-hybrid-v1"
         ? settings.ditheringAmount * Math.max(
             0,
@@ -1668,7 +1819,7 @@ export function convertToQl(
         highIndices[pixel] = highBits[pixel] === 1 ? ink : paper;
       }
     } else if (
-      (checkerPhaseV44 || settings.ditherEngineId === "artistic-ordered-hybrid-v1") &&
+      settings.ditherEngineId === "artistic-ordered-hybrid-v1" &&
       settings.ditheringAmount > 0 &&
       settings.errorDiffusionLineSuppression > 0
     ) {
@@ -1824,7 +1975,7 @@ export function convertToQl(
     settings.ditheringAmount > 0;
   const checkerPlain = !usesMixing && checkerPhaseV44 &&
     settings.ditheringAmount > 0 && settings.errorDiffusionLineSuppression > 0;
-  const virtualIndices = artisticPlain || checkerPlain
+  let virtualIndices = artisticPlain || checkerPlain
     ? (() => {
         const enabled = selections[0]!.enabledColorIds;
         const paletteIndices = renderArtisticPaletteOrdered(
@@ -1859,6 +2010,23 @@ export function convertToQl(
           settings.ditherEngineId === "ordered-strict-matrix-v6"
         ),
       );
+  const checkerMixedCandidateStrength = usesMixing && checkerPhaseV44
+    ? settings.ditheringAmount * checkerCarrierStrengthV44(
+        100,
+        settings.errorDiffusionLineSuppression,
+      ) / 100
+    : 0;
+  if (checkerMixedCandidateStrength > 0) {
+    virtualIndices = applyArtisticCheckerCandidateField(
+      normalized,
+      width,
+      QL_SCREEN_HEIGHT,
+      virtualIndices,
+      virtualPalette,
+      (candidate) => candidate,
+      checkerMixedCandidateStrength,
+    );
+  }
   const artisticMixed = usesMixing &&
     settings.ditherEngineId === "artistic-ordered-hybrid-v1" &&
     settings.ditheringAmount > 0 &&

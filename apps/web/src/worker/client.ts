@@ -169,7 +169,6 @@ export class ConversionWorkerClient {
     mode: Pmd85ModeId,
     foregroundPalette: readonly Pmd85RgbColor[],
     paletteCalibrationId: string,
-    pixelAspectRatio = 1,
   ): Promise<WorkerPmd85Import> {
     const jobId = crypto.randomUUID();
     const request: ConversionWorkerRequest = {
@@ -179,7 +178,6 @@ export class ConversionWorkerClient {
       mode,
       foregroundPalette,
       paletteCalibrationId,
-      pixelAspectRatio,
     };
     return new Promise<ConversionWorkerSuccess>((resolve, reject) => {
       this.#pending.set(jobId, { resolve, reject });

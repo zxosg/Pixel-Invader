@@ -193,6 +193,29 @@ describe("completed project containers", () => {
       .toBe("vertical-spatial-detail-v1");
   });
 
+  it("round-trips the PMD detail-preserving spatial optimizer", async () => {
+    const profile = PMD85_BUILT_IN_PROFILES[0]!;
+    const settings = profile.presets.find(
+      (preset) => preset.id === "vertical-spatial-v2",
+    )!.settings;
+    const screen = new Uint8Array(PMD85_VRAM_BYTES);
+    const project = await createCompletedProject({
+      sourceBytes: encodeRgbaPng(Uint8Array.from([0, 0, 0, 255]), 1, 1),
+      sourceFormat: "png",
+      settings,
+      scr: screen,
+      frames: [screen],
+      previewPng: encodeRgbaPng(new Uint8Array(288 * 128 * 4), 288, 128),
+      metadataJson: projectEncoder.encode("{\"schema_version\":\"4.0.0\"}\n"),
+      profile,
+    });
+    const validated = await validateCompletedProject(project);
+    expect(validated.settings.attributeOptimizerId)
+      .toBe("pmd85-vertical-spatial-detail-v2");
+    expect(validated.settings.verticalSpatialMix?.algorithmId)
+      .toBe("vertical-spatial-pmd-detail-v2");
+  });
+
   it("adapts schema-10 .scr entries into the generic artifact model", async () => {
     const legacy = await asLegacySchema10(await createCompletedProject(projectInput()));
     const validated = await validateCompletedProject(legacy);
@@ -502,6 +525,9 @@ describe("completed project containers", () => {
         attributeHaloHorizontal: 2 as const,
         attributeHaloVertical: 1 as const,
         errorDiffusionRandomization: 37,
+        panOffsetX: -17,
+        panOffsetY: 23,
+        panEdgeMode: "wrap" as const,
       },
     };
     const validated = await validateCompletedProject(
@@ -513,6 +539,9 @@ describe("completed project containers", () => {
     expect(validated.settings.attributeHaloHorizontal).toBe(2);
     expect(validated.settings.attributeHaloVertical).toBe(1);
     expect(validated.settings.errorDiffusionRandomization).toBe(37);
+    expect(validated.settings.panOffsetX).toBe(-17);
+    expect(validated.settings.panOffsetY).toBe(23);
+    expect(validated.settings.panEdgeMode).toBe("wrap");
   });
 
   it("stores and validates both Sinclair QL hardware screens", async () => {

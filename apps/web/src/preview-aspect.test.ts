@@ -20,9 +20,9 @@ describe("preview aspect", () => {
       .toEqual({ width: 512, height: 256 });
   });
 
-  it("uses PMD's 32:27 pixel aspect without inflating zoom dimensions", () => {
-    expect(resolvePreviewAspect(288, 256, true, 1, 32 / 27))
-      .toEqual({ width: 1024 / 3, height: 256 });
+  it("keeps PMD's 288×256 square-pixel proportions", () => {
+    expect(resolvePreviewAspect(288, 256, false, 1))
+      .toEqual({ width: 288, height: 256 });
   });
 
   it("restores collapsed spatial row pairs without widening square-pixel output", () => {

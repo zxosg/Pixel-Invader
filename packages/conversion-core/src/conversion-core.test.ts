@@ -497,6 +497,97 @@ describe("geometry", () => {
     ));
   });
 
+  it("pans the rescaled bitmap by output pixels in every direction", () => {
+    const source = Uint8Array.from([
+      255, 0, 0, 255,
+      0, 255, 0, 255,
+      0, 0, 255, 255,
+      255, 255, 0, 255,
+    ]);
+    const common = {
+      framing: "stretch" as const,
+      resampling: "nearest" as const,
+      background: { r: 1, g: 2, b: 3 },
+    };
+    const frame = (panOffsetX: number, panOffsetY: number) =>
+      frameRgbaToDimensions(source, 2, 2, 2, 2, {
+        ...common,
+        panOffsetX,
+        panOffsetY,
+      });
+    const pixel = (rgba: Uint8Array, x: number, y: number) =>
+      Array.from(rgba.subarray((y * 2 + x) * 4, (y * 2 + x) * 4 + 4));
+
+    expect(pixel(frame(-1, 0), 0, 0)).toEqual([0, 255, 0, 255]);
+    expect(pixel(frame(-1, 0), 1, 0)).toEqual([1, 2, 3, 255]);
+    expect(pixel(frame(1, 0), 0, 0)).toEqual([1, 2, 3, 255]);
+    expect(pixel(frame(1, 0), 1, 0)).toEqual([255, 0, 0, 255]);
+    expect(pixel(frame(0, -1), 0, 0)).toEqual([0, 0, 255, 255]);
+    expect(pixel(frame(0, -1), 0, 1)).toEqual([1, 2, 3, 255]);
+    expect(pixel(frame(0, 1), 0, 0)).toEqual([1, 2, 3, 255]);
+    expect(pixel(frame(0, 1), 0, 1)).toEqual([255, 0, 0, 255]);
+    expect(frame(0, 0)).toEqual(frameRgbaToDimensions(source, 2, 2, 2, 2, common));
+  });
+
+  it("uses Background, Clamp, and Wrap for panned bitmap edges", () => {
+    const source = Uint8Array.from([
+      255, 0, 0, 255,
+      0, 255, 0, 255,
+    ]);
+    const common = {
+      framing: "stretch" as const,
+      resampling: "nearest" as const,
+      panOffsetX: 1,
+      background: { r: 1, g: 2, b: 3 },
+    };
+    const first = (edgeMode: "background" | "clamp" | "wrap") =>
+      Array.from(frameRgbaToDimensions(source, 2, 1, 2, 1, {
+        ...common,
+        panEdgeMode: edgeMode,
+      }).subarray(0, 4));
+
+    expect(first("background")).toEqual([1, 2, 3, 255]);
+    expect(first("clamp")).toEqual([255, 0, 0, 255]);
+    expect(first("wrap")).toEqual([0, 255, 0, 255]);
+  });
+
+  it("pans only the rescaled Fit bitmap, not its letterbox canvas", () => {
+    const fitted = frameRgbaToDimensions(
+      solid(2, 1, [255, 0, 0, 255]),
+      2,
+      1,
+      4,
+      4,
+      {
+        framing: "fit",
+        resampling: "nearest",
+        panOffsetY: 1,
+        panEdgeMode: "clamp",
+        background: { r: 1, g: 2, b: 3 },
+      },
+    );
+    for (let offset = 0; offset < fitted.length; offset += 4) {
+      expect(Array.from(fitted.subarray(offset, offset + 4))).toEqual([255, 0, 0, 255]);
+    }
+  });
+
+  it("clamps pan offsets to one target frame in each direction", () => {
+    const source = Uint8Array.from([255, 0, 0, 255]);
+    const common = {
+      framing: "stretch" as const,
+      resampling: "nearest" as const,
+      panEdgeMode: "wrap" as const,
+      background: { r: 1, g: 2, b: 3 },
+    };
+    expect(frameRgbaToDimensions(source, 1, 1, 2, 1, {
+      ...common,
+      panOffsetX: 99,
+    })).toEqual(frameRgbaToDimensions(source, 1, 1, 2, 1, {
+      ...common,
+      panOffsetX: 2,
+    }));
+  });
+
   it("resamples an explicit source-pixel Crop rectangle", () => {
     const source = Uint8Array.from([
       255, 0, 0, 255, 0, 255, 0, 255,

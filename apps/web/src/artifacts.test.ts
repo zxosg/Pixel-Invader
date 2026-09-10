@@ -13,13 +13,13 @@ import {
 
 describe("artifact helpers", () => {
   it("formats a recognizable release and optional sanitized build identity", () => {
-    expect(APPLICATION_VERSION).toBe("1.0.0-draft.5");
+    expect(APPLICATION_VERSION).toBe("1.0.0-draft.8");
     expect(formatApplicationDisplayVersion(APPLICATION_VERSION))
-      .toBe("1.0.0-draft.5");
+      .toBe("1.0.0-draft.8");
     expect(formatApplicationDisplayVersion(APPLICATION_VERSION, " 0123456789abcdef "))
-      .toBe("1.0.0-draft.5 · build 0123456789ab");
+      .toBe("1.0.0-draft.8 · build 0123456789ab");
     expect(formatApplicationDisplayVersion(APPLICATION_VERSION, "<>"))
-      .toBe("1.0.0-draft.5");
+      .toBe("1.0.0-draft.8");
   });
 
   it("sanitizes deterministic cross-platform base names", () => {
@@ -50,7 +50,7 @@ describe("artifact helpers", () => {
     expect(metadata.schema_version).toBe("4.0.0");
     expect(metadata.conversion.settings).toEqual(DEFAULT_CONVERSION_SETTINGS);
     expect(metadata.conversion.algorithm_versions.geometry)
-      .toBe("rc-geometry-3");
+      .toBe("rc-geometry-4");
     expect(metadata.conversion.algorithm_versions.adjustments)
       .toBe("rc-adjustments-filters-3");
     expect(metadata.conversion.algorithm_versions.optimizer)
@@ -240,7 +240,6 @@ describe("artifact helpers", () => {
       pmd85: {
         mode: "pmd85-2-tv" as const,
         paletteCalibrationId: "neutral-white",
-        crtAspect: "square-pixel" as const,
         gapPolicy: "preserve-imported" as const,
       },
     };
@@ -261,5 +260,37 @@ describe("artifact helpers", () => {
     expect(metadata.pmd_85?.blink_bit_interpretation).toBe("static-intensity");
     expect(metadata.pmd_85?.addressing.visible_bytes_per_line).toBe(48);
     expect(metadata.outputs.artifact_sha256).toHaveLength(64);
+  });
+
+  it("records PMD 85-3 TV/CV as native four-level intensity", async () => {
+    const settings = {
+      ...DEFAULT_CONVERSION_SETTINGS,
+      profileId: "org.retroconverter.tesla.pmd85.default",
+      platformId: "pmd-85" as const,
+      modeId: "pmd85-3-tv" as const,
+      attributeOptimizerId: "pmd85-cell-v1" as const,
+      paletteSelections: [{ screenIndex: 0, enabledColorIds: [0, 1, 2, 3] }],
+      pmd85: {
+        mode: "pmd85-3-tv" as const,
+        paletteCalibrationId: "tv-grayscale",
+        gapPolicy: "zero" as const,
+      },
+    };
+    const metadata = await buildConversionMetadata({
+      sourceSha256: "66".repeat(32),
+      sourceFormat: "png",
+      sourceWidth: 288,
+      sourceHeight: 256,
+      settings,
+      scr: new Uint8Array(PMD85_VRAM_BYTES),
+      previewRgba: new Uint8Array(288 * 256 * 4),
+      width: 288,
+      height: 256,
+      score: 0,
+      completedAtUtc: "2026-09-09T00:00:00.000Z",
+    });
+    expect(metadata.pmd_85?.mode).toBe("pmd85-3-tv");
+    expect(metadata.pmd_85?.blink_animation_supported).toBe(false);
+    expect(metadata.pmd_85?.blink_bit_interpretation).toBe("native-intensity-bit");
   });
 });

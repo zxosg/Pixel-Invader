@@ -5,15 +5,34 @@
 - Feature milestone 15 vertical spatial mixing: implemented deterministic static
   50/50 linear-sRGB row-pair mixing for ZX 8×1 software attributes, QL Mode 8
   and Mode 4, and native-color PMD 85 targets. The immutable Version 1 engine
-  uses exhaustive legal candidates, Q16 scoring, existing codecs, physical /
-  analytic / split previews, schema-12 projects, schema-7 profiles, and
+  uses exhaustive legal candidates, Q16 scoring, existing codecs, separate
+  full-resolution physical and averaged analytic previews, schema-12 projects, schema-7 profiles, and
   schema-4 metadata. The spatial targets now support deterministic None,
   ordered-matrix, and cell-aware error-diffusion methods at the logical
   row-pair level, with the Analytic tab reporting the actually used mixed
   palette. A separate experimental `zx-vertical-spatial-detail-v1` optimizer
   performs a deterministic physical-row orientation refinement using source
   subrow detail and left-neighbor phase continuity while preserving the exact
-  analytic mixture. Measured calibration, CRT simulation, corpus approval, and
+  analytic mixture. Vertical-spatial result views now default to the physical
+  full-resolution frame without row-pair color averaging; the explicit Analytic
+  view retains logical row-pair averaging and its mixed-color palette. PMD 85
+  spatial detail v2 replaces the default PMD spatial optimizer while
+  retaining v1 for reproduction: it uses pixel-resolution ordered/error
+  propagation inside each 6-pixel hardware cell, prioritizes perceived color
+  over stripe suppression, and orients each physical row pair against source
+  subrow detail with deterministic checker phase for otherwise equal pairs.
+  Physical row ordering is now an explicit persisted checkbox for PMD, QL, and
+  ZX vertical-spatial modes; dithering is applied before the selected ordering
+  pass so the physical and analytic views remain consistent.
+  Hardware-mode and profile application now retain the row-order preference
+  where no replacement value is supplied and explicitly reschedule conversion
+  after applying the complete dithering recipe.
+  The remaining vertical-spatial work is tracked explicitly below: calibration
+  and corpus approval, CRT/split preview support, and a separate ZX 8×1
+  raster-player/raw-payload contract remain open. PMD detail-v2 and optional
+  row ordering are implementation extensions and require a future normative
+  algorithm/schema revision before release.
+  Measured calibration, CRT simulation, corpus approval, and
   ZX player exports remain intentionally deferred.
 
 - Phases 1–5: implemented baseline with deterministic import, geometry, adjustments,
@@ -161,6 +180,27 @@
   amount, QL profile actions share a compact aligned row, and QL Ordered conversion
   uses matrix/amount-controlled virtual-palette coverage dithering.
 - Undo/redo is explicitly deferred by product direction.
+
+### Vertical-spatial follow-up gates
+
+1. Freeze a versioned contract for PMD detail-v2 and the persisted physical-row
+   ordering option, including tie-breaks and the pixel-resolution PMD dither
+   exception.
+2. Add corpus fixtures for flat fields, gradients, text, single-pixel edges,
+   checkerboards, and photographs; record physical/analytic previews, export
+   hashes, and color/stripe/detail metrics for ZX, QL, and PMD.
+3. Add calibrated CRT-perceived and split inspection previews without changing
+   normative binary output.
+4. Define the ZX 8×1 linear 12 KiB raw interchange payload and select a raster
+   player with documented machine/timing compatibility before enabling player
+   or executable export. The conversion package now exposes and validates the
+   standalone 12 KiB linear serializer; UI export remains on standard `.scr`
+   until a player contract is selected.
+5. Run cross-browser determinism, malformed-input, accessibility, and release
+   evidence gates for the complete vertical-spatial workflow.
+
+The shared mixer now has explicit regression vectors for black/white and
+red/green linear-light mixing, including row-order symmetry.
 
 ## 1. Objective
 

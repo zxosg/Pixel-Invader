@@ -7,7 +7,7 @@ export interface ApplicationSettings {
   readonly profileId: string;
   readonly presetId: string;
   readonly modeId: TargetModeId;
-  readonly framing: "fill" | "fit" | "crop";
+  readonly framing: "fill" | "fit" | "crop" | "stretch";
   readonly dithering: "none" | "ordered" | "error-diffusion";
   readonly ditheringAmount: number;
   readonly workspaceLayout: WorkspaceLayoutId;
@@ -35,7 +35,7 @@ export const DEFAULT_APPLICATION_SETTINGS: ApplicationSettings = {
   synchronizePan: true,
 };
 
-const FRAMINGS = new Set(["fill", "fit", "crop"]);
+const FRAMINGS = new Set(["fill", "fit", "crop", "stretch"]);
 const DITHERING = new Set(["none", "ordered", "error-diffusion"]);
 const LAYOUTS = new Set([
   "conversion", "palette", "tilemap", "editor", "inspection", "custom",

@@ -56,6 +56,7 @@ import {
   type InspectedAttribute,
 } from "./inspection.js";
 import { retargetHardwareModeSettings } from "./hardware-mode-settings.js";
+import { canonicalizeSettingsForSave } from "./settings-save.js";
 import {
   ConversionWorkerClient,
   type WorkerCharsetResult,
@@ -90,6 +91,7 @@ import {
 } from "./charset-selection.js";
 import {
   ATTRIBUTE_OPTIMIZERS,
+  buildVerticalSpatialAnalyticPreview,
   DEFAULT_CONVERSION_SETTINGS,
   DITHER_ENGINES,
   ORDERED_MATRICES,
@@ -112,11 +114,13 @@ import {
   type FramingMode,
   type OrderedMatrixId,
   type PaletteSelection,
+  type PanEdgeMode,
   type Pmd85TargetModeId,
   type QlMixedOptimizerId,
   type QlTargetModeId,
   type ResamplingMethod,
   type Rotation,
+  type RgbColor,
   type StructuredConversionSettings,
   type TargetModeId,
 } from "@retro-converter/conversion-core";
@@ -142,24 +146,12 @@ function targetProducesMultipleFrames(
     ));
 }
 
-function spatialSplitPreview(
-  physical: Uint8Array,
-  analytic: Uint8Array,
-  width: number,
-  height: number,
-): Uint8Array {
-  const output = new Uint8Array(width * 2 * height * 4);
-  for (let y = 0; y < height; y += 1) {
-    const physicalRow = y * width * 4;
-    const outputRow = y * width * 2 * 4;
-    output.set(physical.subarray(physicalRow, physicalRow + width * 4), outputRow);
-    const analyticRow = Math.floor(y / 2) * width * 4;
-    output.set(
-      analytic.subarray(analyticRow, analyticRow + width * 4),
-      outputRow + width * 4,
-    );
-  }
-  return output;
+function verticalSpatialDitherEngine(method: DitheringMethod): DitherEngineId {
+  return method === "ordered"
+    ? "vertical-spatial-ordered-v1"
+    : method === "error-diffusion"
+      ? "vertical-spatial-error-diffusion-v1"
+      : "vertical-spatial-none-v1";
 }
 
 function unpackZxBitmap(encoded: Uint8Array): Uint8Array {
@@ -251,6 +243,10 @@ import {
   draftPreviewResult,
   type RetainedDraftState,
 } from "./draft-preview-state.js";
+import {
+  defaultOutputPreviewStage,
+  verticalSpatialPreviewForStage,
+} from "./vertical-spatial-preview.js";
 
 type ConversionState =
   | { readonly kind: "idle" }
@@ -307,6 +303,12 @@ function hexToRgb(hex: string): Pmd85RgbColor {
     g: Number.parseInt(hex.slice(3, 5), 16),
     b: Number.parseInt(hex.slice(5, 7), 16),
   };
+}
+
+function rgbToHex(color: RgbColor): string {
+  return `#${[color.r, color.g, color.b]
+    .map((channel) => Math.max(0, Math.min(255, Math.round(channel))).toString(16).padStart(2, "0"))
+    .join("")}`;
 }
 
 function commonPreviewError(source: Uint8Array, output: Uint8Array): number {
@@ -967,6 +969,20 @@ export function App() {
   const [fillOffsetY, setFillOffsetY] = useState(
     DEFAULT_CONVERSION_SETTINGS.fillOffsetY,
   );
+  const [panOffsetX, setPanOffsetX] = useState(
+    DEFAULT_CONVERSION_SETTINGS.panOffsetX,
+  );
+  const [panOffsetY, setPanOffsetY] = useState(
+    DEFAULT_CONVERSION_SETTINGS.panOffsetY,
+  );
+  const [panEdgeMode, setPanEdgeMode] = useState<PanEdgeMode>(
+    DEFAULT_CONVERSION_SETTINGS.panEdgeMode,
+  );
+  const [background, setBackground] = useState<RgbColor>(
+    profiles.find(({ id }) => id === startupApplicationSettings.profileId)?.platform_id === "pmd-85"
+      ? { r: 0, g: 0, b: 0 }
+      : DEFAULT_CONVERSION_SETTINGS.background,
+  );
   const [cropXEntry, setCropXEntry] = useState(String(DEFAULT_CONVERSION_SETTINGS.crop.x));
   const [cropYEntry, setCropYEntry] = useState(String(DEFAULT_CONVERSION_SETTINGS.crop.y));
   const [cropWidthEntry, setCropWidthEntry] = useState(String(DEFAULT_CONVERSION_SETTINGS.crop.width));
@@ -1011,6 +1027,7 @@ export function App() {
   );
   const [attributeOptimizerId, setAttributeOptimizerId] =
     useState<AttributeOptimizerId>(initialEnginePreferences.attributeOptimizerId);
+  const [verticalSpatialSwapRows, setVerticalSpatialSwapRows] = useState(false);
   const [ditherEngineId, setDitherEngineId] =
     useState<DitherEngineId>(initialEnginePreferences.ditherEngineId);
   const ditherEngineByMethodRef = useRef<Partial<Record<DitheringMethod, DitherEngineId>>>({
@@ -1056,9 +1073,6 @@ export function App() {
   const [pmd85PaletteCalibrationId, setPmd85PaletteCalibrationId] = useState(
     DEFAULT_CONVERSION_SETTINGS.pmd85.paletteCalibrationId,
   );
-  const [pmd85CrtAspect, setPmd85CrtAspect] = useState<
-    ConversionSettings["pmd85"]["crtAspect"]
-  >(DEFAULT_CONVERSION_SETTINGS.pmd85.crtAspect);
   const [pmd85GapPolicy, setPmd85GapPolicy] = useState<
     ConversionSettings["pmd85"]["gapPolicy"]
   >(DEFAULT_CONVERSION_SETTINGS.pmd85.gapPolicy);
@@ -1168,6 +1182,15 @@ export function App() {
       ditherEngineId;
   }, [attributeOptimizerId, ditherEngineId]);
 
+  // The public dithering method and the worker engine are two parts of one
+  // setting. Keep them reconciled during startup as well as after UI edits;
+  // otherwise the first Draft can be scheduled with a stale preset engine.
+  useEffect(() => {
+    if (ditherMethodForEngine(ditherEngineId) !== dithering) {
+      switchDithering(dithering);
+    }
+  }, [dithering, ditherEngineId]);
+
   useEffect(() => {
     saveWorkspacePreferences(localStorage, {
       layout: workspaceLayout,
@@ -1243,7 +1266,7 @@ export function App() {
     const mixedResolutionTarget = targetModeId === "mode8-mode4-mixed-512x256";
     const unavailable = new Set<PreviewContent>();
     if (workspaceMode !== "palette") unavailable.add("pre-attribute");
-    if (!mixedScreenTarget) {
+    if (!mixedScreenTarget && !targetModeId.includes("vertical-spatial")) {
       unavailable.add("screen-1");
       unavailable.add("screen-2");
     }
@@ -1285,7 +1308,6 @@ export function App() {
           image.height,
           selectedPlatformId,
           targetModeId,
-          pmd85CrtAspect,
           {
             framing,
             resampling,
@@ -1294,8 +1316,11 @@ export function App() {
             mirrorVertical,
             fillOffsetX,
             fillOffsetY,
+            panOffsetX,
+            panOffsetY,
+            panEdgeMode,
             crop: { x: 0, y: 0, width: image.width, height: image.height },
-            background: isPmd ? { r: 0, g: 0, b: 0 } : { r: 255, g: 255, b: 255 },
+            background,
           },
         )
       : null;
@@ -1366,11 +1391,12 @@ export function App() {
     }
   }, [
     image, draftState, lastFinal, framing, rotation, mirrorHorizontal,
-    mirrorVertical, resampling, fillOffsetX, fillOffsetY,
-    inputPreviewStage, workspaceMode, charsetState, sourcePreviewContent,
+    mirrorVertical, resampling, fillOffsetX, fillOffsetY, panOffsetX, panOffsetY,
+    panEdgeMode,
+    inputPreviewStage, workspaceMode, charsetState, sourcePreviewContent, background,
     resultPreviewContent,
     tilemapStale, hideAttributes, selectedPlatformId, targetModeId,
-    pmd85CrtAspect, isPmd,
+    isPmd, brightness, contrast, saturation, gamma, smoothing, sharpening,
   ]);
 
   useEffect(() => {
@@ -1385,6 +1411,17 @@ export function App() {
     let rgba: Uint8Array | undefined;
     let previewWidth = displayResult.width;
     let previewHeight = displayResult.height;
+    const physicalSpatialFrame = displayResult.frames[0];
+    const spatialPreview = displayResult.verticalSpatialDiagnostics === undefined ||
+        physicalSpatialFrame === undefined
+      ? undefined
+      : verticalSpatialPreviewForStage(
+          outputPreviewStage,
+          physicalSpatialFrame.previewRgba,
+          displayResult.width,
+          displayResult.height,
+          displayResult.verticalSpatialDiagnostics,
+        );
     if (
       hideAttributes &&
       displayResult.platformId === "zx-spectrum"
@@ -1393,6 +1430,18 @@ export function App() {
         rgba = charsetState.kind === "ready"
           ? zxBitmapToMonochromeRgba(charsetState.result.decodedScr)
           : undefined;
+      } else if (
+        displayResult.verticalSpatialDiagnostics !== undefined &&
+        (outputPreviewStage === "merged" || outputPreviewStage === "screen-2")
+      ) {
+        const first = displayResult.frames[0];
+        rgba = first === undefined
+          ? undefined
+          : buildVerticalSpatialAnalyticPreview(
+              zxBitmapToMonochromeRgba(first.encoded),
+              displayResult.width,
+              displayResult.height,
+            );
       } else if (outputPreviewStage === "merged") {
         const first = displayResult.frames[0];
         const second = displayResult.frames[1];
@@ -1419,12 +1468,7 @@ export function App() {
           : undefined
         : outputPreviewStage === "screen-2"
           ? displayResult.verticalSpatialDiagnostics !== undefined
-            ? spatialSplitPreview(
-                displayResult.frames[0]!.previewRgba,
-                displayResult.verticalSpatialDiagnostics.analyticPreviewRgba,
-                displayResult.width,
-                displayResult.height,
-              )
+            ? spatialPreview?.rgba
             : displayResult.frames[1]?.previewRgba ??
               displayResult.frames[0]?.previewRgba
           : outputPreviewStage === "merged"
@@ -1439,17 +1483,13 @@ export function App() {
                   qlMixedDisplayResolution,
                 )
               : displayResult.verticalSpatialDiagnostics !== undefined
-                ? displayResult.verticalSpatialDiagnostics.analyticPreviewRgba
+                ? spatialPreview?.rgba
                 : displayResult.mergedPreviewRgba
             : displayResult.frames[0]?.previewRgba;
     }
     if (displayResult.verticalSpatialDiagnostics !== undefined) {
-      if (outputPreviewStage === "merged") {
-        previewWidth = displayResult.verticalSpatialDiagnostics.logicalWidth;
-        previewHeight = displayResult.verticalSpatialDiagnostics.logicalHeight;
-      } else if (outputPreviewStage === "screen-2") {
-        previewWidth = displayResult.width * 2;
-      }
+      previewWidth = spatialPreview?.width ?? previewWidth;
+      previewHeight = spatialPreview?.height ?? previewHeight;
     }
     canvas.width = previewWidth;
     canvas.height = previewHeight;
@@ -1465,6 +1505,7 @@ export function App() {
     draftState, lastFinal, outputPreviewStage, workspaceMode, charsetState,
     sourcePreviewContent, resultPreviewContent,
     tilemapStale, hideAttributes, qlMixedDisplayResolution,
+    brightness, contrast, saturation, gamma, smoothing, sharpening,
   ]);
 
   useEffect(() => {
@@ -1542,7 +1583,6 @@ export function App() {
         targetModeId as Pmd85ModeId,
         pmd85ForegroundPalette,
         pmd85PaletteCalibrationId,
-        pmd85CrtAspect === "approximate-4:3" ? 32 / 27 : 1,
       );
       const directSettings: ConversionSettings = {
         ...conversionSettings,
@@ -1695,6 +1735,12 @@ export function App() {
         fillOffsetX,
         fillOffsetY,
       );
+  const panMaximumX = isPmd
+    ? PMD85_SCREEN_WIDTH
+    : isQl && ["mode4-512x256", "mode4-plain-512x256", "mode4-vertical-spatial-512x256", "mode8-mode4-mixed-512x256"].includes(targetModeId)
+      ? 512
+      : 256;
+  const panMaximumY = isPmd || isQl ? 256 : 192;
   useEffect(() => {
     if (fillGeometry === null) return;
     if (
@@ -1711,6 +1757,10 @@ export function App() {
     fillOffsetX,
     fillOffsetY,
   ]);
+  useEffect(() => {
+    setPanOffsetX((current) => Math.max(-panMaximumX, Math.min(panMaximumX, current)));
+    setPanOffsetY((current) => Math.max(-panMaximumY, Math.min(panMaximumY, current)));
+  }, [panMaximumX, panMaximumY]);
   const conversionSettings: ConversionSettings = {
     profileId: selectedProfileId,
     platformId: selectedPlatformId,
@@ -1725,6 +1775,9 @@ export function App() {
     mirrorVertical,
     fillOffsetX,
     fillOffsetY,
+    panOffsetX,
+    panOffsetY,
+    panEdgeMode,
     crop: { x: cropX, y: cropY, width: cropWidth, height: cropHeight },
     cropAspectRatio,
     brightness,
@@ -1733,7 +1786,7 @@ export function App() {
     gamma,
     smoothing,
     sharpening,
-    background: isPmd ? { r: 0, g: 0, b: 0 } : { r: 255, g: 255, b: 255 },
+    background,
     borderColor,
     attributeHeight,
     attributeSmoothing,
@@ -1752,22 +1805,24 @@ export function App() {
       ...structuredSettings,
       ditherAmountPermille: dithering === "none" ? 0 : amount * 10,
     },
-    pmd85: {
-      mode: isPmd
-        ? pmdHardwareModeForTarget(targetModeId as Pmd85TargetModeId)
-        : DEFAULT_CONVERSION_SETTINGS.pmd85.mode,
-      paletteCalibrationId: pmd85PaletteCalibrationId,
-      crtAspect: pmd85CrtAspect,
-      gapPolicy: pmd85GapPolicy,
-    },
+      pmd85: {
+        mode: isPmd
+          ? pmdHardwareModeForTarget(targetModeId as Pmd85TargetModeId)
+          : DEFAULT_CONVERSION_SETTINGS.pmd85.mode,
+        paletteCalibrationId: pmd85PaletteCalibrationId,
+        gapPolicy: pmd85GapPolicy,
+      },
     ...(targetModeId.includes("vertical-spatial")
       ? {
           verticalSpatialMix: {
             schemaVersion: 1 as const,
             algorithmId: attributeOptimizerId === "zx-vertical-spatial-detail-v1"
               ? "vertical-spatial-detail-v1" as const
+              : attributeOptimizerId === "pmd85-vertical-spatial-detail-v2"
+                ? "vertical-spatial-pmd-detail-v2" as const
               : "vertical-spatial-uniform-v1" as const,
             calibrationId: "srgb-ideal-v1" as const,
+            swapRows: verticalSpatialSwapRows,
           },
         }
       : {}),
@@ -1902,17 +1957,18 @@ export function App() {
     return () => window.clearTimeout(timer);
   }, [
     image, settingsValid, framing, resampling, rotation, mirrorHorizontal,
-    mirrorVertical, fillOffsetX, fillOffsetY, cropX, cropY, cropWidth, cropHeight,
+    mirrorVertical, fillOffsetX, fillOffsetY, panOffsetX, panOffsetY, panEdgeMode,
+    cropX, cropY, cropWidth, cropHeight,
     cropAspectRatio,
     brightness, contrast, saturation, gamma, smoothing, sharpening,
-    borderColor, attributeHeight, attributeSmoothing, attributeHaloInfluence,
+    background, borderColor, attributeHeight, attributeSmoothing, attributeHaloInfluence,
     attributeHaloHorizontal, attributeHaloVertical,
     screenFlickerSuppression,
     paletteSelections, dithering, amount, errorDiffusionRandomization,
     errorDiffusionLineSuppression,
     orderedMatrix, artisticPattern, selectedProfileId, targetModeId, attributeOptimizerId,
     ditherEngineId, qlMixedOptimizerId, structuredSettings,
-    pmd85PaletteCalibrationId, pmd85CrtAspect, pmd85GapPolicy,
+    pmd85PaletteCalibrationId, pmd85GapPolicy,
     workspaceMode,
   ]);
 
@@ -2199,7 +2255,7 @@ export function App() {
       platformId: "pmd-85",
       modeId: mode,
       attributeOptimizerId: spatial
-        ? "pmd85-vertical-spatial-uniform-v1"
+        ? "pmd85-vertical-spatial-detail-v2"
         : "pmd85-cell-v1",
       background: { r: 0, g: 0, b: 0 },
       attributeHeight: hardwareMode === "pmd85-colorace" ? 2 : 1,
@@ -2213,20 +2269,20 @@ export function App() {
       pmd85: {
         mode: hardwareMode,
         paletteCalibrationId: calibrationId,
-        crtAspect: pmd85CrtAspect,
         gapPolicy: pmd85GapPolicy,
       },
     });
     if (spatial) {
       return {
         ...retargeted,
-        ditherEngineId: "vertical-spatial-none-v1",
-        dithering: "none",
-        ditheringAmount: 0,
+        ditherEngineId: verticalSpatialDitherEngine(style.dithering),
+        dithering: style.dithering,
+        ditheringAmount: style.ditheringAmount,
         verticalSpatialMix: {
           schemaVersion: 1,
-          algorithmId: "vertical-spatial-uniform-v1",
+          algorithmId: "vertical-spatial-pmd-detail-v2",
           calibrationId: "srgb-ideal-v1",
+          swapRows: verticalSpatialSwapRows,
         },
       };
     }
@@ -2240,22 +2296,37 @@ export function App() {
     // framing, crop, resampling, and source image adjustments.
     setTargetModeId(next.modeId);
     setOutputPreviewStage(
-      targetProducesMultipleFrames(next.platformId, next.modeId)
-        ? "merged"
-        : "screen-1",
+      defaultOutputPreviewStage(
+        next.modeId,
+        targetProducesMultipleFrames(next.platformId, next.modeId),
+      ),
     );
     setAttributeOptimizerId(next.attributeOptimizerId);
+    if (next.verticalSpatialMix !== undefined) {
+      setVerticalSpatialSwapRows(next.verticalSpatialMix.swapRows ?? (
+        next.attributeOptimizerId === "pmd85-vertical-spatial-detail-v2" ||
+        next.attributeOptimizerId === "zx-vertical-spatial-detail-v1"
+      ));
+    }
     setAttributeHeight(next.attributeHeight);
     setScreenFlickerSuppression(next.screenFlickerSuppression);
     if (next.modeId.includes("vertical-spatial")) {
-      setDitherEngineId("vertical-spatial-none-v1");
-      setDithering("none");
-      setAmountEntry("0");
-      setOutputPreviewStage("merged");
+      setDitherEngineId(verticalSpatialDitherEngine(next.dithering));
+      setDithering(next.dithering);
+      setAmountEntry(String(next.ditheringAmount));
+      setOutputPreviewStage("screen-1");
+      if (sourcePreviewContent === "screen-1" || sourcePreviewContent === "screen-2") {
+        setSourcePreviewContent("image");
+      }
+      setResultPreviewContent("screen-1");
     } else if (ditherEngineId.startsWith("vertical-spatial-")) {
-      setDitherEngineId("none-discrete-v2");
-      setDithering("none");
-      setAmountEntry("0");
+      setDitherEngineId(next.dithering === "ordered"
+        ? "ordered-strict-matrix-v6"
+        : next.dithering === "error-diffusion"
+          ? "error-diffusion-decorrelated-v3"
+          : "none-discrete-v2");
+      setDithering(next.dithering);
+      setAmountEntry(String(next.ditheringAmount));
     }
     setPaletteSelections(next.paletteSelections.map((selection) => ({
       ...selection,
@@ -2263,7 +2334,6 @@ export function App() {
     })));
     if (next.platformId === "pmd-85") {
       setPmd85PaletteCalibrationId(next.pmd85.paletteCalibrationId);
-      setPmd85CrtAspect(next.pmd85.crtAspect);
       setPmd85GapPolicy(next.pmd85.gapPolicy);
     }
     setState({ kind: "idle" });
@@ -2306,7 +2376,6 @@ export function App() {
             pmdHardwareModeForTarget(pmdMode),
             colors,
             nextSettings.pmd85.paletteCalibrationId,
-            nextSettings.pmd85.crtAspect === "approximate-4:3" ? 32 / 27 : 1,
           );
           const direct = directPmd85Result(imported, {
             ...nextSettings,
@@ -2433,7 +2502,6 @@ export function App() {
         targetModeId as Pmd85ModeId,
         colors,
         calibrationId,
-        pmd85CrtAspect === "approximate-4:3" ? 32 / 27 : 1,
       );
       const settings: ConversionSettings = {
         ...conversionSettings,
@@ -2482,24 +2550,27 @@ export function App() {
     if (viewport !== null) {
       const bounds = viewport.getBoundingClientRect();
       const stage = viewport.querySelector<HTMLElement>(".preview-stage");
-      const logicalWidth = stage?.dataset.logicalWidth === undefined
-        ? displayedWidth
-        : Number(stage.dataset.logicalWidth);
-      const logicalHeight = stage?.dataset.logicalHeight === undefined
-        ? displayedHeight
-        : Number(stage.dataset.logicalHeight);
-      const oldScale = stage === null || logicalWidth === 0
+      const canvas = stage?.querySelector<HTMLCanvasElement>("canvas");
+      const logicalWidth = canvas?.width ?? displayedWidth;
+      const logicalHeight = canvas?.height ?? displayedHeight;
+      const stageBounds = stage?.getBoundingClientRect();
+      const oldScaleX = stageBounds === undefined || logicalWidth === 0
         ? 1
-        : stage.getBoundingClientRect().width / logicalWidth;
-      const imageX = (event.clientX - bounds.left + viewport.scrollLeft) / oldScale;
-      const imageY = (event.clientY - bounds.top + viewport.scrollTop) / (stage?.getBoundingClientRect().height ?? logicalHeight);
+        : stageBounds.width / logicalWidth;
+      const oldScaleY = stageBounds === undefined || logicalHeight === 0
+        ? 1
+        : stageBounds.height / logicalHeight;
+      const imageX = (event.clientX - bounds.left + viewport.scrollLeft) / oldScaleX;
+      const imageY = (event.clientY - bounds.top + viewport.scrollTop) / oldScaleY;
       setZoom(nextZoom);
       window.requestAnimationFrame(() => {
         const nextStage = viewport.querySelector<HTMLElement>(".preview-stage");
         if (nextStage === null) return;
-        const nextScale = nextStage.getBoundingClientRect().width / logicalWidth;
-        viewport.scrollLeft = Math.max(0, imageX * nextScale - (event.clientX - bounds.left));
-        viewport.scrollTop = Math.max(0, imageY * nextStage.getBoundingClientRect().height / logicalHeight - (event.clientY - bounds.top));
+        const nextBounds = nextStage.getBoundingClientRect();
+        const nextScaleX = nextBounds.width / logicalWidth;
+        const nextScaleY = nextBounds.height / logicalHeight;
+        viewport.scrollLeft = Math.max(0, imageX * nextScaleX - (event.clientX - bounds.left));
+        viewport.scrollTop = Math.max(0, imageY * nextScaleY - (event.clientY - bounds.top));
       });
       return;
     }
@@ -2566,7 +2637,9 @@ export function App() {
     if (content === "screen-1") setOutputPreviewStage("screen-1");
     if (content === "screen-2") setOutputPreviewStage("screen-2");
     if ((side === "result" && content === "image") || content === "result-image") {
-      setOutputPreviewStage("merged");
+      setOutputPreviewStage(
+        targetModeId.includes("vertical-spatial") ? "screen-1" : "merged",
+      );
     }
     if (content === "merged-low" || content === "merged-high") {
       setOutputPreviewStage("merged");
@@ -2834,11 +2907,18 @@ export function App() {
     setFraming(next.framing);
     setTargetModeId(next.modeId);
     setOutputPreviewStage(
-      targetProducesMultipleFrames(next.platformId, next.modeId)
-        ? "merged"
-        : "screen-1",
+      defaultOutputPreviewStage(
+        next.modeId,
+        targetProducesMultipleFrames(next.platformId, next.modeId),
+      ),
     );
     setAttributeOptimizerId(next.attributeOptimizerId);
+    if (next.verticalSpatialMix !== undefined) {
+      setVerticalSpatialSwapRows(next.verticalSpatialMix.swapRows ?? (
+        next.attributeOptimizerId === "pmd85-vertical-spatial-detail-v2" ||
+        next.attributeOptimizerId === "zx-vertical-spatial-detail-v1"
+      ));
+    }
     setDitherEngineId(next.ditherEngineId);
     setQlMixedOptimizerId(next.qlMixedOptimizerId);
     setResampling(next.resampling);
@@ -2847,6 +2927,10 @@ export function App() {
     setMirrorVertical(next.mirrorVertical);
     setFillOffsetX(next.fillOffsetX);
     setFillOffsetY(next.fillOffsetY);
+    setPanOffsetX(next.panOffsetX);
+    setPanOffsetY(next.panOffsetY);
+    setPanEdgeMode(next.panEdgeMode);
+    setBackground(next.background);
     if (sourceImage === null) {
       setCropEntries(next.crop);
     } else {
@@ -2908,12 +2992,16 @@ export function App() {
     setArtisticPattern(next.artisticPattern ?? "auto");
     setStructuredSettings(next.structured);
     setPmd85PaletteCalibrationId(next.pmd85.paletteCalibrationId);
-    setPmd85CrtAspect(next.pmd85.crtAspect);
     setPmd85GapPolicy(next.pmd85.gapPolicy);
     if (next.modeId.includes("vertical-spatial")) {
-      setOutputPreviewStage("merged");
-      setAmountEntry("0");
+      setOutputPreviewStage("screen-1");
+      if (sourcePreviewContent === "screen-1" || sourcePreviewContent === "screen-2") {
+        setSourcePreviewContent("image");
+      }
+      setResultPreviewContent("screen-1");
+      setAmountEntry(String(next.ditheringAmount));
     }
+    setState({ kind: "idle" });
   }
 
   function selectProfile(profileId: string) {
@@ -2948,16 +3036,22 @@ export function App() {
     setSettingsDraft(createSettingsDraft({
       ...conversionSettings,
       orderedMatrix,
+      cropX,
+      cropY,
+      cropWidth,
+      cropHeight,
+      verticalSpatialSwapRows,
+      pmd85PaletteCalibrationId,
+      pmd85GapPolicy,
       profileId: selectedProfileId,
       presetId: selectedPresetId,
       modeId: targetModeId,
-      framing: framing === "stretch" ? "fill" : framing,
+      framing,
       dithering,
       ditheringAmount: Number(amountEntry) || 0,
       workspaceLayout,
       mouseWheelZoom,
       synchronizePan,
-      paintMode: bitmapEditorPaintMode,
     }) as ApplicationSettings & Record<string, unknown>);
     setSettingsSearch("");
     setSettingsCategory("all");
@@ -2969,44 +3063,32 @@ export function App() {
     if (settingsDraft === null) return;
     const validation = validateSettingsDraft(settingsDraft);
     if (Object.keys(validation.errors).length > 0) return;
-    const draft = validation.values as unknown as ApplicationSettings;
-    const draftProfile = profiles.find(({ id }) => id === draft.profileId) ?? BUILT_IN_PROFILE;
-    const resolved = resolveApplicationSettings(draft, {
-      profiles: profiles.map((profile) => ({
-        id: profile.id,
-        presets: profile.presets.map((preset) => ({ id: preset.id })),
-      })),
-      compatibleModeIds: Object.keys(draftProfile.palette.modes),
+    const canonical = canonicalizeSettingsForSave({
+      draft: validation.values,
+      current: conversionSettings,
+      profiles,
     });
-    const profile = profiles.find(({ id }) => id === resolved.profileId) ?? BUILT_IN_PROFILE;
-    const preset = profile.presets.find(({ id }) => id === resolved.presetId) ?? profile.presets[0];
-    setSelectedProfileId(profile.id);
-    setSelectedPresetId(preset?.id ?? resolved.presetId);
-    if (preset !== undefined) applySettings(preset.settings);
-    setTargetModeId(resolved.modeId);
-    setFraming(resolved.framing);
-    setResampling(settingsDraft.resampling as ResamplingMethod);
-    setRotation(settingsDraft.rotation as Rotation);
-    setBrightness(Number(settingsDraft.brightness));
-    setContrast(Number(settingsDraft.contrast));
-    setSaturation(Number(settingsDraft.saturation));
-    setGamma(Number(settingsDraft.gamma));
-    setAttributeHeight(settingsDraft.attributeHeight as AttributeHeight);
-    setOrderedMatrix(settingsDraft.orderedMatrix as OrderedMatrixId);
-    setArtisticPattern((settingsDraft.artisticPattern as ConversionSettings["artisticPattern"]) ?? "auto");
-    // Keep the engine in sync with the public dithering method. Applying a
-    // preset above may have selected the preset's engine (often "none"), so
-    // changing only the method would make the UI say Ordered while the worker
-    // still received a no-dither engine.
-    switchDithering(resolved.dithering);
-    setAmountEntry(String(resolved.ditheringAmount));
-    setMouseWheelZoom(resolved.mouseWheelZoom);
-    setSynchronizePan(resolved.synchronizePan);
-    setBitmapEditorPaintMode(settingsDraft.paintMode as BitmapPaintMode);
-    applyWorkspaceLayout(resolved.workspaceLayout);
-    saveApplicationSettings(localStorage, resolved);
+    finalJobRef.current += 1;
+    finalRunningRef.current = false;
+    workerRef.current?.dispose();
+    workerRef.current = new ConversionWorkerClient();
+    draftWorkerRef.current?.dispose();
+    draftWorkerRef.current = null;
+    setDraftState({ kind: "idle" });
+    setSelectedProfileId(canonical.profile.id);
+    setSelectedPresetId(canonical.application.presetId);
+    applySettings(canonical.conversion);
+    setBackground(canonical.conversion.background);
+    setDitherEngineId(canonical.conversion.ditherEngineId);
+    setDithering(canonical.conversion.dithering);
+    setAmountEntry(String(canonical.conversion.ditheringAmount));
+    setMouseWheelZoom(canonical.application.mouseWheelZoom);
+    setSynchronizePan(canonical.application.synchronizePan);
+    applyWorkspaceLayout(canonical.application.workspaceLayout);
     setSettingsOpen(false);
     setSettingsDraft(null);
+    saveApplicationSettings(localStorage, canonical.application);
+    return;
   }
 
   function switchWorkspaceConversionMode(next: WorkspaceConversionMode) {
@@ -3019,7 +3101,12 @@ export function App() {
     charsetWorkerRef.current = null;
     pendingModeHighRef.current = next;
     setWorkspaceMode(next);
-    setOutputPreviewStage("merged");
+    setOutputPreviewStage(next === "palette"
+      ? defaultOutputPreviewStage(
+          targetModeId,
+          targetProducesMultipleFrames(selectedPlatformId, targetModeId),
+        )
+      : "merged");
     setInspection(null);
     if (next === "tilemap") {
       if (selectedPlatformId !== "zx-spectrum") {
@@ -4655,10 +4742,22 @@ export function App() {
     if (state.kind !== "ready" || lastFinal === null || sourceArtifact === null) return;
     try {
       const spatial = lastFinal.verticalSpatialDiagnostics;
+      const physicalFrame = lastFinal.frames[0];
+      const preview = spatial !== undefined && physicalFrame !== undefined
+        ? {
+            rgba: physicalFrame.previewRgba,
+            width: lastFinal.width,
+            height: lastFinal.height,
+          }
+        : {
+            rgba: lastFinal.mergedPreviewRgba,
+            width: lastFinal.width,
+            height: lastFinal.height,
+          };
       const png = encodeRgbaPng(
-        spatial?.analyticPreviewRgba ?? lastFinal.mergedPreviewRgba,
-        spatial?.logicalWidth ?? lastFinal.width,
-        spatial?.logicalHeight ?? lastFinal.height,
+        preview.rgba,
+        preview.width,
+        preview.height,
       );
       downloadBytes(
         png,
@@ -4896,7 +4995,6 @@ export function App() {
           validated.settings.modeId as Pmd85ModeId,
           colors,
           validated.settings.pmd85.paletteCalibrationId,
-          validated.settings.pmd85.crtAspect === "approximate-4:3" ? 32 / 27 : 1,
         );
         decoded = imported.image;
         workingDecoded = validated.workingSourcePng === undefined
@@ -5173,13 +5271,11 @@ export function App() {
   }, [bitmapEditorBuffer, displayedResult, outputPreviewStage, sourcePreviewContent, resultPreviewContent]);
   const displayedWidth = displayedResult?.verticalSpatialDiagnostics === undefined
     ? displayedResult?.width ?? 256
-    : outputPreviewStage === "merged"
+    : outputPreviewStage === "merged" || outputPreviewStage === "screen-2"
       ? displayedResult.verticalSpatialDiagnostics.logicalWidth
-      : outputPreviewStage === "screen-2"
-        ? displayedResult.width * 2
-        : displayedResult.width;
+      : displayedResult.width;
   const displayedHeight = displayedResult?.verticalSpatialDiagnostics !== undefined &&
-      outputPreviewStage === "merged"
+      (outputPreviewStage === "merged" || outputPreviewStage === "screen-2")
     ? displayedResult.verticalSpatialDiagnostics.logicalHeight
     : displayedResult?.height ?? 192;
   const benchmarkComparisonPreviews = useMemo(() => {
@@ -5429,7 +5525,7 @@ export function App() {
     ? 2
     : 1;
   const analyticVerticalScale = targetModeId.includes("vertical-spatial") &&
-      outputPreviewStage === "merged"
+      (outputPreviewStage === "merged" || outputPreviewStage === "screen-2")
     ? 2
     : 1;
   const inspectionCellHeight = workspaceMode === "tilemap" ? 8 : displayedAttributeHeight;
@@ -5460,11 +5556,9 @@ export function App() {
   const previewAspect = resolvePreviewAspect(
     displayedWidth,
     displayedHeight,
-    isPmd
-      ? pmd85CrtAspect === "approximate-4:3"
-      : isQl && scaleQlToDisplayAspect,
+    isQl && scaleQlToDisplayAspect,
     qlVerticalPixelScale,
-    isPmd ? 32 / 27 : 4 / 3,
+    4 / 3,
     analyticVerticalScale,
   );
   const previewAspectRatio = `${previewAspect.width} / ${previewAspect.height}`;
@@ -5503,7 +5597,9 @@ export function App() {
       bright: color.bright ?? color.normal,
     })),
   );
-  const outputPaletteColors = outputPreviewStage === "merged" &&
+  const spatialAnalyticPreview = targetModeId.includes("vertical-spatial") &&
+    (outputPreviewStage === "merged" || outputPreviewStage === "screen-2");
+  const outputPaletteColors = (outputPreviewStage === "merged" || spatialAnalyticPreview) &&
       displayedResult !== null
     ? distinctPreviewColors(
         displayedResult.platformId === "sinclair-ql" &&
@@ -5560,14 +5656,23 @@ export function App() {
     if (displayedResult === null) return null;
     const first = displayedResult.frames[0];
     const second = displayedResult.frames[1];
-    if (first === undefined || second === undefined) return null;
+    if (first === undefined) return null;
     const width = displayedResult.width;
     const height = displayedResult.height;
     const encode = (rgba: Uint8Array) => rgbaPngDataUrl(rgba, width, height);
-    const previews: Partial<Record<"screen-1" | "screen-2" | "merged-low" | "merged-high", string>> = {
-      "screen-1": encode(first.previewRgba),
-      "screen-2": encode(second.previewRgba),
-    };
+    const previews: Partial<Record<"screen-1" | "screen-2" | "merged-low" | "merged-high", string>> = {};
+    if (displayedResult.verticalSpatialDiagnostics !== undefined) {
+      previews["screen-1"] = encode(first.previewRgba);
+      previews["screen-2"] = rgbaPngDataUrl(
+        displayedResult.verticalSpatialDiagnostics.analyticPreviewRgba,
+        displayedResult.verticalSpatialDiagnostics.logicalWidth,
+        displayedResult.verticalSpatialDiagnostics.logicalHeight,
+      );
+      return previews;
+    }
+    if (second === undefined) return null;
+    previews["screen-1"] = encode(first.previewRgba);
+    previews["screen-2"] = encode(second.previewRgba);
     if (displayedResult.platformId === "sinclair-ql" &&
       displayedResult.modeId === "mode8-mode4-mixed-512x256") {
       previews["merged-low"] = encode(renderQlMixedDisplayPreview(first.previewRgba, second.previewRgba, width, "low"));
@@ -5618,6 +5723,7 @@ export function App() {
     targetModeId === "mode8-256x256" ||
     targetModeId === "mode4-512x256" ||
     targetModeId === "mode8-mode4-mixed-512x256";
+  const hasVerticalSpatialTarget = targetModeId.includes("vertical-spatial");
   const hasQlMixedResolutionTarget = targetModeId === "mode8-mode4-mixed-512x256";
   const paletteConversionStatusText = state.kind === "idle" ? image === null
     ? "Import an image to begin."
@@ -5803,6 +5909,7 @@ export function App() {
                 >
                   <option value="pmd85-2-tv">PMD 85-2 / 2A TV/CV</option>
                   <option value="pmd85-2-rgb">PMD 85-2 / 2A RGB modification/monitor</option>
+                  <option value="pmd85-3-tv">PMD 85-3 TV/CV · grayscale</option>
                   <option value="pmd85-3-pal">PMD 85-3 PAL/video</option>
                   <option value="pmd85-3-rgb">PMD 85-3 RGB</option>
                   <option value="pmd85-colorace">PMD 85 ColorAce</option>
@@ -5882,6 +5989,7 @@ export function App() {
           </fieldset>
           <fieldset id="settings-geometry" className={`control-group geometry-group${settingsSection === "geometry" ? " settings-focused" : ""}`}>
             <legend>Geometry</legend>
+          <div className="geometry-row geometry-primary-row">
           <label>
             <span>Framing</span>
             <select aria-label="Framing" value={framing} onChange={(event) => {
@@ -5896,8 +6004,33 @@ export function App() {
               <option value="stretch">Stretch</option>
             </select>
           </label>
+          <label>
+            <span>Resampling</span>
+            <select value={resampling} onChange={(event) => { setResampling(event.target.value as ResamplingMethod); setState({ kind: "idle" }); }}>
+              <option value="nearest">Nearest-neighbor</option>
+              <option value="bilinear">Bilinear</option>
+              <option value="lanczos">Lanczos-3</option>
+            </select>
+          </label>
+          <label>
+            <span>Rotation</span>
+            <select value={rotation} onChange={(event) => {
+              const next = Number(event.target.value) as Rotation;
+              ensurePixelCrop(next);
+              setFillOffsetX(null);
+              setFillOffsetY(null);
+              setRotation(next);
+              setState({ kind: "idle" });
+            }}>
+              <option value={0}>0°</option>
+              <option value={90}>90° clockwise</option>
+              <option value={180}>180°</option>
+              <option value={270}>270° clockwise</option>
+            </select>
+          </label>
+          </div>
           {framing === "fill" ? (
-            <fieldset className="framing-detail focal-control">
+            <fieldset className="geometry-row framing-detail focal-control">
               <legend>Fill crop offset (source pixels)</legend>
               <RangeNumberControl
                 id="fill-offset-x"
@@ -5930,7 +6063,7 @@ export function App() {
             </fieldset>
           ) : null}
           {framing === "crop" ? (
-            <fieldset className="framing-detail crop-control" aria-describedby={cropValid ? "crop-help" : "crop-error"}>
+            <fieldset className="geometry-row framing-detail crop-control" aria-describedby={cropValid ? "crop-help" : "crop-error"}>
               <legend>Crop rectangle (source pixels)</legend>
               <label className="crop-aspect-control">
                 <span>Aspect ratio</span>
@@ -5962,48 +6095,47 @@ export function App() {
                 <input aria-label="Crop height" className={cropValid ? undefined : "invalid"} type="number" min="1" max={cropSourceSize?.height ?? 1} step="1" value={cropHeightEntry} aria-invalid={!cropValid} disabled={image === null} onChange={(event) => updateCropEntry("height", event.target.value)} />
               </label>
               <span className="control-help crop-help" id="crop-help">
-                Drag on the Source image to select. Drag inside to move; use Arrow
-                keys to move one pixel; double-click inside to clear. Coordinates
-                refer to the oriented source.
+                Drag on the Source image to select. Drag inside to move; use Arrow keys to move one pixel; double-click inside to clear. Coordinates refer to the oriented source.
               </span>
+              <span className="crop-help-icon" title="Drag on the Source image to select. Drag inside to move; use Arrow keys to move one pixel; double-click inside to clear." aria-label="Crop selection help">ⓘ</span>
               {cropValid ? null : <span className="field-error" id="crop-error">Invalid value</span>}
             </fieldset>
           ) : null}
-          <label>
-            <span>Resampling</span>
-            <select value={resampling} onChange={(event) => { setResampling(event.target.value as ResamplingMethod); setState({ kind: "idle" }); }}>
-              <option value="nearest">Nearest-neighbor</option>
-              <option value="bilinear">Bilinear</option>
-              <option value="lanczos">Lanczos-3</option>
-            </select>
-          </label>
-          <label>
-            <span>Rotation</span>
-            <select value={rotation} onChange={(event) => {
-              const next = Number(event.target.value) as Rotation;
-              ensurePixelCrop(next);
-              setFillOffsetX(null);
-              setFillOffsetY(null);
-              setRotation(next);
-              setState({ kind: "idle" });
-            }}>
-              <option value={0}>0°</option>
-              <option value={90}>90° clockwise</option>
-              <option value={180}>180°</option>
-              <option value={270}>270° clockwise</option>
-            </select>
-          </label>
-          <fieldset className="orientation-control">
-            <legend>Mirror</legend>
-            <label className="check-control">
-              <input type="checkbox" checked={mirrorHorizontal} onChange={(event) => { setMirrorHorizontal(event.target.checked); setState({ kind: "idle" }); }} />
-              <span>Horizontal</span>
-            </label>
-            <label className="check-control">
-              <input type="checkbox" checked={mirrorVertical} onChange={(event) => { setMirrorVertical(event.target.checked); setState({ kind: "idle" }); }} />
-              <span>Vertical</span>
-            </label>
-          </fieldset>
+          <div className="geometry-row orientation-actions">
+            <fieldset className="orientation-control">
+              <legend>Mirror</legend>
+              <label className="check-control mirror-toggle" title="Mirror horizontally">
+                <input aria-label="Mirror horizontally" type="checkbox" checked={mirrorHorizontal} onChange={(event) => { setMirrorHorizontal(event.target.checked); setState({ kind: "idle" }); }} />
+                <span aria-hidden="true">↔</span>
+              </label>
+              <label className="check-control mirror-toggle" title="Mirror vertically">
+                <input aria-label="Mirror vertically" type="checkbox" checked={mirrorVertical} onChange={(event) => { setMirrorVertical(event.target.checked); setState({ kind: "idle" }); }} />
+                <span aria-hidden="true">↕</span>
+              </label>
+            </fieldset>
+            <fieldset className="pan-control">
+              <legend>Pixel pan</legend>
+              <div className="pan-pad" aria-label="Move rescaled source bitmap by one pixel">
+                <button className="pan-up" type="button" aria-label="Move bitmap up one pixel" title="Move bitmap up one pixel" disabled={panOffsetY <= -panMaximumY} onClick={() => { setPanOffsetY(Math.max(-panMaximumY, panOffsetY - 1)); setState({ kind: "idle" }); }}>↑</button>
+                <button className="pan-left" type="button" aria-label="Move bitmap left one pixel" title="Move bitmap left one pixel" disabled={panOffsetX <= -panMaximumX} onClick={() => { setPanOffsetX(Math.max(-panMaximumX, panOffsetX - 1)); setState({ kind: "idle" }); }}>←</button>
+                <button className="pan-center" type="button" aria-label="Center bitmap" title="Center bitmap" disabled={panOffsetX === 0 && panOffsetY === 0} onClick={() => { setPanOffsetX(0); setPanOffsetY(0); setState({ kind: "idle" }); }}>●</button>
+                <button className="pan-right" type="button" aria-label="Move bitmap right one pixel" title="Move bitmap right one pixel" disabled={panOffsetX >= panMaximumX} onClick={() => { setPanOffsetX(Math.min(panMaximumX, panOffsetX + 1)); setState({ kind: "idle" }); }}>→</button>
+                <button className="pan-down" type="button" aria-label="Move bitmap down one pixel" title="Move bitmap down one pixel" disabled={panOffsetY >= panMaximumY} onClick={() => { setPanOffsetY(Math.min(panMaximumY, panOffsetY + 1)); setState({ kind: "idle" }); }}>↓</button>
+              </div>
+            </fieldset>
+            <fieldset className="pan-edge-control edge-control">
+              <legend>Edges</legend>
+              <select aria-label="Pan edge handling" value={panEdgeMode} onChange={(event) => { setPanEdgeMode(event.target.value as PanEdgeMode); setState({ kind: "idle" }); }}>
+                <option value="background">Background</option>
+                <option value="clamp">Clamp</option>
+                <option value="wrap">Wrap</option>
+              </select>
+            </fieldset>
+            <fieldset className="background-control">
+              <legend>Background</legend>
+              <input className="background-picker" type="color" aria-label="Background color" title="Choose background color; the color dialog supports manual RGB entry" value={rgbToHex(background)} onChange={(event) => { setBackground(hexToRgb(event.target.value)); setState({ kind: "idle" }); }} />
+            </fieldset>
+          </div>
           </fieldset>
           <fieldset id="settings-adjustments" className={`adjustment-control control-group${settingsSection === "adjustments" ? " settings-focused" : ""}`}>
             <legend>Image adjustments</legend>
@@ -6026,7 +6158,20 @@ export function App() {
           {workspaceMode === "palette" ? (
           <>
           <fieldset id="settings-palette" className={`control-group palette-group${settingsSection === "palette" ? " settings-focused" : ""}`}>
-            <legend>{isQl ? "QL palette" : isPmd ? "PMD 85 legal foregrounds" : "ZX palette and attributes"}</legend>
+            <legend>{isQl ? "QL palette" : isPmd ? "PMD 85 palette" : "ZX palette and attributes"}</legend>
+            {targetModeId.includes("vertical-spatial") ? (
+              <label className="check-control" title="Allow the optimizer to exchange the upper and lower physical rows in each mixed cell.">
+                <input
+                  type="checkbox"
+                  checked={verticalSpatialSwapRows}
+                  onChange={(event) => {
+                    setVerticalSpatialSwapRows(event.target.checked);
+                    setState({ kind: "idle" });
+                  }}
+                />
+                <span>Swap physical row order</span>
+              </label>
+            ) : null}
           {isZx ? (
           <>
           <label>
@@ -7351,11 +7496,19 @@ export function App() {
           const draftModes = Object.keys(draftProfile.palette.modes) as TargetModeId[];
           const visibleSettings = filterSettings(SETTINGS_REGISTRY, settingsSearch, settingsCategory, settingsPreset, settingsDraft);
           const updateSetting = (definition: SettingDefinition, value: unknown) => {
-            setSettingsDraft({ ...settingsDraft, [definition.id]: value });
+            const next = { ...settingsDraft, [definition.id]: value };
+            if (definition.id === "dithering") {
+              next.ditherEngineId = latestDitherEngineForMethod(value as DitheringMethod);
+            } else if (definition.id === "ditherEngineId") {
+              next.dithering = ditherMethodForEngine(value as DitherEngineId);
+            }
+            setSettingsDraft(next);
           };
           const renderSettingControl = (definition: SettingDefinition) => {
             const value = settingsDraft[definition.id] ?? definition.defaultValue;
-            const enabled = definition.isEnabled?.(settingsDraft, { workspaceMode, modeId: targetModeId, dithering: String(settingsDraft.dithering) }) ?? true;
+            const context = { workspaceMode, modeId: String(settingsDraft.modeId), dithering: String(settingsDraft.dithering) };
+            const available = definition.isAvailable?.(context) ?? true;
+            const enabled = available && (definition.isEnabled?.(settingsDraft, context) ?? true);
             const common = { id: `setting-${definition.id}`, "aria-describedby": `setting-help-${definition.id}` };
             if (definition.id === "profileId") return <select {...common} value={String(value)} onChange={(event) => {
               const profile = profiles.find(({ id }) => id === event.target.value) ?? BUILT_IN_PROFILE;
@@ -7363,7 +7516,32 @@ export function App() {
             }}>{profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}</select>;
             if (definition.id === "presetId") return <select {...common} value={String(value)} onChange={(event) => updateSetting(definition, event.target.value)}>{draftProfile.presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}</select>;
             if (definition.id === "modeId") return <select {...common} value={String(value)} onChange={(event) => updateSetting(definition, event.target.value)}>{draftModes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}</select>;
+            if (definition.id === "pmd85PaletteCalibrationId") {
+              const draftModePalette = draftProfile.palette.modes[String(settingsDraft.modeId) as TargetModeId];
+              const calibrations = draftModePalette?.calibrations ?? [];
+              const baseCalibration = draftModePalette?.base_calibration_id;
+              return <select {...common} value={String(value)} disabled={!enabled} onChange={(event) => updateSetting(definition, event.target.value)}>{baseCalibration === undefined ? null : <option value={baseCalibration}>{baseCalibration}</option>}{calibrations.map((calibration) => <option key={calibration.id} value={calibration.id}>{calibration.name}</option>)}</select>;
+            }
             if (definition.control.kind === "boolean") return <input {...common} type="checkbox" checked={Boolean(value)} disabled={!enabled} onChange={(event) => updateSetting(definition, event.target.checked)} />;
+            if (definition.control.kind === "color") {
+              const color = value as RgbColor;
+              return <div className="settings-color-control">
+                <input {...common} type="color" value={rgbToHex(color)} disabled={!enabled} onChange={(event) => updateSetting(definition, hexToRgb(event.target.value))} />
+                <span>{rgbToHex(color).toUpperCase()}</span>
+              </div>;
+            }
+            if (definition.control.kind === "palette") {
+              const selections = Array.isArray(value) ? value as Array<{ screenIndex: number; enabledColorIds: readonly number[]; brightMode?: BrightMode }> : [];
+              const screens = draftProfile.palette.modes[String(settingsDraft.modeId) as TargetModeId]?.screens ?? [];
+              return <div className="settings-palette-selector">{screens.map((screen, screenIndex) => {
+                const selection = selections.find((candidate) => candidate.screenIndex === screenIndex) ?? { screenIndex, enabledColorIds: [] };
+                return <div key={screenIndex} className="settings-palette-screen"><div className="settings-palette-colors">{screen.colors.map((color) => {
+                  const selected = selection.enabledColorIds.includes(color.id);
+                  const nextSelections = selections.map((candidate) => candidate.screenIndex === screenIndex ? { ...candidate, enabledColorIds: selected ? candidate.enabledColorIds.filter((id) => id !== color.id) : [...candidate.enabledColorIds, color.id].sort((a, b) => a - b) } : candidate);
+                  return <button key={color.id} type="button" className={`palette-option${selected ? " selected" : ""}`} disabled={!enabled} aria-label={`${selected ? "Remove" : "Add"} ${color.name}`} aria-pressed={selected} onClick={() => updateSetting(definition, nextSelections)}><span className="palette-swatch" style={{ background: selection.brightMode === "on" ? color.bright : color.normal }} /></button>;
+                })}</div><select aria-label={`Screen ${screenIndex + 1} BRIGHT policy`} disabled={!enabled} value={selection.brightMode ?? "auto"} onChange={(event) => updateSetting(definition, selections.map((candidate) => candidate.screenIndex === screenIndex ? { ...candidate, brightMode: event.target.value as BrightMode } : candidate))}><option value="auto">BRIGHT auto</option><option value="on">BRIGHT on</option><option value="off">BRIGHT off</option></select></div>;
+              })}</div>;
+            }
             const selectControl = definition.control;
             if (selectControl.kind === "select") return <select {...common} value={String(value)} disabled={!enabled} onChange={(event) => {
               const option = selectControl.options.find((candidate) => String(candidate.value) === event.target.value);
@@ -7403,10 +7581,15 @@ export function App() {
                   {visibleSettings.length === 0 ? <p className="settings-empty">No settings match your search or filters.</p> : Object.entries(SETTING_CATEGORIES).map(([category, label]) => {
                     const definitions = visibleSettings.filter((definition) => definition.category === category);
                     if (definitions.length === 0) return null;
-                    return <fieldset key={category} id={`settings-${category}`}><legend>{label}</legend>{definitions.map((definition) => <div className="setting-row" key={definition.id}>
-                      <div><label htmlFor={`setting-${definition.id}`}><span>{definition.label}</span>{Object.is(settingsDraft[definition.id], definition.defaultValue) ? null : <span className="setting-modified" title="Modified">●</span>}</label><p id={`setting-help-${definition.id}`}>{definition.description}{definition.disabledReason && definition.isEnabled?.(settingsDraft, { workspaceMode, modeId: targetModeId }) === false ? ` ${definition.disabledReason}` : ""}</p></div>
+                    return <fieldset key={category} id={`settings-${category}`}><legend>{label}</legend>{definitions.map((definition) => {
+                      const definitionContext = { workspaceMode, modeId: String(settingsDraft.modeId), dithering: String(settingsDraft.dithering) };
+                      const definitionAvailable = definition.isAvailable?.(definitionContext) ?? true;
+                      const definitionEnabled = definition.isEnabled?.(settingsDraft, definitionContext) ?? true;
+                      return <div className="setting-row" key={definition.id}>
+                      <div><label htmlFor={`setting-${definition.id}`}><span>{definition.label}</span>{Object.is(settingsDraft[definition.id], definition.defaultValue) ? null : <span className="setting-modified" title="Modified">●</span>}</label><p id={`setting-help-${definition.id}`}>{definition.description}{definition.disabledReason && (!definitionAvailable || !definitionEnabled) ? ` ${definition.disabledReason}` : ""}</p></div>
                       <div className="setting-control">{renderSettingControl(definition)}</div>
-                    </div>)}</fieldset>;
+                    </div>;
+                    })}</fieldset>;
                   })}
                 </div>
                 <div className="settings-modal-actions">
@@ -7537,27 +7720,14 @@ export function App() {
               <input type="checkbox" checked={showPixelGrid} onChange={(event) => setShowPixelGrid(event.target.checked)} />
               <span>Pixel grid</span>
             </label>
-            {(isQl || isPmd) && workspaceMode === "palette" ? <label
+            {isQl && workspaceMode === "palette" ? <label
               className="check-control"
-              title={isPmd
-                ? "Display the 288×256 logical PMD image at an approximate physical 4:3 aspect. Disable for square-pixel 9:8 inspection."
-                : "Display Mode 8 pixels at 4/3 × 1 and Mode 4 pixels at 4/3 × 2, producing the physical 4:3 monitor image. Disable for square-pixel inspection."}
+              title="Display Mode 8 pixels at 4/3 × 1 and Mode 4 pixels at 4/3 × 2, producing the physical 4:3 monitor image. Disable for square-pixel inspection."
             >
               <input
                 type="checkbox"
-                checked={isPmd
-                  ? pmd85CrtAspect === "approximate-4:3"
-                  : scaleQlToDisplayAspect}
-                onChange={(event) => {
-                  if (isPmd) {
-                    setPmd85CrtAspect(event.target.checked
-                      ? "approximate-4:3"
-                      : "square-pixel");
-                    setState({ kind: "idle" });
-                  } else {
-                    setScaleQlToDisplayAspect(event.target.checked);
-                  }
-                }}
+                checked={scaleQlToDisplayAspect}
+                onChange={(event) => setScaleQlToDisplayAspect(event.target.checked)}
               />
               <span>4:3 display aspect</span>
             </label> : null}
@@ -7811,9 +7981,9 @@ export function App() {
                     : sourcePreviewContent === "pre-attribute"
                       ? "Pre-attribute dither"
                     : sourcePreviewContent === "screen-1"
-                      ? "Screen 1"
+                      ? hasVerticalSpatialTarget ? "Full resolution" : "Screen 1"
                     : sourcePreviewContent === "screen-2"
-                      ? "Screen 2"
+                      ? hasVerticalSpatialTarget ? "Analytic" : "Screen 2"
                     : sourcePreviewContent === "merged-low"
                       ? "Merged · low resolution"
                     : sourcePreviewContent === "merged-high"
@@ -7845,6 +8015,10 @@ export function App() {
                       <option value="screen-1">Screen 1</option>
                       <option value="screen-2">Screen 2</option>
                     </> : null}
+                    {hasVerticalSpatialTarget ? <>
+                      <option value="screen-1">Full resolution</option>
+                      <option value="screen-2">Analytic</option>
+                    </> : null}
                     {hasQlMixedResolutionTarget ? <>
                       <option value="merged-low">Merged · low resolution</option>
                       <option value="merged-high">Merged · high resolution</option>
@@ -7858,7 +8032,7 @@ export function App() {
                   </select>
                 </label>
               </div>
-              {sourcePreviewContent === "bitmap-editor" ? fullBitmapEditorPreview("source") : sourcePreviewContent === "image" || sourcePreviewContent === "source-image" || sourcePreviewContent === "result-image" ? <div
+              {sourcePreviewContent === "bitmap-editor" ? fullBitmapEditorPreview("source") : sourcePreviewContent === "image" || sourcePreviewContent === "source-image" || sourcePreviewContent === "result-image" || (hasVerticalSpatialTarget && (sourcePreviewContent === "screen-1" || sourcePreviewContent === "screen-2")) ? <div
                 className={`preview-frame preview-viewport ${draggingSide === "source" ? "dragging" : ""}`}
                 ref={sourceViewportRef}
                 onScroll={(event) => handlePreviewScroll("source", event)}
@@ -7880,16 +8054,16 @@ export function App() {
                       }}
                     >
                       <canvas
-                        ref={sourcePreviewContent === "result-image" ? convertedCanvasRef : canvasRef}
+                        ref={sourcePreviewContent === "result-image" || (hasVerticalSpatialTarget && (sourcePreviewContent === "screen-1" || sourcePreviewContent === "screen-2")) ? convertedCanvasRef : canvasRef}
                         className={framing === "crop"
                           ? `crop-editor-canvas crop-pointer-${cropPointerMode}`
                           : undefined}
-                        aria-label={sourcePreviewContent === "result-image"
+                        aria-label={sourcePreviewContent === "result-image" || (hasVerticalSpatialTarget && (sourcePreviewContent === "screen-1" || sourcePreviewContent === "screen-2"))
                           ? "Converted hardware preview"
                           : framing === "crop"
                           ? "Source image crop editor"
                           : "Decoded source image preview"}
-                        tabIndex={sourcePreviewContent === "result-image" ? 0 : framing === "crop" ? 0 : undefined}
+                        tabIndex={sourcePreviewContent === "result-image" || (hasVerticalSpatialTarget && (sourcePreviewContent === "screen-1" || sourcePreviewContent === "screen-2")) ? 0 : framing === "crop" ? 0 : undefined}
                         onPointerDown={sourcePreviewContent === "result-image" ? selectResultPixel : framing === "crop" ? beginCropSelection : undefined}
                         onPointerMove={sourcePreviewContent === "result-image" ? inspectResultPixel : framing === "crop" ? moveCropSelection : undefined}
                         onPointerUp={sourcePreviewContent === "result-image" ? undefined : framing === "crop" ? endCropSelection : undefined}
@@ -7993,7 +8167,7 @@ export function App() {
             </section>
             <section className={`preview-panel result-panel ${workspaceMode === "tilemap" ? "tilemap-preview-panel" : ""}`} aria-labelledby="result-preview-title">
               <div className="preview-panel-heading">
-                <h3 id="result-preview-title">{resultPreviewContent === "image" || resultPreviewContent === "result-image" ? resultLabel : resultPreviewContent === "source-image" ? "Conversion input" : resultPreviewContent === "bitmap-editor" ? "Bitmap editor" : resultPreviewContent === "pre-attribute" ? "Pre-attribute dither" : resultPreviewContent === "screen-1" ? "Screen 1" : resultPreviewContent === "screen-2" ? "Screen 2" : resultPreviewContent === "merged-low" ? "Merged · low resolution" : resultPreviewContent === "merged-high" ? "Merged · high resolution" : resultPreviewContent === "palette-usage" ? "Palette usage" : resultPreviewContent === "tile-usage" ? "Used tiles" : resultPreviewContent === "unified-editor" ? "Unified editor" : resultPreviewContent === "difference" ? "Difference heatmap" : "Inspector"}</h3>
+                <h3 id="result-preview-title">{resultPreviewContent === "image" || resultPreviewContent === "result-image" ? resultLabel : resultPreviewContent === "source-image" ? "Conversion input" : resultPreviewContent === "bitmap-editor" ? "Bitmap editor" : resultPreviewContent === "pre-attribute" ? "Pre-attribute dither" : resultPreviewContent === "screen-1" ? hasVerticalSpatialTarget ? "Full resolution" : "Screen 1" : resultPreviewContent === "screen-2" ? hasVerticalSpatialTarget ? "Analytic" : "Screen 2" : resultPreviewContent === "merged-low" ? "Merged · low resolution" : resultPreviewContent === "merged-high" ? "Merged · high resolution" : resultPreviewContent === "palette-usage" ? "Palette usage" : resultPreviewContent === "tile-usage" ? "Used tiles" : resultPreviewContent === "unified-editor" ? "Unified editor" : resultPreviewContent === "difference" ? "Difference heatmap" : "Inspector"}</h3>
                 <label className="preview-content-selector">
                   <span className="sr-only">Result window content</span>
                   <select
@@ -8009,6 +8183,10 @@ export function App() {
                       <option value="screen-1">Screen 1</option>
                       <option value="screen-2">Screen 2</option>
                     </> : null}
+                    {hasVerticalSpatialTarget ? <>
+                      <option value="screen-1">Full resolution</option>
+                      <option value="screen-2">Analytic</option>
+                    </> : null}
                     {hasQlMixedResolutionTarget ? <>
                       <option value="merged-low">Merged · low resolution</option>
                       <option value="merged-high">Merged · high resolution</option>
@@ -8022,7 +8200,7 @@ export function App() {
                   </select>
                 </label>
               </div>
-              {resultPreviewContent === "bitmap-editor" ? fullBitmapEditorPreview("result") : resultPreviewContent === "image" || resultPreviewContent === "result-image" || resultPreviewContent === "source-image" ? <div
+              {resultPreviewContent === "bitmap-editor" ? fullBitmapEditorPreview("result") : resultPreviewContent === "image" || resultPreviewContent === "result-image" || resultPreviewContent === "source-image" || (hasVerticalSpatialTarget && (resultPreviewContent === "screen-1" || resultPreviewContent === "screen-2")) ? <div
                 className={`preview-frame preview-viewport zx-preview ${draggingSide === "result" ? "dragging" : ""}`}
                 ref={resultViewportRef}
                 onScroll={(event) => handlePreviewScroll("result", event)}
@@ -8145,7 +8323,9 @@ export function App() {
                     ? "Analytic mixed used"
                     : "Merged used"
                   : outputPreviewStage === "screen-2"
-                    ? "Screen 2 selected"
+                    ? targetModeId.includes("vertical-spatial")
+                      ? "Analytic mixed used"
+                      : "Screen 2 selected"
                     : "Screen 1 selected"} palette`}
               >
                 {outputPaletteColors.map((color) => (

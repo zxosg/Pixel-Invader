@@ -4,6 +4,7 @@ import type { Pmd85GapPolicy, Pmd85ModeId } from "@retro-converter/pmd-85";
 export type FramingMode = "fit" | "fill" | "crop" | "stretch";
 export type ResamplingMethod = "nearest" | "bilinear" | "lanczos";
 export type Rotation = 0 | 90 | 180 | 270;
+export type PanEdgeMode = "background" | "clamp" | "wrap";
 export type OptimizationLevel = "draft" | "high";
 export type DitheringMethod = "none" | "ordered" | "error-diffusion";
 export type PlatformId = "zx-spectrum" | "sinclair-ql" | "pmd-85";
@@ -36,6 +37,7 @@ export type QlMixedOptimizerId =
 export type AttributeOptimizerId =
   | "pmd85-cell-v1"
   | "pmd85-vertical-spatial-uniform-v1"
+  | "pmd85-vertical-spatial-detail-v2"
   | "zx-adaptive-v1"
   | "zx-source-cell-v1"
   | "zx-guide-local-v1"
@@ -136,6 +138,10 @@ export interface ConversionSettings {
   readonly mirrorVertical: boolean;
   readonly fillOffsetX: number | null;
   readonly fillOffsetY: number | null;
+  /** Output-pixel translation applied after the source has been resampled. */
+  readonly panOffsetX: number;
+  readonly panOffsetY: number;
+  readonly panEdgeMode: PanEdgeMode;
   readonly crop: PixelCrop;
   readonly cropAspectRatio: CropAspectRatio;
   readonly brightness: number;
@@ -167,14 +173,16 @@ export interface VerticalSpatialMixSettings {
   readonly schemaVersion: 1;
   readonly algorithmId:
     | "vertical-spatial-uniform-v1"
-    | "vertical-spatial-detail-v1";
+    | "vertical-spatial-detail-v1"
+    | "vertical-spatial-pmd-detail-v2";
   readonly calibrationId: "srgb-ideal-v1";
+  /** Exchange the upper/lower physical rows when the optimizer's ordering pass selects it. */
+  readonly swapRows?: boolean;
 }
 
 export interface Pmd85ConversionSettings {
   readonly mode: Pmd85ModeId;
   readonly paletteCalibrationId: string;
-  readonly crtAspect: "square-pixel" | "logical-9:8" | "approximate-4:3";
   readonly gapPolicy: Pmd85GapPolicy;
 }
 
@@ -283,7 +291,8 @@ export interface BaseConversionResult {
 export interface VerticalSpatialDiagnostics {
   readonly algorithmId:
     | "vertical-spatial-uniform-v1"
-    | "vertical-spatial-detail-v1";
+    | "vertical-spatial-detail-v1"
+    | "vertical-spatial-pmd-detail-v2";
   readonly calibrationId: "srgb-ideal-v1";
   readonly logicalWidth: number;
   readonly logicalHeight: number;
@@ -365,6 +374,9 @@ export const DEFAULT_CONVERSION_SETTINGS: ConversionSettings = {
   mirrorVertical: false,
   fillOffsetX: null,
   fillOffsetY: null,
+  panOffsetX: 0,
+  panOffsetY: 0,
+  panEdgeMode: "background",
   crop: { x: 0, y: 0, width: 256, height: 192 },
   cropAspectRatio: "none",
   brightness: 0,
@@ -432,7 +444,6 @@ export const DEFAULT_CONVERSION_SETTINGS: ConversionSettings = {
   pmd85: {
     mode: "pmd85-3-rgb",
     paletteCalibrationId: "emulator-soft",
-    crtAspect: "square-pixel",
     gapPolicy: "zero",
   },
 };

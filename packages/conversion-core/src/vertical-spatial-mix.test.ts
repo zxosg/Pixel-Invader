@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildVerticalSpatialAnalyticPreview,
   optimizeVerticalSpatialPmd,
+  optimizeVerticalSpatialPmdDetail,
   optimizeVerticalSpatialPixels,
   optimizeVerticalSpatialZx,
   VERTICAL_SPATIAL_SRGB_TO_LINEAR_Q16,
@@ -34,6 +35,38 @@ describe("vertical spatial mixing v1", () => {
       .toEqual([188, 188, 188, 255]);
   });
 
+  it("matches the linear-light primary reference vectors and is order-symmetric", () => {
+    const redOverGreen = new Uint8Array([
+      255, 0, 0, 255,
+      0, 255, 0, 255,
+    ]);
+    const greenOverRed = new Uint8Array([
+      0, 255, 0, 255,
+      255, 0, 0, 255,
+    ]);
+    expect([...buildVerticalSpatialAnalyticPreview(redOverGreen, 1, 2)])
+      .toEqual([188, 188, 0, 255]);
+    expect(buildVerticalSpatialAnalyticPreview(greenOverRed, 1, 2))
+      .toEqual(buildVerticalSpatialAnalyticPreview(redOverGreen, 1, 2));
+  });
+
+  it("applies brightness and contrast before spatial quantization", () => {
+    const source = solid(256, 192, 96, 96, 96);
+    const base = {
+      ...DEFAULT_CONVERSION_SETTINGS,
+      modeId: "zx48-vertical-spatial-256x192" as const,
+      attributeOptimizerId: "zx-vertical-spatial-uniform-v1" as const,
+      ditherEngineId: "vertical-spatial-none-v1" as const,
+      dithering: "none" as const,
+      attributeHeight: 1 as const,
+      verticalSpatialMix: { schemaVersion: 1 as const, algorithmId: "vertical-spatial-uniform-v1" as const, calibrationId: "srgb-ideal-v1" as const },
+      paletteSelections: [{ screenIndex: 0, enabledColorIds: [0, 7], brightMode: "auto" as const }],
+    };
+    const normal = convertToZx(source, 256, 192, base).frames[0]!.previewRgba;
+    const adjusted = convertToZx(source, 256, 192, { ...base, brightness: 60, contrast: 40 }).frames[0]!.previewRgba;
+    expect(adjusted).not.toEqual(normal);
+  });
+
   it("chooses exact ordered QL row pairs deterministically", () => {
     const source = new Uint8Array([
       255, 0, 0, 255,
@@ -47,6 +80,24 @@ describe("vertical spatial mixing v1", () => {
     const result = optimizeVerticalSpatialPixels(source, 1, 2, palette, [0, 1, 2]);
     expect([...result.upperIndices]).toEqual([1, 2]);
     expect(result.diagnostics.colorCost).toBe(0);
+  });
+
+  it("makes QL physical row ordering an explicit optional phase", () => {
+    const source = new Uint8Array([
+      0, 0, 0, 255, 255, 0, 0, 255,
+      0, 0, 0, 255, 0, 255, 0, 255,
+    ]);
+    const palette = [
+      { r: 0, g: 0, b: 0 },
+      { r: 255, g: 0, b: 0 },
+      { r: 0, g: 255, b: 0 },
+    ];
+    const withoutSwap = optimizeVerticalSpatialPixels(source, 2, 2, palette, [0, 1, 2]);
+    const withSwap = optimizeVerticalSpatialPixels(source, 2, 2, palette, [0, 1, 2], {
+      method: "none", amount: 0, orderedMatrix: "bayer-4x4", errorRandomization: 0, swapRows: true,
+    });
+    expect([...withoutSwap.upperIndices]).toEqual([0, 1, 0, 2]);
+    expect([...withSwap.upperIndices]).toEqual([0, 2, 0, 1]);
   });
 
   it("supports logical ordered and error-diffusion dithering with zero-amount identity", () => {
@@ -189,6 +240,66 @@ describe("vertical spatial mixing v1", () => {
     });
     expect(zx.frames[0]?.encoded).toHaveLength(12_288);
     expect(zx.verticalSpatialDiagnostics?.logicalHeight).toBe(96);
+  });
+
+  it("preserves PMD physical row detail without changing the analytic pair", () => {
+    const source = new Uint8Array(6 * 2 * 4);
+    for (let x = 0; x < 6; x += 1) {
+      source.set([255, 0, 0, 255], x * 4);
+      source.set([0, 0, 0, 255], (6 + x) * 4);
+    }
+    const result = optimizeVerticalSpatialPmdDetail(
+      source, 6, 2, [{ r: 255, g: 0, b: 0 }], [0],
+    );
+    expect(result.pixelMasks[0]).toBe(0x3f);
+    expect(result.pixelMasks[1]).toBe(0);
+    expect(result.diagnostics.algorithmId).toBe("vertical-spatial-pmd-detail-v2");
+    expect(result.diagnostics.detailCost).toBe(0);
+  });
+
+  it.each([
+    ["ordered", "bayer-4x4"],
+    ["error-diffusion", "bayer-4x4"],
+  ] as const)("dithers PMD spatial coverage within a six-pixel cell using %s", (method, orderedMatrix) => {
+    const result = optimizeVerticalSpatialPmdDetail(
+      solid(24, 4, 140, 140, 140),
+      24,
+      4,
+      [{ r: 255, g: 255, b: 255 }],
+      [0],
+      { method, amount: 100, orderedMatrix, errorRandomization: 0 },
+    );
+    const coverages = result.pixelMasks.map((mask, index) =>
+      mask | (result.pixelMasks[index + 4] ?? 0));
+    expect([...coverages].some((mask) => mask !== 0 && mask !== 0x3f)).toBe(true);
+  });
+
+  it("integrates the PMD detail v2 optimizer with the spatial codec", () => {
+    const result = convertToPmd85(new Uint8Array([140, 140, 140, 255]), 1, 1, {
+      ...DEFAULT_CONVERSION_SETTINGS,
+      platformId: "pmd-85",
+      modeId: "pmd85-3-rgb-vertical-spatial",
+      attributeOptimizerId: "pmd85-vertical-spatial-detail-v2",
+      ditherEngineId: "vertical-spatial-error-diffusion-v1",
+      dithering: "error-diffusion",
+      ditheringAmount: 100,
+      paletteSelections: [{ screenIndex: 0, enabledColorIds: [0, 1, 2, 3] }],
+      pmd85: { ...DEFAULT_CONVERSION_SETTINGS.pmd85, mode: "pmd85-3-rgb" },
+      verticalSpatialMix: {
+        schemaVersion: 1,
+        algorithmId: "vertical-spatial-pmd-detail-v2",
+        calibrationId: "srgb-ideal-v1",
+      },
+    }, [
+      { r: 0, g: 255, b: 0 },
+      { r: 255, g: 255, b: 0 },
+      { r: 0, g: 255, b: 255 },
+      { r: 255, g: 255, b: 255 },
+    ]);
+    expect(result.frames[0]?.encoded).toHaveLength(16_384);
+    expect(result.verticalSpatialDiagnostics?.algorithmId)
+      .toBe("vertical-spatial-pmd-detail-v2");
+    expect(result.verticalSpatialDiagnostics?.phaseChanges).toBeGreaterThan(0);
   });
 
   it.each([

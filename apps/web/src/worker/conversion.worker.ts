@@ -52,7 +52,7 @@ worker.addEventListener(
           jobId: request.jobId,
           mode: request.mode,
           paletteCalibrationId: request.paletteCalibrationId,
-          pixelAspectRatio: request.pixelAspectRatio,
+          pixelAspectRatio: 1,
           originalBytes,
           rgba,
           paletteIndices,

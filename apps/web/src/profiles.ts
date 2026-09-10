@@ -112,6 +112,12 @@ const PMD85_COLORS = {
     { id: 2, name: "Cyan", normal: "#50ffff" },
     { id: 3, name: "White", normal: "#ffffff" },
   ],
+  "pmd85-3-tv": [
+    { id: 0, name: "White", normal: "#ffffff" },
+    { id: 1, name: "Light gray", normal: "#b8b8b8" },
+    { id: 2, name: "Gray", normal: "#777777" },
+    { id: 3, name: "Dark gray", normal: "#444444" },
+  ],
   "pmd85-3-pal": [
     { id: 0, name: "White", normal: "#ffffff" },
     { id: 1, name: "Green", normal: "#50ff50" },
@@ -132,6 +138,21 @@ const PMD85_COLORS = {
     { id: 4, name: "Yellow", normal: "#ffff00" },
     { id: 5, name: "Cyan", normal: "#00ffff" },
     { id: 6, name: "White", normal: "#ffffff" },
+  ],
+} as const;
+
+const PMD85_TTL_SATURATED_COLORS = {
+  "pmd85-2-rgb": [
+    { id: 0, name: "Green", normal: "#00ff00" },
+    { id: 1, name: "Yellow", normal: "#ffff00" },
+    { id: 2, name: "Cyan", normal: "#00ffff" },
+    { id: 3, name: "White", normal: "#ffffff" },
+  ],
+  "pmd85-3-rgb": [
+    { id: 0, name: "Green", normal: "#00ff00" },
+    { id: 1, name: "Red", normal: "#ff0000" },
+    { id: 2, name: "Blue", normal: "#0000ff" },
+    { id: 3, name: "Magenta", normal: "#ff00ff" },
   ],
 } as const;
 
@@ -192,6 +213,7 @@ export const BUILT_IN_PROFILE: ConversionProfile = {
           schemaVersion: 1,
           algorithmId: "vertical-spatial-uniform-v1",
           calibrationId: "srgb-ideal-v1",
+          swapRows: false,
         },
       },
     },
@@ -210,6 +232,7 @@ export const BUILT_IN_PROFILE: ConversionProfile = {
           schemaVersion: 1,
           algorithmId: "vertical-spatial-detail-v1",
           calibrationId: "srgb-ideal-v1",
+          swapRows: true,
         },
       },
     },
@@ -404,6 +427,7 @@ export const QL_BUILT_IN_PROFILE: ConversionProfile = {
         schemaVersion: 1,
         algorithmId: "vertical-spatial-uniform-v1",
         calibrationId: "srgb-ideal-v1",
+        swapRows: false,
       },
     },
   }, {
@@ -423,6 +447,7 @@ export const QL_BUILT_IN_PROFILE: ConversionProfile = {
         schemaVersion: 1,
         algorithmId: "vertical-spatial-uniform-v1",
         calibrationId: "srgb-ideal-v1",
+        swapRows: false,
       },
     },
   }],
@@ -459,7 +484,6 @@ function pmd85Preset(
       pmd85: {
         mode: PMD85_DEFAULT_MODE,
         paletteCalibrationId: PMD85_DEFAULT_CALIBRATION,
-        crtAspect: "approximate-4:3",
         gapPolicy: "zero",
       },
       ...overrides,
@@ -471,20 +495,35 @@ export const PMD85_BUILT_IN_PROFILE: ConversionProfile = {
   schema_version: "7.0.0",
   id: PMD85_PROFILE_ID,
   platform_id: "pmd-85",
-  version: "1.0.0",
+  version: "1.2.0",
   name: "PMD 85",
-  content_sha256: "4b9de152ca112745f4db8d168a91c52823ecff7cbd8aac205f6e2989225e428e",
+  content_sha256: "built-in",
   palette: {
     modes: {
       "pmd85-2-tv": {
         screen_count: 1,
         screens: [{ colors: PMD85_COLORS["pmd85-2-tv"] }],
         base_calibration_id: "neutral-white",
+        calibrations: [{
+          id: "tv-grayscale",
+          name: "TV/CV grayscale",
+          screens: [{ colors: PMD85_COLORS["pmd85-2-tv"] }],
+        }],
       },
       "pmd85-2-rgb": {
         screen_count: 1,
         screens: [{ colors: PMD85_COLORS["pmd85-2-rgb"] }],
         base_calibration_id: "emulator-soft",
+        calibrations: [{
+          id: "ttl-saturated",
+          name: "TTL saturated RGB",
+          screens: [{ colors: PMD85_TTL_SATURATED_COLORS["pmd85-2-rgb"] }],
+        }],
+      },
+      "pmd85-3-tv": {
+        screen_count: 1,
+        screens: [{ colors: PMD85_COLORS["pmd85-3-tv"] }],
+        base_calibration_id: "tv-grayscale",
       },
       "pmd85-3-pal": {
         screen_count: 1,
@@ -495,6 +534,11 @@ export const PMD85_BUILT_IN_PROFILE: ConversionProfile = {
         screen_count: 1,
         screens: [{ colors: PMD85_COLORS["pmd85-3-rgb"] }],
         base_calibration_id: "emulator-soft",
+        calibrations: [{
+          id: "ttl-saturated",
+          name: "TTL saturated RGB",
+          screens: [{ colors: PMD85_TTL_SATURATED_COLORS["pmd85-3-rgb"] }],
+        }],
       },
       "pmd85-colorace": {
         screen_count: 1,
@@ -510,11 +554,21 @@ export const PMD85_BUILT_IN_PROFILE: ConversionProfile = {
         screen_count: 1,
         screens: [{ colors: PMD85_COLORS["pmd85-2-rgb"] }],
         base_calibration_id: "emulator-soft",
+        calibrations: [{
+          id: "ttl-saturated",
+          name: "TTL saturated RGB",
+          screens: [{ colors: PMD85_TTL_SATURATED_COLORS["pmd85-2-rgb"] }],
+        }],
       },
       "pmd85-3-rgb-vertical-spatial": {
         screen_count: 1,
         screens: [{ colors: PMD85_COLORS["pmd85-3-rgb"] }],
         base_calibration_id: "emulator-soft",
+        calibrations: [{
+          id: "ttl-saturated",
+          name: "TTL saturated RGB",
+          screens: [{ colors: PMD85_TTL_SATURATED_COLORS["pmd85-3-rgb"] }],
+        }],
       },
       "pmd85-3-pal-vertical-spatial": {
         screen_count: 1,
@@ -536,16 +590,17 @@ export const PMD85_BUILT_IN_PROFILE: ConversionProfile = {
       dithering: "none",
       ditheringAmount: 0,
     }),
-    pmd85Preset("vertical-spatial-v1", "Vertical spatial v1", {
+    pmd85Preset("vertical-spatial-v2", "Vertical spatial detail v2", {
       modeId: "pmd85-3-rgb-vertical-spatial",
-      attributeOptimizerId: "pmd85-vertical-spatial-uniform-v1",
+      attributeOptimizerId: "pmd85-vertical-spatial-detail-v2",
       ditherEngineId: "vertical-spatial-none-v1",
       dithering: "none",
       ditheringAmount: 0,
       verticalSpatialMix: {
         schemaVersion: 1,
-        algorithmId: "vertical-spatial-uniform-v1",
+        algorithmId: "vertical-spatial-pmd-detail-v2",
         calibrationId: "srgb-ideal-v1",
+        swapRows: true,
       },
     }),
     pmd85Preset("clean-exact", "Clean / no dither", {
@@ -630,6 +685,7 @@ function validateSettings(value: unknown): value is ConversionSettings {
       "mode4-vertical-spatial-512x256",
       "pmd85-2-tv",
       "pmd85-2-rgb",
+      "pmd85-3-tv",
       "pmd85-3-pal",
       "pmd85-3-rgb",
       "pmd85-colorace",
@@ -637,7 +693,7 @@ function validateSettings(value: unknown): value is ConversionSettings {
       "pmd85-3-rgb-vertical-spatial",
       "pmd85-3-pal-vertical-spatial",
     ].includes(String(value.modeId)) &&
-    ["pmd85-cell-v1", "pmd85-vertical-spatial-uniform-v1", "ql-vertical-spatial-uniform-v1", "zx-vertical-spatial-uniform-v1", "zx-vertical-spatial-detail-v1", "zx-adaptive-v1", "zx-source-cell-v1", "zx-guide-local-v1", "zx-guide-reference-halo-v1", "zx-guide-reference-halo-v2", "zx-guide-reference-rgb-halo-v3", "zx-block-dbs-global-v1", "zx-structured-global-v1", "zx-structured-global-v2", "zx-structured-global-v3", "zx-structured-global-v4"].includes(String(value.attributeOptimizerId)) &&
+    ["pmd85-cell-v1", "pmd85-vertical-spatial-uniform-v1", "pmd85-vertical-spatial-detail-v2", "ql-vertical-spatial-uniform-v1", "zx-vertical-spatial-uniform-v1", "zx-vertical-spatial-detail-v1", "zx-adaptive-v1", "zx-source-cell-v1", "zx-guide-local-v1", "zx-guide-reference-halo-v1", "zx-guide-reference-halo-v2", "zx-guide-reference-rgb-halo-v3", "zx-block-dbs-global-v1", "zx-structured-global-v1", "zx-structured-global-v2", "zx-structured-global-v3", "zx-structured-global-v4"].includes(String(value.attributeOptimizerId)) &&
     [
       "none-v1",
       "vertical-spatial-none-v1",
@@ -688,6 +744,9 @@ function validateSettings(value: unknown): value is ConversionSettings {
     typeof value.mirrorHorizontal === "boolean" && typeof value.mirrorVertical === "boolean" &&
     (value.fillOffsetX === null || integerRange(value.fillOffsetX, 0, 65_535)) &&
     (value.fillOffsetY === null || integerRange(value.fillOffsetY, 0, 65_535)) &&
+    integerRange(value.panOffsetX, -65_535, 65_535) &&
+    integerRange(value.panOffsetY, -65_535, 65_535) &&
+    ["background", "clamp", "wrap"].includes(String(value.panEdgeMode)) &&
     ["none", "source", "destination"].includes(String(value.cropAspectRatio)) &&
     integerRange(value.crop.x, 0, 65_535) &&
     integerRange(value.crop.y, 0, 65_535) &&
@@ -758,11 +817,10 @@ function validateSettings(value: unknown): value is ConversionSettings {
     integerRange(value.structured.candidateParameters.importantMassPermille, 0, 1000) &&
     integerRange(value.structured.candidateParameters.localAdmissibilityPermille, 0, 1000) &&
     integerRange(value.structured.candidateParameters.boundaryCapPermille, 0, 1000) &&
-    ["pmd85-2-tv", "pmd85-2-rgb", "pmd85-3-pal", "pmd85-3-rgb", "pmd85-colorace"].includes(String(value.pmd85.mode)) &&
+    ["pmd85-2-tv", "pmd85-2-rgb", "pmd85-3-tv", "pmd85-3-pal", "pmd85-3-rgb", "pmd85-colorace"].includes(String(value.pmd85.mode)) &&
     typeof value.pmd85.paletteCalibrationId === "string" &&
     value.pmd85.paletteCalibrationId.length >= 1 &&
     value.pmd85.paletteCalibrationId.length <= 80 &&
-    ["square-pixel", "logical-9:8", "approximate-4:3"].includes(String(value.pmd85.crtAspect)) &&
     ["zero", "preserve-imported"].includes(String(value.pmd85.gapPolicy)) &&
     (
       value.platformId !== "pmd-85" ||
@@ -778,7 +836,8 @@ function validateSettings(value: unknown): value is ConversionSettings {
       String(value.modeId).startsWith("pmd85-") &&
       (
         value.attributeOptimizerId === "pmd85-cell-v1" ||
-        value.attributeOptimizerId === "pmd85-vertical-spatial-uniform-v1"
+        value.attributeOptimizerId === "pmd85-vertical-spatial-uniform-v1" ||
+        value.attributeOptimizerId === "pmd85-vertical-spatial-detail-v2"
       )
     ) &&
     (
@@ -803,9 +862,12 @@ function validateSettings(value: unknown): value is ConversionSettings {
       value.verticalSpatialMix.algorithmId === (
         value.attributeOptimizerId === "zx-vertical-spatial-detail-v1"
           ? "vertical-spatial-detail-v1"
+          : value.attributeOptimizerId === "pmd85-vertical-spatial-detail-v2"
+            ? "vertical-spatial-pmd-detail-v2"
           : "vertical-spatial-uniform-v1"
       ) &&
       value.verticalSpatialMix.calibrationId === "srgb-ideal-v1" &&
+      (value.verticalSpatialMix.swapRows === undefined || typeof value.verticalSpatialMix.swapRows === "boolean") &&
       value.ditherEngineId === (
         value.dithering === "none"
           ? "vertical-spatial-none-v1"
@@ -821,7 +883,10 @@ function validateSettings(value: unknown): value is ConversionSettings {
             ].includes(String(value.attributeOptimizerId))
           : value.platformId === "sinclair-ql"
             ? value.attributeOptimizerId === "ql-vertical-spatial-uniform-v1"
-            : value.attributeOptimizerId === "pmd85-vertical-spatial-uniform-v1"
+            : [
+                "pmd85-vertical-spatial-uniform-v1",
+                "pmd85-vertical-spatial-detail-v2",
+              ].includes(String(value.attributeOptimizerId))
       )
       )
       : value.verticalSpatialMix === undefined &&
@@ -948,8 +1013,18 @@ export async function parseImportedProfile(bytes: Uint8Array): Promise<Conversio
       throw new Error("PROFILE_SCHEMA_INVALID: preset id is invalid or duplicated.");
     }
     presetIds.add(raw.id);
-    const settings = isObject(raw.settings) && !isObject(raw.settings.pmd85)
-      ? { ...raw.settings, pmd85: DEFAULT_CONVERSION_SETTINGS.pmd85 }
+    const settings = isObject(raw.settings)
+      ? {
+          ...raw.settings,
+          pmd85: isObject(raw.settings.pmd85)
+            ? raw.settings.pmd85
+            : DEFAULT_CONVERSION_SETTINGS.pmd85,
+          panOffsetX: raw.settings.panOffsetX === undefined ? 0 : raw.settings.panOffsetX,
+          panOffsetY: raw.settings.panOffsetY === undefined ? 0 : raw.settings.panOffsetY,
+          panEdgeMode: raw.settings.panEdgeMode === undefined
+            ? "background"
+            : raw.settings.panEdgeMode,
+        }
       : raw.settings;
     if (typeof raw.name !== "string" || raw.name.length < 1 || raw.name.length > 80 || !validateSettings(settings)) {
       throw new Error("PROFILE_SCHEMA_INVALID: preset is incomplete.");
@@ -1058,7 +1133,26 @@ export function loadStoredProfiles(storage: Storage): ConversionProfile[] {
     return parsed.filter((profile): profile is ConversionProfile =>
       isObject(profile) && typeof profile.id === "string" &&
       !BUILT_IN_PROFILES.some((builtIn) => builtIn.id === profile.id),
-    ).slice(0, 16);
+    ).slice(0, 16).map((profile) => ({
+      ...profile,
+      presets: profile.presets.map((preset) => ({
+        ...preset,
+        settings: {
+          ...preset.settings,
+          panOffsetX: Number.isInteger(preset.settings.panOffsetX)
+            ? preset.settings.panOffsetX
+            : 0,
+          panOffsetY: Number.isInteger(preset.settings.panOffsetY)
+            ? preset.settings.panOffsetY
+            : 0,
+          panEdgeMode: ["background", "clamp", "wrap"].includes(
+            preset.settings.panEdgeMode,
+          )
+            ? preset.settings.panEdgeMode
+            : "background",
+        },
+      })),
+    }));
   } catch {
     return [];
   }

@@ -14,6 +14,27 @@ function qlPaletteSelections(colors: readonly number[], screens: 1 | 2 = 2) {
   }));
 }
 
+function checkerOccupancy(
+  pixels: Uint8Array,
+  width: number,
+  height: number,
+): number {
+  let checker = 0;
+  let intermediate = 0;
+  for (let y = 0; y + 1 < height; y += 1) {
+    for (let x = 0; x + 1 < width; x += 1) {
+      const a = pixels[y * width + x] ?? 0;
+      const b = pixels[y * width + x + 1] ?? 0;
+      const c = pixels[(y + 1) * width + x] ?? 0;
+      const d = pixels[(y + 1) * width + x + 1] ?? 0;
+      if (new Set([a, b, c, d]).size < 2) continue;
+      intermediate += 1;
+      if (a === d && b === c && a !== b) checker += 1;
+    }
+  }
+  return checker / Math.max(1, intermediate);
+}
+
 describe("Sinclair QL conversion", () => {
   it.each([
     ["mode8-plain-256x256", 256, 1],
@@ -504,6 +525,100 @@ describe("Sinclair QL conversion", () => {
     expect(differs(disabled.frames[1]!.paletteIndices, enabled.frames[1]!.paletteIndices)).toBe(true);
     expect(enabled.mergedPreviewRgba).toEqual(disabled.mergedPreviewRgba);
   }, 20_000);
+
+  it.each([
+    ["mode8-256x256", 256, [0, 7]],
+    ["mode4-512x256", 512, [0, 3]],
+  ] as const)("uses an Artistic checker candidate field for v4.4 %s", (modeId, width, colors) => {
+    const source = new Uint8Array(width * 256 * 4);
+    for (let offset = 0; offset < source.length; offset += 4) {
+      source[offset] = 188;
+      source[offset + 1] = 188;
+      source[offset + 2] = 188;
+      source[offset + 3] = 255;
+    }
+    const convert = (suppression: number, screenFlickerSuppression = true) =>
+      convertToQl(source, width, 256, {
+        ...DEFAULT_CONVERSION_SETTINGS,
+        platformId: "sinclair-ql",
+        profileId: "org.retroconverter.sinclair-ql.default",
+        modeId,
+        framing: "stretch",
+        dithering: "error-diffusion",
+        ditherEngineId: "error-diffusion-checker-phase-v4-4",
+        ditheringAmount: 100,
+        errorDiffusionLineSuppression: suppression,
+        screenFlickerSuppression,
+        paletteSelections: qlPaletteSelections(colors),
+      });
+    const neutral = convert(0);
+    const checker = convert(100);
+    const repeated = convert(100);
+    expect(checker.frames).toHaveLength(2);
+    expect(checker).toEqual(repeated);
+    expect(checker.mergedPreviewRgba).not.toEqual(neutral.mergedPreviewRgba);
+    const checkerScore = checkerOccupancy(
+      checker.frames[0]!.paletteIndices,
+      width,
+      256,
+    );
+    const neutralScore = checkerOccupancy(
+      neutral.frames[0]!.paletteIndices,
+      width,
+      256,
+    );
+    expect(checkerScore).toBeGreaterThan(0.45);
+    expect(checkerScore).toBeGreaterThanOrEqual(neutralScore - 0.10);
+
+    const swappedOff = convert(100, false);
+    expect(swappedOff.frames[0]!.paletteIndices).not.toEqual(
+      checker.frames[0]!.paletteIndices,
+    );
+    expect(swappedOff.frames[1]!.paletteIndices).not.toEqual(
+      checker.frames[1]!.paletteIndices,
+    );
+    expect(swappedOff.mergedPreviewRgba).toEqual(checker.mergedPreviewRgba);
+  }, 30_000);
+
+  it("derives QL Mode 8/4 v4.4 frames from one legal candidate field", () => {
+    const source = new Uint8Array(512 * 256 * 4);
+    for (let offset = 0; offset < source.length; offset += 4) {
+      source[offset] = 188;
+      source[offset + 1] = 188;
+      source[offset + 2] = 188;
+      source[offset + 3] = 255;
+    }
+    const settings = {
+      ...DEFAULT_CONVERSION_SETTINGS,
+      platformId: "sinclair-ql" as const,
+      profileId: "org.retroconverter.sinclair-ql.default",
+      modeId: "mode8-mode4-mixed-512x256" as const,
+      framing: "stretch" as const,
+      dithering: "error-diffusion" as const,
+      ditherEngineId: "error-diffusion-checker-phase-v4-4" as const,
+      ditheringAmount: 100,
+      errorDiffusionLineSuppression: 100,
+      screenFlickerSuppression: true,
+      paletteSelections: [
+        { screenIndex: 0, enabledColorIds: [0, 1, 2, 3, 4, 5, 6, 7] },
+        { screenIndex: 1, enabledColorIds: [0, 1, 2, 3] },
+      ],
+    };
+    const first = convertToQl(source, 512, 256, settings);
+    const second = convertToQl(source, 512, 256, settings);
+    expect(first).toEqual(second);
+    expect(first.frames[0]!.paletteIndices.every((index) => index < 8)).toBe(true);
+    expect(first.frames[1]!.paletteIndices.every((index) => index < 4)).toBe(true);
+    for (let y = 0; y < 256; y += 1) {
+      for (let x = 0; x < 256; x += 1) {
+        const highOffset = y * 512 + x * 2;
+        const left = first.frames[1]!.paletteIndices[highOffset]!;
+        const right = first.frames[1]!.paletteIndices[highOffset + 1]!;
+        expect(left).toBeLessThan(4);
+        expect(right).toBeLessThan(4);
+      }
+    }
+  }, 30_000);
 
   it("applies suppression-scaled Artistic checker placement to QL mixed resolution", () => {
     const source = new Uint8Array(512 * 256 * 4);

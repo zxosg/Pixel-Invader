@@ -5,6 +5,8 @@ import {
   parseScr,
   serializeScr,
   serializeSoftwareScr,
+  serializeSoftware8x1Linear,
+  validateSoftware8x1Linear,
   validateSoftwareScr,
   validateScr,
   validateScreen,
@@ -80,5 +82,21 @@ describe(".scr serialization", () => {
       expect(bytes.subarray(ZX_BITMAP_BYTES)).toEqual(attributes);
       expect(validateSoftwareScr(bytes, attributeHeight)).toEqual([]);
     }
+  });
+
+  it("serializes the canonical full-screen 8x1 linear interchange payload", () => {
+    const pixels = new Uint8Array(256 * 192);
+    const attributes = new Uint8Array(32 * 192);
+    pixels[0] = 1;
+    pixels[191 * 256 + 255] = 1;
+    attributes[0] = 0x47;
+    attributes[32 * 191 + 31] = 0x38;
+    const bytes = serializeSoftware8x1Linear(pixels, attributes);
+    expect(bytes).toHaveLength(12_288);
+    expect(bytes[0]).toBe(0x80);
+    expect(bytes[191 * 32 + 31]).toBe(0x01);
+    expect(bytes[ZX_BITMAP_BYTES]).toBe(0x47);
+    expect(bytes[ZX_BITMAP_BYTES + 32 * 191 + 31]).toBe(0x38);
+    expect(validateSoftware8x1Linear(bytes)).toEqual([]);
   });
 });

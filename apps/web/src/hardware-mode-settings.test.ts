@@ -23,6 +23,14 @@ const personalized: ConversionSettings = {
   gamma: 141,
   smoothing: 4,
   sharpening: 7,
+  dithering: "ordered",
+  ditheringAmount: 63,
+  verticalSpatialMix: {
+    schemaVersion: 1,
+    algorithmId: "vertical-spatial-uniform-v1",
+    calibrationId: "srgb-ideal-v1",
+    swapRows: true,
+  },
 };
 
 const retainedKeys = [
@@ -78,5 +86,8 @@ describe("hardware mode retargeting", () => {
     });
     expect(result.brightness).toBe(personalized.brightness);
     expect(result.crop).toEqual(personalized.crop);
+    expect(result.dithering).toBe(personalized.dithering);
+    expect(result.ditheringAmount).toBe(personalized.ditheringAmount);
+    expect(result.verticalSpatialMix).toEqual(personalized.verticalSpatialMix);
   });
 });

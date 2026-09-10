@@ -109,6 +109,11 @@ describe("versioned conversion engines", () => {
       "vertical-spatial-ordered-v1",
     )).not.toThrow();
     expect(() => assertCompatibleEngines(
+      "pmd-85",
+      "pmd85-vertical-spatial-detail-v2",
+      "vertical-spatial-error-diffusion-v1",
+    )).not.toThrow();
+    expect(() => assertCompatibleEngines(
       "sinclair-ql",
       "ql-vertical-spatial-uniform-v1",
       "vertical-spatial-error-diffusion-v1",

@@ -2705,6 +2705,7 @@ export function convertToZx(
         amount: settings.ditheringAmount,
         orderedMatrix: settings.orderedMatrix,
         errorRandomization: settings.errorDiffusionRandomization,
+        swapRows: settings.verticalSpatialMix?.swapRows ?? (settings.attributeOptimizerId === "zx-vertical-spatial-detail-v1"),
       },
       settings.attributeOptimizerId === "zx-vertical-spatial-detail-v1"
         ? "detail-preserving"

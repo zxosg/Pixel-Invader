@@ -28,6 +28,7 @@ import type {
 } from "./types.js";
 import {
   optimizeVerticalSpatialPmd,
+  optimizeVerticalSpatialPmdDetail,
   validateVerticalSpatialMixSettings,
   withAnalyticPreview,
 } from "./vertical-spatial-mix.js";
@@ -138,6 +139,7 @@ function validateMode(mode: string): asserts mode is Pmd85ModeId {
   if (![
     "pmd85-2-tv",
     "pmd85-2-rgb",
+    "pmd85-3-tv",
     "pmd85-3-pal",
     "pmd85-3-rgb",
     "pmd85-colorace",
@@ -179,9 +181,7 @@ function framePmd85LinearLight(
   sourceHeight: number,
   settings: ConversionSettings,
 ): Uint8Array {
-  const outputPixelAspect = settings.pmd85.crtAspect === "approximate-4:3"
-    ? { width: 32, height: 27 }
-    : { width: 1, height: 1 };
+  const outputPixelAspect = { width: 1, height: 1 };
   if (settings.resampling === "nearest") {
     return frameRgbaToDimensions(
       source,
@@ -414,7 +414,10 @@ export function convertToPmd85(
   )) throw new RangeError("PMD 85 spatial engines require a vertical spatial target.");
   if (
     (!spatial && settings.attributeOptimizerId !== "pmd85-cell-v1") ||
-    (spatial && settings.attributeOptimizerId !== "pmd85-vertical-spatial-uniform-v1")
+    (spatial && ![
+      "pmd85-vertical-spatial-uniform-v1",
+      "pmd85-vertical-spatial-detail-v2",
+    ].includes(settings.attributeOptimizerId))
   ) {
     throw new RangeError("PMD 85 conversion uses an incompatible optimizer.");
   }
@@ -457,13 +460,18 @@ export function convertToPmd85(
       : settings.dithering === "ordered"
         ? "vertical-spatial-ordered-v1"
         : "vertical-spatial-error-diffusion-v1";
+    const detailV2 = settings.attributeOptimizerId === "pmd85-vertical-spatial-detail-v2";
     if (
-      settings.verticalSpatialMix.algorithmId !== "vertical-spatial-uniform-v1" ||
+      settings.verticalSpatialMix.algorithmId !== (detailV2
+        ? "vertical-spatial-pmd-detail-v2"
+        : "vertical-spatial-uniform-v1") ||
       settings.ditherEngineId !== spatialDitherEngine
     ) {
       throw new RangeError("PMD 85 vertical spatial mode requires a matching Version 1 spatial dither engine.");
     }
-    const optimized = optimizeVerticalSpatialPmd(
+    const optimized = (detailV2
+      ? optimizeVerticalSpatialPmdDetail
+      : optimizeVerticalSpatialPmd)(
       normalized,
       PMD85_SCREEN_WIDTH,
       PMD85_SCREEN_HEIGHT,
@@ -474,6 +482,7 @@ export function convertToPmd85(
         amount: settings.ditheringAmount,
         orderedMatrix: settings.orderedMatrix,
         errorRandomization: settings.errorDiffusionRandomization,
+        swapRows: settings.verticalSpatialMix?.swapRows ?? detailV2,
       },
     );
     const encoded = encodePmd85Screen(
@@ -490,7 +499,7 @@ export function convertToPmd85(
       PMD85_SCREEN_WIDTH,
       PMD85_SCREEN_HEIGHT,
     );
-    const pixelAspectRatio = settings.pmd85.crtAspect === "approximate-4:3" ? 32 / 27 : 1;
+    const pixelAspectRatio = 1;
     return {
       platformId: "pmd-85",
       modeId: settings.modeId as Pmd85ConversionResult["modeId"],
@@ -628,7 +637,8 @@ export function convertToPmd85(
         }
       } else {
         const index = cellY * PMD85_VISIBLE_BYTES_PER_LINE + byteX;
-        // TV/CV deliberately emits only canonical static 00 Bright / 01 Dim.
+        // PMD 85-2 TV/CV has two legal static levels (00 Bright / 01 Dim);
+        // PMD 85-3 TV/CV uses all four attributes as native gray levels.
         attributes[index] = bestInk;
       }
     }
@@ -749,7 +759,7 @@ export function convertToPmd85(
   );
   const decoded = decodePmd85Screen(encoded, hardwareMode);
   const preview = renderPmd85Rgba(decoded, foregroundPalette);
-  const pixelAspectRatio = settings.pmd85.crtAspect === "approximate-4:3" ? 32 / 27 : 1;
+  const pixelAspectRatio = 1;
   return {
     platformId: "pmd-85",
     modeId: settings.modeId as Pmd85ConversionResult["modeId"],

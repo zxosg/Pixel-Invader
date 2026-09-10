@@ -22,7 +22,7 @@ import {
   pmd85AttributeCellHeight,
 } from "@retro-converter/pmd-85";
 
-export const APPLICATION_VERSION = "1.0.0-draft.5";
+export const APPLICATION_VERSION = "1.0.0-draft.8";
 
 export function formatApplicationDisplayVersion(
   version: string,
@@ -193,7 +193,7 @@ export async function buildConversionMetadata(input: MetadataInput) {
         : "none",
       settings: input.settings,
       algorithm_versions: {
-        geometry: "rc-geometry-3",
+        geometry: "rc-geometry-4",
         adjustments: "rc-adjustments-filters-3",
         optimizer: input.settings.attributeOptimizerId,
         dithering: input.settings.ditherEngineId,
@@ -286,9 +286,11 @@ export async function buildConversionMetadata(input: MetadataInput) {
       },
       fixed_background: "black",
       blink_animation_supported: false,
-      blink_bit_interpretation: input.settings.modeId === "pmd85-2-tv"
+      blink_bit_interpretation: input.settings.pmd85.mode === "pmd85-2-tv"
         ? "static-intensity"
-        : "native-color-bit",
+        : input.settings.pmd85.mode === "pmd85-3-tv"
+          ? "native-intensity-bit"
+          : "native-color-bit",
       gap_policy: input.settings.pmd85.gapPolicy,
       addressing: {
         base_address: PMD85_VRAM_BASE_ADDRESS,

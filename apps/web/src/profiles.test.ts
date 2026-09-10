@@ -56,6 +56,7 @@ describe("declarative profiles", () => {
     expect(Object.keys(candidate.palette.modes)).toEqual([
       "pmd85-2-tv",
       "pmd85-2-rgb",
+      "pmd85-3-tv",
       "pmd85-3-pal",
       "pmd85-3-rgb",
       "pmd85-colorace",
@@ -67,7 +68,7 @@ describe("declarative profiles", () => {
     expect(candidate.platform_id).toBe("pmd-85");
     expect(candidate.presets.map((preset) => preset.id)).toEqual([
       "default",
-      "vertical-spatial-v1",
+      "vertical-spatial-v2",
       "clean-exact",
       "ordered-balanced",
       "soft-diffusion",
@@ -75,8 +76,8 @@ describe("declarative profiles", () => {
     for (const preset of candidate.presets) {
       const settings = preset.settings;
       expect(settings.attributeOptimizerId).toBe(
-        preset.id === "vertical-spatial-v1"
-          ? "pmd85-vertical-spatial-uniform-v1"
+        preset.id === "vertical-spatial-v2"
+          ? "pmd85-vertical-spatial-detail-v2"
           : "pmd85-cell-v1",
       );
       expect(settings.pmd85).not.toHaveProperty("blinkPhase");
@@ -85,11 +86,15 @@ describe("declarative profiles", () => {
     const defaultPreset = candidate.presets.find((preset) => preset.id === "default")!;
     expect(defaultPreset.settings.dithering).toBe("none");
     expect(defaultPreset.settings.ditheringAmount).toBe(0);
-    expect(defaultPreset.settings.pmd85.crtAspect)
-      .toBe("approximate-4:3");
+    expect(defaultPreset.settings.pmd85).not.toHaveProperty("crtAspect");
     const colorAce = candidate.palette.modes["pmd85-colorace"]!;
     expect(colorAce.base_calibration_id).toBe("pure-rgb");
     expect(colorAce.calibrations?.map((calibration) => calibration.id)).toEqual(["emulator-soft"]);
+    const tv3 = candidate.palette.modes["pmd85-3-tv"]!;
+    expect(tv3.base_calibration_id).toBe("tv-grayscale");
+    expect(tv3.screens[0]?.colors.map((color) => color.normal))
+      .toEqual(["#ffffff", "#b8b8b8", "#777777", "#444444"]);
+    expect(candidate.palette.modes["pmd85-3-pal"]?.calibrations).toBeUndefined();
   });
 
   it("exposes the ZX detail-preserving spatial preset as experimental", () => {
@@ -108,6 +113,23 @@ describe("declarative profiles", () => {
       presets: [{ id: "default", name: "Default", settings: legacySettings }],
     }));
     expect(result.presets[0]?.settings.pmd85).toEqual(DEFAULT_CONVERSION_SETTINGS.pmd85);
+  });
+
+  it("defaults missing pixel-panning settings for legacy profiles", async () => {
+    const {
+      panOffsetX: _panOffsetX,
+      panOffsetY: _panOffsetY,
+      panEdgeMode: _panEdgeMode,
+      ...legacySettings
+    } = DEFAULT_CONVERSION_SETTINGS;
+    const result = await parse(profile({
+      presets: [{ id: "default", name: "Default", settings: legacySettings }],
+    }));
+    expect(result.presets[0]?.settings).toMatchObject({
+      panOffsetX: 0,
+      panOffsetY: 0,
+      panEdgeMode: "background",
+    });
   });
   it("describes the heterogeneous QL Low/High palettes per screen", () => {
     const mode = QL_BUILT_IN_PROFILE.palette.modes[

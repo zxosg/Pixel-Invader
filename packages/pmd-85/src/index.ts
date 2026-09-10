@@ -1,6 +1,7 @@
 export type Pmd85ModeId =
   | "pmd85-2-tv"
   | "pmd85-2-rgb"
+  | "pmd85-3-tv"
   | "pmd85-3-pal"
   | "pmd85-3-rgb"
   | "pmd85-colorace";
@@ -37,15 +38,17 @@ export const PMD85_VRAM_BASE_ADDRESS = 0xc000;
 export const PMD85_MODE_IDS = [
   "pmd85-2-tv",
   "pmd85-2-rgb",
+  "pmd85-3-tv",
   "pmd85-3-pal",
   "pmd85-3-rgb",
   "pmd85-colorace",
 ] as const satisfies readonly Pmd85ModeId[];
 
-/** Native attribute-to-logical-foreground maps. TV/CV deliberately ignores blink bit 7. */
+/** Native attribute maps. Only PMD 85-2 TV/CV ignores bit 7 as a blink flag. */
 export const PMD85_NATIVE_ATTRIBUTE_MAPS = {
   "pmd85-2-tv": [0, 1, 0, 1],
   "pmd85-2-rgb": [0, 1, 2, 3],
+  "pmd85-3-tv": [0, 1, 2, 3],
   "pmd85-3-pal": [0, 1, 2, 3],
   "pmd85-3-rgb": [0, 1, 2, 3],
 } as const satisfies Record<Exclude<Pmd85ModeId, "pmd85-colorace">, readonly number[]>;

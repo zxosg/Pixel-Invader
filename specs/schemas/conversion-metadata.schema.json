@@ -37,13 +37,13 @@
     "pmd_85": {
       "type": ["object", "null"],
       "properties": {
-        "mode": { "enum": ["pmd85-2-tv", "pmd85-2-rgb", "pmd85-3-pal", "pmd85-3-rgb", "pmd85-colorace"] },
+        "mode": { "enum": ["pmd85-2-tv", "pmd85-2-rgb", "pmd85-3-tv", "pmd85-3-pal", "pmd85-3-rgb", "pmd85-colorace"] },
         "calibration": { "type": "string", "minLength": 1 },
         "attribute_model": { "enum": ["native", "colorace-pair"] },
         "attribute_cell": { "type": "object" },
         "fixed_background": { "const": "black" },
         "blink_animation_supported": { "const": false },
-        "blink_bit_interpretation": { "enum": ["static-intensity", "native-color-bit"] },
+        "blink_bit_interpretation": { "enum": ["static-intensity", "native-intensity-bit", "native-color-bit"] },
         "gap_policy": { "enum": ["zero", "preserve-imported"] },
         "addressing": { "type": "object" },
         "enabled_foreground_ids": { "type": "array", "items": { "type": "integer", "minimum": 0, "maximum": 6 } },

@@ -36,7 +36,6 @@ export interface DecodePmd85Request {
   readonly mode: Pmd85ModeId;
   readonly foregroundPalette: readonly Pmd85RgbColor[];
   readonly paletteCalibrationId: string;
-  readonly pixelAspectRatio: number;
 }
 
 export interface ConvertImageRequest {

@@ -20,7 +20,9 @@ describe("settings registry", () => {
     expect(SETTINGS_REGISTRY.find((item) => item.id === "gamma")?.control.kind).toBe("slider");
     expect(SETTINGS_REGISTRY.find((item) => item.id === "resampling")?.control.kind).toBe("select");
     expect(SETTINGS_REGISTRY.find((item) => item.id === "rotation")?.control.kind).toBe("select");
-    expect(SETTINGS_REGISTRY.find((item) => item.id === "paintMode")?.description).toContain("Toggle");
+    expect(SETTINGS_REGISTRY.find((item) => item.id === "background")?.control.kind).toBe("color");
+    expect(settingMatchesSearch(SETTINGS_REGISTRY.find((item) => item.id === "background")!, "RGB")).toBe(true);
+    expect(SETTINGS_REGISTRY.find((item) => item.id === "paintMode")).toBeUndefined();
   });
 
   it("filters by category, preset, and modified values", () => {
@@ -55,8 +57,15 @@ describe("settings registry", () => {
       profileId: "org.retroconverter.zx48.default", presetId: "default", modeId: "zx48-standard-256x192",
       framing: "fit", resampling: "bilinear", rotation: 0, dithering: "none", ditheringAmount: 0,
       workspaceLayout: "conversion", synchronizePan: true, mouseWheelZoom: true, gamma: 100,
-      attributeHeight: 8, orderedMatrix: "bayer-4x4", paintMode: "toggle",
+      attributeHeight: 8, orderedMatrix: "bayer-4x4",
     });
     expect(validateSettingsDraft(draft).errors).toEqual({});
+  });
+
+  it("round-trips RGB background colors", () => {
+    const draft = createSettingsDraft({ background: { r: 12, g: 34, b: 56 } });
+    expect(validateSettingsDraft(draft).errors).toEqual({});
+    expect(loadRegisteredValues({ background: { r: 12, g: 34, b: 56 } }).background).toEqual({ r: 12, g: 34, b: 56 });
+    expect(loadRegisteredValues({ background: { r: 300, g: 0, b: 0 } }).background).toEqual({ r: 255, g: 255, b: 255 });
   });
 });

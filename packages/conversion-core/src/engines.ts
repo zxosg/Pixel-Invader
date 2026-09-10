@@ -64,6 +64,24 @@ export const ATTRIBUTE_OPTIMIZERS: readonly AttributeOptimizerDescriptor[] = [
     lifecycle: "promoted",
   },
   {
+    id: "pmd85-vertical-spatial-detail-v2",
+    name: "PMD 85 vertical spatial detail v2",
+    version: 2,
+    platforms: ["pmd-85"],
+    compatibleDitherEngineIds: [
+      "vertical-spatial-none-v1",
+      "vertical-spatial-ordered-v1",
+      "vertical-spatial-error-diffusion-v1",
+    ],
+    defaultDitherEngineId: "vertical-spatial-error-diffusion-v1",
+    targetModeIds: [
+      "pmd85-2-rgb-vertical-spatial",
+      "pmd85-3-rgb-vertical-spatial",
+      "pmd85-3-pal-vertical-spatial",
+    ],
+    lifecycle: "promoted",
+  },
+  {
     id: "ql-vertical-spatial-uniform-v1",
     name: "QL vertical spatial uniform v1",
     version: 1,
@@ -229,6 +247,7 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
       "zx-vertical-spatial-detail-v1",
       "ql-vertical-spatial-uniform-v1",
       "pmd85-vertical-spatial-uniform-v1",
+      "pmd85-vertical-spatial-detail-v2",
     ],
     targetModeIds: [
       "zx48-vertical-spatial-256x192",
@@ -251,6 +270,7 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
       "zx-vertical-spatial-detail-v1",
       "ql-vertical-spatial-uniform-v1",
       "pmd85-vertical-spatial-uniform-v1",
+      "pmd85-vertical-spatial-detail-v2",
     ],
     orderedMatrixIds: [
       "checkerboard-2x1", "bayer-2x2", "bayer-4x4", "bayer-8x8",
@@ -277,6 +297,7 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
       "zx-vertical-spatial-detail-v1",
       "ql-vertical-spatial-uniform-v1",
       "pmd85-vertical-spatial-uniform-v1",
+      "pmd85-vertical-spatial-detail-v2",
     ],
     targetModeIds: [
       "zx48-vertical-spatial-256x192",

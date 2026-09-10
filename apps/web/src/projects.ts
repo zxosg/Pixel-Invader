@@ -447,6 +447,11 @@ export async function validateCompletedProject(bytes: Uint8Array): Promise<Valid
     borderColor: rawSettings?.borderColor ?? archivedBorder,
   };
   if (
+    !Number.isInteger(settings.panOffsetX) ||
+    !Number.isInteger(settings.panOffsetY) ||
+    !["background", "clamp", "wrap"].includes(settings.panEdgeMode)
+  ) throw new Error("PROJECT_SCHEMA_INVALID: pixel panning settings are invalid.");
+  if (
     !Array.isArray(settings.paletteSelections) ||
     settings.paletteSelections.length !== outputScreenCount(settings.modeId) ||
     settings.paletteSelections.some((selection, screenIndex) =>
@@ -481,6 +486,8 @@ export async function validateCompletedProject(bytes: Uint8Array): Promise<Valid
       settings.verticalSpatialMix.algorithmId !== (
         settings.attributeOptimizerId === "zx-vertical-spatial-detail-v1"
           ? "vertical-spatial-detail-v1"
+          : settings.attributeOptimizerId === "pmd85-vertical-spatial-detail-v2"
+            ? "vertical-spatial-pmd-detail-v2"
           : "vertical-spatial-uniform-v1"
       ) ||
       settings.verticalSpatialMix.calibrationId !== "srgb-ideal-v1" ||
@@ -493,9 +500,17 @@ export async function validateCompletedProject(bytes: Uint8Array): Promise<Valid
             ].includes(settings.attributeOptimizerId)
           : settings.platformId === "sinclair-ql"
             ? settings.attributeOptimizerId !== "ql-vertical-spatial-uniform-v1"
-            : settings.attributeOptimizerId !== "pmd85-vertical-spatial-uniform-v1"
+            : ![
+                "pmd85-vertical-spatial-uniform-v1",
+                "pmd85-vertical-spatial-detail-v2",
+              ].includes(settings.attributeOptimizerId)
       )
-    ) throw new Error("PROJECT_SCHEMA_INVALID: vertical spatial settings are invalid.");
+  ) throw new Error("PROJECT_SCHEMA_INVALID: vertical spatial settings are invalid.");
+  if (
+    settings.verticalSpatialMix !== undefined &&
+    settings.verticalSpatialMix.swapRows !== undefined &&
+    typeof settings.verticalSpatialMix.swapRows !== "boolean"
+  ) throw new Error("PROJECT_SCHEMA_INVALID: vertical spatial row ordering is invalid.");
   } else if (
     settings.verticalSpatialMix !== undefined ||
     settings.ditherEngineId.startsWith("vertical-spatial-")

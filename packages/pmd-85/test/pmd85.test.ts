@@ -45,6 +45,15 @@ describe("PMD 85 VRAM codec", () => {
     expect([...decoded.attributes.slice(0, 4)]).toEqual([0, 1, 2, 3]);
   });
 
+  it("decodes all four PMD 85-3 TV/CV attributes as distinct gray levels", () => {
+    const bytes = new Uint8Array(PMD85_VRAM_BYTES);
+    for (let attr = 0; attr < 4; attr += 1) bytes[attr] = (attr << 6) | 1;
+    const decoded = decodePmd85Screen(bytes, "pmd85-3-tv");
+    expect([0, 1, 2, 3].map((byteX) => decoded.paletteIndices[byteX * 6]))
+      .toEqual([1, 2, 3, 4]);
+    expect([...decoded.attributes.slice(0, 4)]).toEqual([0, 1, 2, 3]);
+  });
+
   it("implements every ColorAce pair and canonical encoding", () => {
     for (let even = 0; even < 4; even += 1) {
       for (let odd = 0; odd < 4; odd += 1) {

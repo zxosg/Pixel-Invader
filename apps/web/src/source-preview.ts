@@ -9,7 +9,7 @@ type SourcePreviewSettings = Pick<
   ConversionSettings,
   "framing" | "background" | "resampling" | "rotation" |
   "mirrorHorizontal" | "mirrorVertical" | "fillOffsetX" | "fillOffsetY" |
-  "crop"
+  "panOffsetX" | "panOffsetY" | "panEdgeMode" | "crop"
 >;
 
 export interface FramedSourcePreview {
@@ -24,7 +24,6 @@ export function frameFallbackSourcePreview(
   sourceHeight: number,
   platformId: PlatformId,
   modeId: TargetModeId,
-  pmdCrtAspect: ConversionSettings["pmd85"]["crtAspect"],
   settings: SourcePreviewSettings,
 ): FramedSourcePreview {
   const isPmd = platformId === "pmd-85";
@@ -36,9 +35,7 @@ export function frameFallbackSourcePreview(
   const width = isPmd ? 288 : isQl && qlUsesMode4Width ? 512 : 256;
   const height = isPmd || isQl ? 256 : 192;
   const pixelAspect = isPmd
-    ? pmdCrtAspect === "approximate-4:3"
-      ? { width: 32, height: 27 }
-      : { width: 1, height: 1 }
+    ? { width: 1, height: 1 }
     : isQl
       ? qlUsesMode4Width
         ? { width: 2, height: 3 }

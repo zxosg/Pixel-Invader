@@ -18,6 +18,9 @@ export function zxSoftwareScrBytes(attributeHeight: ZxAttributeHeight): number {
   return ZX_BITMAP_BYTES + ZX_ATTRIBUTE_COLUMNS * zxAttributeRows(attributeHeight);
 }
 
+/** Canonical linear interchange size for the full-screen 8×1 software mode. */
+export const ZX_SOFTWARE_8X1_LINEAR_BYTES = ZX_BITMAP_BYTES * 2;
+
 export function validateSoftwareScreen(
   pixels: Uint8Array,
   attributes: Uint8Array,
@@ -83,6 +86,59 @@ export function serializeSoftwareScr(
   }
   output.set(attributes, ZX_BITMAP_BYTES);
   return output;
+}
+
+/**
+ * Serializes the canonical full-screen 8×1 software-attribute interchange
+ * payload: a linear row-major pixel plane followed by a linear row-major
+ * 32×192 attribute plane. This is intentionally separate from standard .scr.
+ */
+export function serializeSoftware8x1Linear(
+  pixels: Uint8Array,
+  attributes: Uint8Array,
+): Uint8Array {
+  const issues = validateSoftwareScreen(pixels, attributes, 1);
+  if (issues.length > 0) throw new ZxValidationError(issues);
+  const output = new Uint8Array(ZX_SOFTWARE_8X1_LINEAR_BYTES);
+  for (let y = 0; y < ZX_SCREEN_HEIGHT; y += 1) {
+    for (let xByte = 0; xByte < ZX_ATTRIBUTE_COLUMNS; xByte += 1) {
+      let packed = 0;
+      const source = y * ZX_SCREEN_WIDTH + xByte * 8;
+      for (let bit = 0; bit < 8; bit += 1) {
+        packed |= (pixels[source + bit] ?? 0) << (7 - bit);
+      }
+      output[y * ZX_ATTRIBUTE_COLUMNS + xByte] = packed;
+    }
+  }
+  output.set(attributes, ZX_BITMAP_BYTES);
+  return output;
+}
+
+export function validateSoftware8x1Linear(bytes: Uint8Array): ZxValidationIssue[] {
+  if (bytes.length !== ZX_SOFTWARE_8X1_LINEAR_BYTES) {
+    return [{
+      code: "SCR_LENGTH",
+      message: `Expected ${ZX_SOFTWARE_8X1_LINEAR_BYTES} bytes, received ${bytes.length}.`,
+    }];
+  }
+  const attributes = bytes.subarray(ZX_BITMAP_BYTES);
+  const issues: ZxValidationIssue[] = [];
+  for (let offset = 0; offset < attributes.length; offset += 1) {
+    if ((attributes[offset]! & ZX_FLASH_MASK) !== 0) {
+      issues.push({
+        code: "SCREEN_FLASH_SET",
+        message: `Attribute ${offset} has FLASH set.`,
+        offset,
+      });
+      break;
+    }
+  }
+  return issues;
+}
+
+export function assertValidSoftware8x1Linear(bytes: Uint8Array): void {
+  const issues = validateSoftware8x1Linear(bytes);
+  if (issues.length > 0) throw new ZxValidationError(issues);
 }
 
 export function validateSoftwareScr(

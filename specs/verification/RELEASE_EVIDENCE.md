@@ -32,6 +32,8 @@ Status: engineering baseline; not final release approval
   The corresponding checkerboard regression produces a bounded neutral field.
   Corrected bilinear processing of the supplied photograph matches the ImageJ
   bilinear reference with mean absolute channel error 0.058 and RMSE 0.24.
+- Geometry version `rc-geometry-4` adds deterministic post-resampling
+  output-pixel panning with background, edge-clamp, and wrap handling.
 - Optimizer version `rc-zx-variable-attribute-high-4` adds a fixed one-half
   binary span-variance penalty while preserving amount-independent attributes.
   Dithering version `rc-dither-2` performs whole-frame serpentine diffusion

@@ -282,7 +282,8 @@ export function frameRgba(
   settings: Pick<ConversionSettings, "framing" | "background"> &
     Partial<Pick<ConversionSettings,
       "resampling" | "rotation" | "mirrorHorizontal" | "mirrorVertical" |
-      "fillOffsetX" | "fillOffsetY" | "crop">>,
+      "fillOffsetX" | "fillOffsetY" | "panOffsetX" | "panOffsetY" |
+      "panEdgeMode" | "crop">>,
 ): Uint8Array {
   return frameRgbaToDimensions(
     source,
@@ -303,7 +304,8 @@ export function frameRgbaToDimensions(
   settings: Pick<ConversionSettings, "framing" | "background"> &
     Partial<Pick<ConversionSettings,
       "resampling" | "rotation" | "mirrorHorizontal" | "mirrorVertical" |
-      "fillOffsetX" | "fillOffsetY" | "crop">>,
+      "fillOffsetX" | "fillOffsetY" | "panOffsetX" | "panOffsetY" |
+      "panEdgeMode" | "crop">>,
   outputPixelAspect: OutputPixelAspect = { width: 1, height: 1 },
 ): Uint8Array {
   if (
@@ -329,6 +331,9 @@ export function frameRgbaToDimensions(
   const mirrorVertical = settings.mirrorVertical ?? false;
   const fillOffsetX = settings.fillOffsetX ?? null;
   const fillOffsetY = settings.fillOffsetY ?? null;
+  const panOffsetX = settings.panOffsetX ?? 0;
+  const panOffsetY = settings.panOffsetY ?? 0;
+  const panEdgeMode = settings.panEdgeMode ?? "background";
   if (![0, 90, 180, 270].includes(rotation)) {
     throw new RangeError("Rotation must be 0, 90, 180, or 270 degrees.");
   }
@@ -339,6 +344,14 @@ export function frameRgbaToDimensions(
   ) {
     throw new RangeError("Fill offsets must be null or non-negative integers.");
   }
+  if (![panOffsetX, panOffsetY].every(Number.isInteger)) {
+    throw new RangeError("Pan offsets must be integers.");
+  }
+  if (!["background", "clamp", "wrap"].includes(panEdgeMode)) {
+    throw new RangeError("Pan edge mode must be background, clamp, or wrap.");
+  }
+  const resolvedPanOffsetX = Math.max(-outputWidth, Math.min(outputWidth, panOffsetX));
+  const resolvedPanOffsetY = Math.max(-outputHeight, Math.min(outputHeight, panOffsetY));
   sourceWidth = rotation === 90 || rotation === 270 ? inputHeight : inputWidth;
   sourceHeight = rotation === 90 || rotation === 270 ? inputWidth : inputHeight;
   const crop = settings.crop ?? {
@@ -511,37 +524,49 @@ export function frameRgbaToDimensions(
     );
   }
 
+  const wrapCoordinate = (value: number, size: number) =>
+    ((value % size) + size) % size;
+
   for (let y = 0; y < outputHeight; y += 1) {
     for (let x = 0; x < outputWidth; x += 1) {
       const target = (y * outputWidth + x) * 4;
-      const inside = settings.framing !== "fit" || (
-        x >= offsetX && x < offsetX + renderWidth &&
-        y >= offsetY && y < offsetY + renderHeight
-      );
+      const contentX = x - offsetX - resolvedPanOffsetX;
+      const contentY = y - offsetY - resolvedPanOffsetY;
+      const inside =
+        contentX >= 0 && contentX < renderWidth &&
+        contentY >= 0 && contentY < renderHeight;
 
-      if (!inside) {
+      let sampleX = contentX;
+      let sampleY = contentY;
+      if (!inside && panEdgeMode === "clamp") {
+        sampleX = Math.max(0, Math.min(renderWidth - 1, contentX));
+        sampleY = Math.max(0, Math.min(renderHeight - 1, contentY));
+      } else if (!inside && panEdgeMode === "wrap") {
+        sampleX = wrapCoordinate(contentX, renderWidth);
+        sampleY = wrapCoordinate(contentY, renderHeight);
+      }
+
+      if (!inside && panEdgeMode === "background") {
         output[target] = settings.background.r;
         output[target + 1] = settings.background.g;
         output[target + 2] = settings.background.b;
       } else if (filteredFrame) {
-        const sourceOffset = (
-          (y - offsetY) * renderWidth + x - offsetX
-        ) * 3;
+        const sourceOffset = (sampleY * renderWidth + sampleX) * 3;
         output[target] = filteredFrame[sourceOffset] ?? 0;
         output[target + 1] = filteredFrame[sourceOffset + 1] ?? 0;
         output[target + 2] = filteredFrame[sourceOffset + 2] ?? 0;
       } else {
-        const sampleX = sourceStartX + Math.min(
+        const sourceSampleX = sourceStartX + Math.min(
           sourceSpanWidth - 1,
-          Math.floor(((2 * (x - offsetX) + 1) * sourceSpanWidth) / (2 * renderWidth)),
+          Math.floor(((2 * sampleX + 1) * sourceSpanWidth) / (2 * renderWidth)),
         );
-        const sampleY = sourceStartY + Math.min(
+        const sourceSampleY = sourceStartY + Math.min(
           sourceSpanHeight - 1,
-          Math.floor(((2 * (y - offsetY) + 1) * sourceSpanHeight) / (2 * renderHeight)),
+          Math.floor(((2 * sampleY + 1) * sourceSpanHeight) / (2 * renderHeight)),
         );
-        output[target] = composited(sampleX, sampleY, 0);
-        output[target + 1] = composited(sampleX, sampleY, 1);
-        output[target + 2] = composited(sampleX, sampleY, 2);
+        output[target] = composited(sourceSampleX, sourceSampleY, 0);
+        output[target + 1] = composited(sourceSampleX, sourceSampleY, 1);
+        output[target + 2] = composited(sourceSampleX, sourceSampleY, 2);
       }
       output[target + 3] = 255;
     }
