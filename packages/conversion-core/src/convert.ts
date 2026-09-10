@@ -2857,22 +2857,12 @@ export function convertToZx(
       : null;
     for (let pixel = 0; pixel < virtualIndices.length; pixel += 1) {
       const pair = virtualPalette[virtualIndices[pixel] ?? 0]!;
-      const x = pixel % ZX_SCREEN_WIDTH;
-      const y = Math.floor(pixel / ZX_SCREEN_WIDTH);
-      // Unlike QL, ZX cannot alternate temporal endpoints per pixel without
-      // fighting the two-color attribute constraint. Keep one orientation for
-      // the complete attribute cell and alternate only between whole cells.
-      const swap = settings.screenFlickerSuppression &&
-        paletteSelectionsMatch(firstSelection, secondSelection) &&
-        pair.first !== pair.second &&
-        ((Math.floor(x / CELL_WIDTH) +
-          Math.floor(y / settings.attributeHeight)) & 1) === 1;
       const carrierFirst = mixedCarrierPixels?.[pixel];
       const firstValue = carrierFirst === undefined
-        ? (swap ? pair.second : pair.first)
+        ? pair.first
         : carrierFirst;
       const secondValue = carrierFirst === undefined
-        ? (swap ? pair.first : pair.second)
+        ? pair.second
         : carrierFirst === pair.first ? pair.second : pair.first;
       const first = combinedPalette[firstValue]!;
       const second = combinedPalette[secondValue]!;
@@ -2938,9 +2928,74 @@ export function convertToZx(
       },
       level,
     );
+    let firstPixels = first.pixels;
+    let firstAttributes = first.attributes;
+    let secondPixels = second.pixels;
+    let secondAttributes = second.attributes;
+    let firstFrame = first.frames[0]!;
+    let secondFrame = second.frames[0]!;
+    if (
+      settings.screenFlickerSuppression &&
+      paletteSelectionsMatch(firstSelection, secondSelection)
+    ) {
+      firstPixels = Uint8Array.from(first.pixels);
+      firstAttributes = Uint8Array.from(first.attributes);
+      secondPixels = Uint8Array.from(second.pixels);
+      secondAttributes = Uint8Array.from(second.attributes);
+      const attributeRows = ZX_SCREEN_HEIGHT / settings.attributeHeight;
+      for (let cellY = 0; cellY < attributeRows; cellY += 1) {
+        for (let cellX = 0; cellX < ZX_ATTRIBUTE_COLUMNS; cellX += 1) {
+          if (((cellX + cellY) & 1) === 0) continue;
+          const attributeOffset = cellY * ZX_ATTRIBUTE_COLUMNS + cellX;
+          const attribute = firstAttributes[attributeOffset]!;
+          firstAttributes[attributeOffset] = secondAttributes[attributeOffset]!;
+          secondAttributes[attributeOffset] = attribute;
+          for (let localY = 0; localY < settings.attributeHeight; localY += 1) {
+            const rowOffset = (cellY * settings.attributeHeight + localY) *
+              ZX_SCREEN_WIDTH + cellX * CELL_WIDTH;
+            for (let localX = 0; localX < CELL_WIDTH; localX += 1) {
+              const pixelOffset = rowOffset + localX;
+              const pixel = firstPixels[pixelOffset]!;
+              firstPixels[pixelOffset] = secondPixels[pixelOffset]!;
+              secondPixels[pixelOffset] = pixel;
+            }
+          }
+        }
+      }
+      const firstPreview = renderAttributeFrameRgba(
+        firstPixels,
+        firstAttributes,
+        settings.attributeHeight,
+      );
+      const secondPreview = renderAttributeFrameRgba(
+        secondPixels,
+        secondAttributes,
+        settings.attributeHeight,
+      );
+      firstFrame = {
+        ...firstFrame,
+        encoded: serializeSoftwareScr(
+          firstPixels,
+          firstAttributes,
+          settings.attributeHeight,
+        ),
+        paletteIndices: Uint8Array.from(firstPixels),
+        previewRgba: firstPreview,
+      };
+      secondFrame = {
+        ...secondFrame,
+        encoded: serializeSoftwareScr(
+          secondPixels,
+          secondAttributes,
+          settings.attributeHeight,
+        ),
+        paletteIndices: Uint8Array.from(secondPixels),
+        previewRgba: secondPreview,
+      };
+    }
     const merged = mergeTemporalFrames(
-      first.previewRgba,
-      second.previewRgba,
+      firstFrame.previewRgba,
+      secondFrame.previewRgba,
     );
     return {
       platformId: "zx-spectrum",
@@ -2951,12 +3006,12 @@ export function convertToZx(
       attributeOptimizerId: settings.attributeOptimizerId,
       ditherEngineId: settings.ditherEngineId,
       paletteSelections: settings.paletteSelections,
-      frames: [first.frames[0]!, second.frames[0]!],
+      frames: [firstFrame, secondFrame],
       preConstraintPreviewRgba: unrestrictedMerged,
       mergedPreviewRgba: merged,
-      screen: first.screen,
-      pixels: first.pixels,
-      attributes: first.attributes,
+      screen: { pixels: firstPixels, attributes: firstAttributes },
+      pixels: firstPixels,
+      attributes: firstAttributes,
       attributeHeight: settings.attributeHeight,
       sourcePreviewRgba: normalized,
       previewRgba: merged,

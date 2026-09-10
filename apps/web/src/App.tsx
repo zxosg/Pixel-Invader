@@ -741,7 +741,7 @@ function RangeNumberControl({
   };
   return (
     <label>
-      <span>{label} {value}{unit}</span>
+      <span>{label}</span>
       <span className="filter-inputs">
         <input
           aria-label={`${label} slider`}
@@ -753,36 +753,39 @@ function RangeNumberControl({
           disabled={disabled}
           onInput={(event) => onChange(Number(event.currentTarget.value))}
         />
-        <input
-          aria-label={`${label} value`}
-          className={valid ? undefined : "invalid"}
-          type="number"
-          min={min}
-          max={max}
-          step="1"
-          value={entry}
-          disabled={disabled}
-          aria-invalid={!valid}
-          onChange={(event) => {
-            const nextEntry = event.target.value;
-            setEntry(nextEntry);
-            const next = Number(nextEntry);
-            if (
-              /^-?\d+$/.test(nextEntry) &&
-              Number.isInteger(next) &&
-              next >= min &&
-              next <= max
-            ) onChange(next);
-          }}
-          onBlur={commit}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              commit();
-              event.currentTarget.blur();
-            }
-          }}
-        />
+        <span className="range-number-entry">
+          <input
+            aria-label={`${label} value`}
+            className={valid ? undefined : "invalid"}
+            type="number"
+            min={min}
+            max={max}
+            step="1"
+            value={entry}
+            disabled={disabled}
+            aria-invalid={!valid}
+            onChange={(event) => {
+              const nextEntry = event.target.value;
+              setEntry(nextEntry);
+              const next = Number(nextEntry);
+              if (
+                /^-?\d+$/.test(nextEntry) &&
+                Number.isInteger(next) &&
+                next >= min &&
+                next <= max
+              ) onChange(next);
+            }}
+            onBlur={commit}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                commit();
+                event.currentTarget.blur();
+              }
+            }}
+          />
+          {unit ? <span className="range-unit" aria-hidden="true">{unit}</span> : null}
+        </span>
       </span>
       {valid || disabled ? null : (
         <span className="field-error">Invalid value</span>
@@ -2896,6 +2899,91 @@ export function App() {
       setDitherEngineId(compatible && retained !== undefined
         ? retained
         : fallback[method]);
+    }
+    setState({ kind: "idle" });
+  }
+
+  function selectDitherEngine(id: DitherEngineId) {
+    setDitherEngineId(id);
+    setDithering(ditherMethodForEngine(id));
+    if (id === "pattern-legal-mask-dbs-v1") {
+      setAttributeOptimizerId("zx-block-dbs-global-v1");
+    } else if (
+      id === "ordered-cell-pattern-v1" ||
+      id === "ordered-cell-pattern-v2" ||
+      id === "ordered-cell-pattern-v3" ||
+      id === "ordered-cell-pattern-v4"
+    ) {
+      const isVersion4 = id === "ordered-cell-pattern-v4";
+      const isVersion3 = id === "ordered-cell-pattern-v3";
+      const isVersion2 = id === "ordered-cell-pattern-v2";
+      setAttributeOptimizerId(
+        isVersion4
+          ? "zx-structured-global-v4"
+          : isVersion3
+          ? "zx-structured-global-v3"
+          : isVersion2
+            ? "zx-structured-global-v2"
+            : "zx-structured-global-v1",
+      );
+      setStructuredSettings((current) => ({
+        ...current,
+        ditherResponseCurveId: isVersion2 || isVersion3 || isVersion4
+          ? "power-035-percent-v2"
+          : "power-065-percent-v1",
+        colorAnchorModelId: isVersion3 || isVersion4
+          ? "srgb-squared-v1"
+          : "none-v1",
+        structuralModelId: isVersion4
+          ? "palette-topology-v1"
+          : "none-v1",
+        objectiveWeights: isVersion4
+          ? {
+              ...current.objectiveWeights,
+              pixel: 192,
+              rgbAnchor: 2048,
+              patternReference: 1536,
+              paletteDistribution: 1024,
+              luminanceRank: 512,
+              edgePolarity: 768,
+              mean: 768,
+              sharedEndpoint: 0,
+            }
+          : isVersion2 || isVersion3
+          ? {
+              ...current.objectiveWeights,
+              pixel: 192,
+              rgbAnchor: isVersion3 ? 6144 : 0,
+              patternReference: 0,
+              paletteDistribution: 0,
+              luminanceRank: 0,
+              edgePolarity: 0,
+              mean: 2048,
+            }
+          : {
+              ...current.objectiveWeights,
+              pixel: 1024,
+              rgbAnchor: 0,
+              patternReference: 0,
+              paletteDistribution: 0,
+              luminanceRank: 0,
+              edgePolarity: 0,
+              mean: 256,
+            },
+        candidateParameters: {
+          ...current.candidateParameters,
+          localAdmissibilityPermille: isVersion4 ? 100 : 1000,
+          boundaryCapPermille: isVersion4 ? 100 : 1000,
+        },
+      }));
+    } else if (
+      attributeOptimizerId === "zx-structured-global-v1" ||
+      attributeOptimizerId === "zx-structured-global-v2" ||
+      attributeOptimizerId === "zx-structured-global-v3" ||
+      attributeOptimizerId === "zx-structured-global-v4" ||
+      attributeOptimizerId === "zx-block-dbs-global-v1"
+    ) {
+      setAttributeOptimizerId("zx-guide-reference-halo-v2");
     }
     setState({ kind: "idle" });
   }
@@ -6159,6 +6247,82 @@ export function App() {
           <>
           <fieldset id="settings-palette" className={`control-group palette-group${settingsSection === "palette" ? " settings-focused" : ""}`}>
             <legend>{isQl ? "QL palette" : isPmd ? "PMD 85 palette" : "ZX palette and attributes"}</legend>
+            <div className="palette-attributes-grid">
+            <section className="palette-subcard" aria-labelledby="palette-subcard-title">
+              <h3 id="palette-subcard-title">Palette</h3>
+              <p className="subcard-help">Select the colors available to each output screen.</p>
+              <div className="palette-screen-grid">
+                {paletteSelections.map((selection) => (
+                  <section className="palette-screen" key={selection.screenIndex}>
+                    <div className="palette-screen-heading">
+                      <strong>Screen {selection.screenIndex + 1}</strong>
+                      <span>{selection.enabledColorIds.length} selected</span>
+                    </div>
+                    {isZx ? (
+                      <fieldset className="bright-control">
+                        <legend>BRIGHT</legend>
+                        <div className="segmented-control compact-segmented" role="radiogroup" aria-label={`Screen ${selection.screenIndex + 1} BRIGHT policy`}>
+                          {(["auto", "on", "off"] as const).map((mode) => (
+                            <label className="segmented-option" key={mode}>
+                              <input
+                                type="radio"
+                                name={`screen-${selection.screenIndex}-bright`}
+                                value={mode}
+                                checked={(selection.brightMode ?? "auto") === mode}
+                                onChange={() => setPaletteBrightMode(selection.screenIndex, mode)}
+                              />
+                              <span>{mode === "auto" ? "Auto" : mode === "on" ? "On" : "Off"}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </fieldset>
+                    ) : null}
+                    <div
+                      className="palette-options"
+                      role="group"
+                      aria-label={`Screen ${selection.screenIndex + 1} available colors`}
+                    >
+                      {(paletteOptionsByScreen[selection.screenIndex] ??
+                        paletteOptionsByScreen[0] ??
+                        []).map((option) => {
+                          const selected = selection.enabledColorIds.includes(option.code);
+                          return (
+                            <button
+                              className={`palette-option${selected ? " selected" : ""}`}
+                              type="button"
+                              key={option.code}
+                              aria-label={`${selected ? "Remove" : "Add"} ${option.name} (${option.code}) from Screen ${selection.screenIndex + 1}`}
+                              aria-pressed={selected}
+                              title={`${option.name} (${option.code})`}
+                              onClick={() => togglePaletteColor(selection.screenIndex, option.code)}
+                            >
+                              <span
+                                className="palette-swatch"
+                                style={{
+                                  background: isZx && selection.brightMode === "auto"
+                                    ? `linear-gradient(90deg, ${option.normal} 0 50%, ${ZX_BASE_COLORS[option.code]?.bright ?? option.normal} 50% 100%)`
+                                    : isZx && selection.brightMode === "on"
+                                      ? ZX_BASE_COLORS[option.code]?.bright ?? option.normal
+                                      : option.normal,
+                                }}
+                                aria-hidden="true"
+                              />
+                              <span className="palette-option-code" aria-hidden="true">{option.code}</span>
+                            </button>
+                          );
+                        })}
+                    </div>
+                  </section>
+                ))}
+              </div>
+              {paletteValid ? null : (
+                <span className="field-error" id="palette-error">
+                  Select at least one color for every screen.
+                </span>
+              )}
+            </section>
+            <section className="attributes-subcard" aria-labelledby="attributes-subcard-title">
+              <h3 id="attributes-subcard-title">Attributes</h3>
             {targetModeId.includes("vertical-spatial") ? (
               <label className="check-control" title="Allow the optimizer to exchange the upper and lower physical rows in each mixed cell.">
                 <input
@@ -6319,6 +6483,8 @@ export function App() {
               </span>
             </label>
           ) : null}
+            </section>
+            </div>
           </fieldset>
           <fieldset id="settings-dithering" className={`control-group dithering-group${settingsSection === "dithering" ? " settings-focused" : ""}`}>
             <legend>Dithering</legend>
@@ -6444,128 +6610,6 @@ export function App() {
                 </select>
               </label>
             ) : null}
-            <label>
-              <span>Dither engine</span>
-              <select
-                value={ditherEngineId}
-                onChange={(event) => {
-                  const id = event.target.value as DitherEngineId;
-                  setDitherEngineId(id);
-                  setDithering(ditherMethodForEngine(id));
-                  if (id === "pattern-legal-mask-dbs-v1") {
-                    setAttributeOptimizerId("zx-block-dbs-global-v1");
-                  } else if (
-                    id === "ordered-cell-pattern-v1" ||
-                    id === "ordered-cell-pattern-v2" ||
-                    id === "ordered-cell-pattern-v3" ||
-                    id === "ordered-cell-pattern-v4"
-                  ) {
-                    const isVersion4 = id === "ordered-cell-pattern-v4";
-                    const isVersion3 = id === "ordered-cell-pattern-v3";
-                    const isVersion2 = id === "ordered-cell-pattern-v2";
-                    setAttributeOptimizerId(
-                      isVersion4
-                        ? "zx-structured-global-v4"
-                        : isVersion3
-                        ? "zx-structured-global-v3"
-                        : isVersion2
-                          ? "zx-structured-global-v2"
-                          : "zx-structured-global-v1",
-                    );
-                    setStructuredSettings((current) => ({
-                      ...current,
-                      ditherResponseCurveId: isVersion2 || isVersion3 || isVersion4
-                        ? "power-035-percent-v2"
-                        : "power-065-percent-v1",
-                      colorAnchorModelId: isVersion3 || isVersion4
-                        ? "srgb-squared-v1"
-                        : "none-v1",
-                      structuralModelId: isVersion4
-                        ? "palette-topology-v1"
-                        : "none-v1",
-                      objectiveWeights: isVersion4
-                        ? {
-                            ...current.objectiveWeights,
-                            pixel: 192,
-                            rgbAnchor: 2048,
-                            patternReference: 1536,
-                            paletteDistribution: 1024,
-                            luminanceRank: 512,
-                            edgePolarity: 768,
-                            mean: 768,
-                            sharedEndpoint: 0,
-                          }
-                        : isVersion2 || isVersion3
-                        ? {
-                            ...current.objectiveWeights,
-                            pixel: 192,
-                            rgbAnchor: isVersion3 ? 6144 : 0,
-                            patternReference: 0,
-                            paletteDistribution: 0,
-                            luminanceRank: 0,
-                            edgePolarity: 0,
-                            mean: 2048,
-                          }
-                        : {
-                            ...current.objectiveWeights,
-                            pixel: 1024,
-                            rgbAnchor: 0,
-                            patternReference: 0,
-                            paletteDistribution: 0,
-                            luminanceRank: 0,
-                            edgePolarity: 0,
-                            mean: 256,
-                          },
-                      candidateParameters: {
-                        ...current.candidateParameters,
-                        localAdmissibilityPermille: isVersion4 ? 100 : 1000,
-                        boundaryCapPermille: isVersion4 ? 100 : 1000,
-                      },
-                    }));
-                  } else if (
-                    attributeOptimizerId === "zx-structured-global-v1" ||
-                    attributeOptimizerId === "zx-structured-global-v2" ||
-                    attributeOptimizerId === "zx-structured-global-v3" ||
-                    attributeOptimizerId === "zx-structured-global-v4" ||
-                    attributeOptimizerId === "zx-block-dbs-global-v1"
-                  ) {
-                    setAttributeOptimizerId("zx-guide-reference-halo-v2");
-                  }
-                  setState({ kind: "idle" });
-                }}
-              >
-                {(() => {
-                  const compatible = DITHER_ENGINES.filter((engine) =>
-                    engine.platforms.includes(selectedPlatformId as never) &&
-                    (selectedPlatformId === "sinclair-ql" ||
-                      isCompatibleEnginePair(attributeOptimizerId, engine.id)) &&
-                    (engine.targetModeIds === undefined || engine.targetModeIds.includes(targetModeId)) &&
-                    (targetModeId !== "zx48-mixed-256x192" || !("family" in engine))
-                  );
-                  const recommended = new Set<DitherEngineId>([
-                    "none-discrete-v2", "ordered-strict-matrix-v6",
-                    "ordered-mixed-phase-stable-v8",
-                    "error-diffusion-decorrelated-v3",
-                  ]);
-                  return <>
-                    <optgroup label="Recommended">
-                      {compatible.filter((engine) => recommended.has(engine.id)).map((engine) =>
-                        <option key={engine.id} value={engine.id}>{engine.name}{engine.equivalenceGroupByTarget?.[targetModeId] ? " · equivalent in this mode" : ""}</option>)}
-                    </optgroup>
-                    <optgroup label="Alternatives and historical engines">
-                      {compatible.filter((engine) =>
-                        !recommended.has(engine.id) && engine.lifecycle !== "experimental"
-                        ).map((engine) =>
-                          <option key={engine.id} value={engine.id}>{engine.name}{engine.equivalenceGroupByTarget?.[targetModeId] ? " · equivalent in this mode" : ""}</option>)}
-                    </optgroup>
-                    <optgroup label="Experimental engines">
-                        {compatible.filter((engine) => engine.lifecycle === "experimental").map((engine) =>
-                          <option key={engine.id} value={engine.id}>{engine.name}{engine.equivalenceGroupByTarget?.[targetModeId] ? " · equivalent in this mode" : ""}</option>)}
-                    </optgroup>
-                  </>;
-                })()}
-              </select>
-            </label>
           </details>
           {isQl && targetModeId === "mode8-mode4-mixed-512x256" ? (
             <label className="dithering-wide">
@@ -6586,17 +6630,68 @@ export function App() {
               </select>
             </label>
           ) : null}
-          <label>
-            <span>Dithering method</span>
-            <select
-              value={dithering}
-              onChange={(event) => switchDithering(event.target.value as DitheringMethod)}
-            >
-              <option value="none">No dithering</option>
-              <option value="ordered">Ordered</option>
-              <option value="error-diffusion">Error diffusion</option>
-            </select>
-          </label>
+          <fieldset className="dithering-method-control dithering-wide">
+            <legend>Dithering method</legend>
+            <div className="segmented-control" role="radiogroup" aria-label="Dithering method">
+              {([
+                ["none", "No dithering"],
+                ["ordered", "Ordered"],
+                ["error-diffusion", "Error diffusion"],
+              ] as const).map(([value, label]) => (
+                <label className="segmented-option" key={value}>
+                  <input
+                    type="radio"
+                    name="dithering-method"
+                    value={value}
+                    checked={dithering === value}
+                    onChange={() => switchDithering(value)}
+                  />
+                  <span>{label}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          {dithering !== "none" && dithering !== "error-diffusion" ? (
+            <label className="dithering-wide">
+              <span>Dither engine</span>
+              <select
+                value={ditherEngineId}
+                onChange={(event) => selectDitherEngine(event.target.value as DitherEngineId)}
+                title={DITHER_ENGINES.find((engine) => engine.id === ditherEngineId)?.name}
+              >
+                {(() => {
+                  const compatible = DITHER_ENGINES.filter((engine) =>
+                    engine.method === "ordered" &&
+                    engine.platforms.includes(selectedPlatformId as never) &&
+                    (selectedPlatformId === "sinclair-ql" ||
+                      isCompatibleEnginePair(attributeOptimizerId, engine.id)) &&
+                    (engine.targetModeIds === undefined || engine.targetModeIds.includes(targetModeId)) &&
+                    (targetModeId !== "zx48-mixed-256x192" || !("family" in engine))
+                  );
+                  const recommended = new Set<DitherEngineId>([
+                    "ordered-strict-matrix-v6",
+                    "ordered-mixed-phase-stable-v8",
+                  ]);
+                  return <>
+                    <optgroup label="Recommended">
+                      {compatible.filter((engine) => recommended.has(engine.id)).map((engine) =>
+                        <option key={engine.id} value={engine.id}>{engine.name}</option>)}
+                    </optgroup>
+                    <optgroup label="Alternatives and historical engines">
+                      {compatible.filter((engine) =>
+                        !recommended.has(engine.id) && engine.lifecycle !== "experimental"
+                      ).map((engine) =>
+                        <option key={engine.id} value={engine.id}>{engine.name}</option>)}
+                    </optgroup>
+                    <optgroup label="Experimental engines">
+                      {compatible.filter((engine) => engine.lifecycle === "experimental").map((engine) =>
+                        <option key={engine.id} value={engine.id}>{engine.name}</option>)}
+                    </optgroup>
+                  </>;
+                })()}
+              </select>
+            </label>
+          ) : null}
           {ditherEngineId === "artistic-ordered-hybrid-v1" ? (
             <label>
               <span>Pattern preference</span>
@@ -6630,14 +6725,11 @@ export function App() {
             </label>
           ) : null}
           {dithering === "error-diffusion" ? (
-            <label>
-              <span>Error diffusion method</span>
+            <label className="dithering-wide">
+              <span>Dither algorithm</span>
               <select
                 value={ditherEngineId}
-                onChange={(event) => {
-                  setDitherEngineId(event.target.value as DitherEngineId);
-                  setState({ kind: "idle" });
-                }}
+                onChange={(event) => selectDitherEngine(event.target.value as DitherEngineId)}
               >
                 {(() => {
                   const compatible = DITHER_ENGINES.filter((engine) =>
@@ -7792,9 +7884,9 @@ export function App() {
           </div>
 
           {workspaceMode === "palette" ? (
-          <aside className="preview-palette-panel" aria-label="Palette selector">
-            <details className="palette-control">
-              <summary>
+          <aside className="preview-palette-panel" aria-label="Palette summary">
+            <div className="palette-control palette-summary-only">
+              <div className="palette-summary-heading">
                 <span>Palette selection</span>
                 <span className="palette-summary">
                   {paletteSelections.map((selection) => (
@@ -7824,7 +7916,7 @@ export function App() {
                     </span>
                   ))}
                 </span>
-              </summary>
+              </div>
               <div className="palette-screen-grid">
                 {paletteSelections.map((selection) => (
                   <section className="palette-screen" key={selection.screenIndex}>
@@ -7891,7 +7983,7 @@ export function App() {
                   Invalid value: select at least one color for every screen.
                 </span>
               )}
-            </details>
+            </div>
           </aside>
           ) : (
           <aside className="tilemap-charset-panel" aria-label="Charset selector">

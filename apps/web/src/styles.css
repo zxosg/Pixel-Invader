@@ -542,7 +542,8 @@ h1 {
   background: #111824;
 }
 
-.palette-control > summary {
+.palette-control > summary,
+.palette-control > .palette-summary-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2226,7 +2227,8 @@ input[type="range"] {
     padding: 0.4rem;
   }
 
-  .preview-palette-panel .palette-control > summary {
+  .preview-palette-panel .palette-control > summary,
+  .preview-palette-panel .palette-control > .palette-summary-heading {
     align-items: stretch;
     flex-direction: column;
     font-size: 0.68rem;
@@ -2623,6 +2625,278 @@ input[type="range"] {
 
   .tilemap-charset-panel {
     max-height: 10rem;
+  }
+}
+
+/* Compact palette and dithering controls. Keep the capability-specific
+   content in shared cards so ZX, QL, PMD 85, and mixed modes share one layout. */
+.range-number-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-width: 0;
+  gap: 0.18rem;
+}
+
+.range-number-entry input[type="number"] {
+  width: 100%;
+  min-width: 0;
+}
+
+.range-unit {
+  color: #aeb9c8;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.dithering-method-control,
+.bright-control {
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.dithering-method-control > legend,
+.bright-control > legend {
+  margin: 0 0 0.18rem;
+  padding: 0;
+  color: #d6deea;
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.segmented-control {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #53647e;
+  border-radius: 0.4rem;
+  background: #111824;
+}
+
+.compact-segmented {
+  grid-template-columns: repeat(3, minmax(3.1rem, 1fr));
+}
+
+.segmented-option {
+  position: relative;
+  display: flex !important;
+  min-width: 0;
+  min-height: 1.8rem;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  border-right: 1px solid #33425d;
+  padding: 0.18rem 0.28rem;
+  color: #b9c3d2;
+  background: transparent;
+  cursor: pointer;
+  text-align: center;
+  font-size: 0.68rem;
+  font-weight: 750;
+}
+
+.segmented-option:last-child {
+  border-right: 0;
+}
+
+.segmented-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.segmented-option:has(input:checked) {
+  color: #f4fbff;
+  background: #245b7b;
+  box-shadow: inset 0 0 0 1px #79b7ff;
+}
+
+.segmented-option:has(input:focus-visible) {
+  z-index: 1;
+  outline: 2px solid #f3cf62;
+  outline-offset: -2px;
+}
+
+.palette-group {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.preview-palette-panel .palette-summary-only {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.preview-palette-panel .palette-summary-only > .palette-summary-heading {
+  cursor: default;
+  pointer-events: none;
+}
+
+.preview-palette-panel .palette-summary-only > .palette-screen-grid,
+.preview-palette-panel .palette-summary-only > .field-error {
+  display: none;
+}
+
+.palette-attributes-grid {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.palette-subcard,
+.attributes-subcard {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 0.28rem;
+  border: 1px solid #33425d;
+  border-radius: 0.35rem;
+  padding: 0.35rem;
+  background: rgb(17 24 36 / 58%);
+}
+
+.palette-subcard h3,
+.attributes-subcard h3 {
+  margin: 0;
+  color: #f4fbff;
+  font-size: 0.78rem;
+}
+
+.subcard-help {
+  margin: -0.08rem 0 0;
+  color: #9eabbd;
+  font-size: 0.65rem;
+  line-height: 1.2;
+}
+
+.palette-subcard .palette-screen-grid {
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.45rem;
+  padding-top: 0.1rem;
+}
+
+.palette-subcard .palette-screen {
+  min-width: 0;
+  gap: 0.22rem;
+}
+
+.palette-subcard .palette-screen + .palette-screen {
+  border-left: 1px solid #33425d;
+  padding-left: 0.45rem;
+}
+
+.palette-subcard .palette-options {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.2rem;
+}
+
+.palette-subcard .palette-option {
+  min-width: 0;
+  min-height: 1.7rem;
+  gap: 0.18rem;
+  padding: 0.12rem 0.18rem;
+}
+
+.palette-subcard .palette-swatch {
+  width: 0.82rem;
+  height: 0.82rem;
+  flex: 0 0 auto;
+}
+
+.palette-option-code {
+  color: #d6deea;
+  font-size: 0.58rem;
+  font-weight: 800;
+}
+
+.palette-subcard .bright-control {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.palette-subcard .bright-control > legend {
+  font-size: 0.62rem;
+}
+
+.palette-subcard .segmented-option {
+  min-height: 1.45rem;
+  font-size: 0.62rem;
+}
+
+.attributes-subcard > label,
+.attributes-subcard > .check-control,
+.attributes-subcard > .control-help {
+  min-width: 0;
+}
+
+.attributes-subcard > .control-help {
+  grid-column: 1 / -1;
+  margin: -0.08rem 0 0;
+  font-size: 0.65rem;
+  line-height: 1.2;
+}
+
+.dithering-group > label,
+.dithering-group > fieldset,
+.dithering-group > details,
+.dithering-group > .dithering-parameter {
+  min-width: 0;
+}
+
+.dithering-group select,
+.attributes-subcard select {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.engine-controls[open] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.engine-controls[open] > label {
+  min-width: 0;
+}
+
+.dithering-parameter .control-help {
+  display: none;
+}
+
+@media (max-width: 1023px) {
+  .palette-attributes-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .palette-subcard .palette-screen + .palette-screen {
+    border-top: 1px solid #33425d;
+    border-left: 0;
+    padding-top: 0.4rem;
+    padding-left: 0;
+  }
+}
+
+@media (max-width: 760px) {
+  .segmented-control,
+  .compact-segmented {
+    grid-template-columns: 1fr;
+  }
+
+  .segmented-option,
+  .segmented-option:last-child {
+    min-height: 1.65rem;
+    border-right: 0;
+    border-bottom: 1px solid #33425d;
+  }
+
+  .segmented-option:last-child {
+    border-bottom: 0;
   }
 }
 
@@ -3342,5 +3616,22 @@ input[type="range"] {
 
   .tilemap-primary-controls {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 1023px) {
+  .controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dithering-group,
+  .palette-group {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 760px) {
+  .controls {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

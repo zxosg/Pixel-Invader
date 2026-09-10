@@ -2392,4 +2392,81 @@ describe("ZX conversion", () => {
       disabledFirst.subarray(8 * 4, 8 * 4 + 3),
     );
   });
+
+  it.each([8, 4, 2, 1] as const)(
+    "keeps the merged image invariant when swapping complete 8x%s cells",
+    (attributeHeight) => {
+      const source = new Uint8Array(256 * 192 * 4);
+      for (let y = 0; y < 192; y += 1) {
+        for (let x = 0; x < 256; x += 1) {
+          const offset = (y * 256 + x) * 4;
+          source[offset] = Math.round(x * 255 / 255);
+          source[offset + 1] = Math.round(y * 255 / 191);
+          source[offset + 2] = Math.round((x + y) * 255 / 446);
+          source[offset + 3] = 255;
+        }
+      }
+      const convert = (screenFlickerSuppression: boolean) => convertToZx(
+        source,
+        256,
+        192,
+        settings({
+          modeId: "zx48-mixed-256x192",
+          framing: "stretch",
+          resampling: "nearest",
+          attributeOptimizerId: "zx-guide-reference-halo-v1",
+          ditherEngineId: "error-diffusion-decorrelated-v3",
+          dithering: "error-diffusion",
+          ditheringAmount: 94,
+          errorDiffusionRandomization: 0,
+          attributeHeight,
+          screenFlickerSuppression,
+        }),
+      );
+      const disabled = convert(false);
+      const enabled = convert(true);
+
+      expect(enabled.preConstraintPreviewRgba)
+        .toEqual(disabled.preConstraintPreviewRgba);
+      expect(enabled.mergedPreviewRgba).toEqual(disabled.mergedPreviewRgba);
+      expect(enabled.previewRgba).toEqual(disabled.previewRgba);
+      expect(enabled.score).toBe(disabled.score);
+
+      const expectCellEqual = (
+        actual: Uint8Array,
+        expected: Uint8Array,
+        cellX: number,
+        cellY: number,
+      ) => {
+        for (let localY = 0; localY < attributeHeight; localY += 1) {
+          const start = (cellY * attributeHeight + localY) * 256 + cellX * 8;
+          expect(actual.subarray(start, start + 8))
+            .toEqual(expected.subarray(start, start + 8));
+        }
+      };
+      // Even cells retain screen assignment; odd cells exchange complete
+      // bitmap and attribute data after both conversions have finished.
+      expectCellEqual(
+        enabled.frames[0]!.paletteIndices,
+        disabled.frames[0]!.paletteIndices,
+        0,
+        0,
+      );
+      expectCellEqual(
+        enabled.frames[0]!.paletteIndices,
+        disabled.frames[1]!.paletteIndices,
+        1,
+        0,
+      );
+      const enabledAttributes = enabled.frames[0]!.encoded.subarray(6_144);
+      const disabledFirstAttributes = disabled.frames[0]!.encoded.subarray(6_144);
+      const disabledSecondAttributes = disabled.frames[1]!.encoded.subarray(6_144);
+      expect(enabledAttributes[0]).toBe(disabledFirstAttributes[0]);
+      expect(enabledAttributes[1]).toBe(disabledSecondAttributes[1]);
+      for (const frame of enabled.frames) {
+        expect(validateSoftwareScr(frame.encoded, attributeHeight)).toEqual([]);
+      }
+    },
+    20_000,
+  );
 });
