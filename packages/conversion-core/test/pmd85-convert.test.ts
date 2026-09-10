@@ -389,9 +389,11 @@ describe("PMD 85 hardware-aware conversion", () => {
       PALETTES["pmd85-2-tv"],
     );
     expect(converted.pixelAspectRatio).toBe(1);
+    // The 256×204 source is wider than the 288×256 square-pixel canvas,
+    // so Fit preserves its aspect ratio with 13-pixel top/bottom bars.
     expect(converted.sourcePreviewRgba[0]).toBe(0);
-    expect(converted.sourcePreviewRgba[16 * 4]).toBe(255);
-    expect(converted.sourcePreviewRgba[271 * 4]).toBe(255);
-    expect(converted.sourcePreviewRgba[287 * 4]).toBe(0);
+    expect(converted.sourcePreviewRgba[(13 * PMD85_SCREEN_WIDTH) * 4]).toBe(255);
+    expect(converted.sourcePreviewRgba[(242 * PMD85_SCREEN_WIDTH) * 4]).toBe(255);
+    expect(converted.sourcePreviewRgba[(243 * PMD85_SCREEN_WIDTH) * 4]).toBe(0);
   });
 });

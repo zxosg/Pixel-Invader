@@ -1,12 +1,14 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
+  type CSSProperties,
   type UIEvent as ReactUIEvent,
   type WheelEvent as ReactWheelEvent,
 } from "react";
@@ -124,6 +126,7 @@ import {
   type StructuredConversionSettings,
   type TargetModeId,
 } from "@retro-converter/conversion-core";
+
 import { renderAttributeFrameRgba } from "@retro-converter/conversion-core";
 
 function pmdHardwareModeForTarget(mode: Pmd85TargetModeId): Pmd85ModeId {
@@ -200,6 +203,21 @@ import {
   type WorkspaceLayoutId,
 } from "./workspace-preferences.js";
 import {
+  DEFAULT_WORKBENCH_PREFERENCES,
+  loadWorkbenchPreferences,
+  saveWorkbenchPreferences,
+  type WorkbenchDock,
+  type WorkbenchSettingsSection,
+  type WorkbenchWindowId,
+} from "./workbench-preferences.js";
+import {
+  createSavedWorkbenchLayoutId,
+  loadSavedWorkbenchLayouts,
+  normalizeSavedLayoutName,
+  saveSavedWorkbenchLayouts,
+  type SavedWorkbenchLayout,
+} from "./saved-workbench-layouts.js";
+import {
   DEFAULT_APPLICATION_SETTINGS,
   loadApplicationSettings,
   resolveApplicationSettings,
@@ -248,6 +266,9 @@ import {
   verticalSpatialPreviewForStage,
 } from "./vertical-spatial-preview.js";
 
+const NEW_WORKSPACE_VALUE = "__new_workspace__";
+const NEW_WORKSPACE_LABEL = "<new name>";
+
 type ConversionState =
   | { readonly kind: "idle" }
   | { readonly kind: "running" }
@@ -275,6 +296,7 @@ type PreviewSide = "source" | "result";
 type PreviewZoom = "fit" | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16;
 type PreviewContent = "image" | "source-image" | "result-image" | "bitmap-editor" | "pre-attribute" | "screen-1" | "screen-2" | "merged-low" | "merged-high" | "palette-usage" | "tile-usage" | "unified-editor" | "inspector" | "difference";
 type SettingsSection = "all" | "geometry" | "adjustments" | "palette" | "dithering" | "tilemap";
+type WorkbenchFloatingSection = "geometry" | "adjustments" | "palette" | "dithering";
 
 function gridPathForDimensions(
   width: number,
@@ -936,6 +958,9 @@ export function App() {
     ...BUILT_IN_PROFILES,
     ...loadStoredProfiles(localStorage),
   ]);
+  const [startupWorkbenchPreferences] = useState(() =>
+    loadWorkbenchPreferences(localStorage),
+  );
   const [startupApplicationSettings] = useState<ApplicationSettings>(() => {
     const availableProfiles = profiles;
     const initialProfile = availableProfiles.find(({ id }) => id === loadApplicationSettings(localStorage).profileId)
@@ -1066,10 +1091,12 @@ export function App() {
   const [sourcePreviewZoom, setSourcePreviewZoom] = useState<PreviewZoom>(DEFAULT_WORKSPACE_PREFERENCES.previewZoom);
   const [resultPreviewZoom, setResultPreviewZoom] = useState<PreviewZoom>(DEFAULT_WORKSPACE_PREFERENCES.previewZoom);
   const [synchronizePan, setSynchronizePan] = useState(startupApplicationSettings.synchronizePan);
+  const [synchronizeZoom, setSynchronizeZoom] = useState(startupApplicationSettings.synchronizeZoom);
   const [mouseWheelZoom, setMouseWheelZoom] = useState(startupApplicationSettings.mouseWheelZoom);
   const [showPixelGrid, setShowPixelGrid] = useState(DEFAULT_WORKSPACE_PREFERENCES.showPixelGrid);
   const [showAttributeGrid, setShowAttributeGrid] = useState(DEFAULT_WORKSPACE_PREFERENCES.showAttributeGrid);
   const [hideAttributes, setHideAttributes] = useState(DEFAULT_WORKSPACE_PREFERENCES.hideAttributes);
+  const [showCompareEngines, setShowCompareEngines] = useState(startupApplicationSettings.showCompareEngines);
   const [scaleQlToDisplayAspect, setScaleQlToDisplayAspect] = useState(true);
   const [qlMixedDisplayResolution, setQlMixedDisplayResolution] =
     useState<QlMixedDisplayResolution>("high");
@@ -1088,10 +1115,177 @@ export function App() {
   const [draggingSide, setDraggingSide] = useState<PreviewSide | null>(null);
   const [inspectionDrawerOpen, setInspectionDrawerOpen] = useState(DEFAULT_WORKSPACE_PREFERENCES.inspectionDrawerOpen);
   const [workspaceLayout, setWorkspaceLayout] = useState<WorkspaceLayoutId>(startupApplicationSettings.workspaceLayout);
+  const [savedWorkbenchLayouts, setSavedWorkbenchLayouts] = useState<readonly SavedWorkbenchLayout[]>(
+    () => loadSavedWorkbenchLayouts(localStorage),
+  );
+  const [selectedSavedWorkbenchLayoutId, setSelectedSavedWorkbenchLayoutId] = useState("");
+  const [layoutNameEntry, setLayoutNameEntry] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsDraft, setSettingsDraft] = useState<(ApplicationSettings & Record<string, unknown>) | null>(null);
   const startupWorkspaceAppliedRef = useRef(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("all");
+  const [workbenchSettingsDock, setWorkbenchSettingsDock] = useState<WorkbenchDock>(
+    startupWorkbenchPreferences.dock,
+  );
+  const [workbenchSettingsMinimized, setWorkbenchSettingsMinimized] = useState(
+    startupWorkbenchPreferences.minimized,
+  );
+  const [workbenchSideWidth, setWorkbenchSideWidth] = useState(
+    startupWorkbenchPreferences.sideWidth,
+  );
+  const [workbenchBottomHeight, setWorkbenchBottomHeight] = useState(
+    startupWorkbenchPreferences.bottomHeight,
+  );
+  const [workbenchFloatingX, setWorkbenchFloatingX] = useState(
+    startupWorkbenchPreferences.floatingX,
+  );
+  const [workbenchFloatingY, setWorkbenchFloatingY] = useState(
+    startupWorkbenchPreferences.floatingY,
+  );
+  const [workbenchSettingsFloatingWidth, setWorkbenchSettingsFloatingWidth] = useState(
+    startupWorkbenchPreferences.settingsFloatingWidth,
+  );
+  const [workbenchSettingsFloatingHeight, setWorkbenchSettingsFloatingHeight] = useState(
+    startupWorkbenchPreferences.settingsFloatingHeight,
+  );
+  const [workbenchToolsFloating, setWorkbenchToolsFloating] = useState(
+    startupWorkbenchPreferences.toolsFloating,
+  );
+  const [workbenchToolsFloatingX, setWorkbenchToolsFloatingX] = useState(
+    startupWorkbenchPreferences.toolsFloatingX,
+  );
+  const [workbenchToolsFloatingY, setWorkbenchToolsFloatingY] = useState(
+    startupWorkbenchPreferences.toolsFloatingY,
+  );
+  const [workbenchToolsFloatingWidth, setWorkbenchToolsFloatingWidth] = useState(
+    startupWorkbenchPreferences.toolsFloatingWidth,
+  );
+  const [workbenchToolsFloatingHeight, setWorkbenchToolsFloatingHeight] = useState(
+    startupWorkbenchPreferences.toolsFloatingHeight,
+  );
+  const [workbenchGeometryFloating, setWorkbenchGeometryFloating] = useState(
+    startupWorkbenchPreferences.geometryFloating,
+  );
+  const [workbenchGeometryFloatingX, setWorkbenchGeometryFloatingX] = useState(
+    startupWorkbenchPreferences.geometryFloatingX,
+  );
+  const [workbenchGeometryFloatingY, setWorkbenchGeometryFloatingY] = useState(
+    startupWorkbenchPreferences.geometryFloatingY,
+  );
+  const [workbenchGeometryFloatingWidth, setWorkbenchGeometryFloatingWidth] = useState(
+    startupWorkbenchPreferences.geometryFloatingWidth,
+  );
+  const [workbenchGeometryFloatingHeight, setWorkbenchGeometryFloatingHeight] = useState(
+    startupWorkbenchPreferences.geometryFloatingHeight,
+  );
+  const [workbenchGeometryFloatingAutoHeight, setWorkbenchGeometryFloatingAutoHeight] = useState(
+    startupWorkbenchPreferences.geometryFloatingAutoHeight,
+  );
+  const [workbenchAdjustmentsFloating, setWorkbenchAdjustmentsFloating] = useState(
+    startupWorkbenchPreferences.adjustmentsFloating,
+  );
+  const [workbenchAdjustmentsFloatingX, setWorkbenchAdjustmentsFloatingX] = useState(
+    startupWorkbenchPreferences.adjustmentsFloatingX,
+  );
+  const [workbenchAdjustmentsFloatingY, setWorkbenchAdjustmentsFloatingY] = useState(
+    startupWorkbenchPreferences.adjustmentsFloatingY,
+  );
+  const [workbenchAdjustmentsFloatingWidth, setWorkbenchAdjustmentsFloatingWidth] = useState(
+    startupWorkbenchPreferences.adjustmentsFloatingWidth,
+  );
+  const [workbenchAdjustmentsFloatingHeight, setWorkbenchAdjustmentsFloatingHeight] = useState(
+    startupWorkbenchPreferences.adjustmentsFloatingHeight,
+  );
+  const [workbenchAdjustmentsFloatingAutoHeight, setWorkbenchAdjustmentsFloatingAutoHeight] = useState(
+    startupWorkbenchPreferences.adjustmentsFloatingAutoHeight,
+  );
+  const [workbenchPaletteFloating, setWorkbenchPaletteFloating] = useState(
+    startupWorkbenchPreferences.paletteFloating,
+  );
+  const [workbenchPaletteFloatingX, setWorkbenchPaletteFloatingX] = useState(
+    startupWorkbenchPreferences.paletteFloatingX,
+  );
+  const [workbenchPaletteFloatingY, setWorkbenchPaletteFloatingY] = useState(
+    startupWorkbenchPreferences.paletteFloatingY,
+  );
+  const [workbenchPaletteFloatingWidth, setWorkbenchPaletteFloatingWidth] = useState(
+    startupWorkbenchPreferences.paletteFloatingWidth,
+  );
+  const [workbenchPaletteFloatingHeight, setWorkbenchPaletteFloatingHeight] = useState(
+    startupWorkbenchPreferences.paletteFloatingHeight,
+  );
+  const [workbenchPaletteFloatingAutoHeight, setWorkbenchPaletteFloatingAutoHeight] = useState(
+    startupWorkbenchPreferences.paletteFloatingAutoHeight,
+  );
+  const [workbenchDitheringFloating, setWorkbenchDitheringFloating] = useState(
+    startupWorkbenchPreferences.ditheringFloating,
+  );
+  const [workbenchDitheringFloatingX, setWorkbenchDitheringFloatingX] = useState(
+    startupWorkbenchPreferences.ditheringFloatingX,
+  );
+  const [workbenchDitheringFloatingY, setWorkbenchDitheringFloatingY] = useState(
+    startupWorkbenchPreferences.ditheringFloatingY,
+  );
+  const [workbenchDitheringFloatingWidth, setWorkbenchDitheringFloatingWidth] = useState(
+    startupWorkbenchPreferences.ditheringFloatingWidth,
+  );
+  const [workbenchDitheringFloatingHeight, setWorkbenchDitheringFloatingHeight] = useState(
+    startupWorkbenchPreferences.ditheringFloatingHeight,
+  );
+  const [workbenchDitheringFloatingAutoHeight, setWorkbenchDitheringFloatingAutoHeight] = useState(
+    startupWorkbenchPreferences.ditheringFloatingAutoHeight,
+  );
+  const [workbenchWindowOrder, setWorkbenchWindowOrder] = useState<readonly WorkbenchWindowId[]>(
+    () => [...startupWorkbenchPreferences.windowOrder],
+  );
+  const [workbenchToolsOpen, setWorkbenchToolsOpen] = useState(
+    startupWorkbenchPreferences.toolsOpen,
+  );
+  const [workbenchSectionsOpen, setWorkbenchSectionsOpen] = useState<Record<WorkbenchSettingsSection, boolean>>(
+    () => ({ ...startupWorkbenchPreferences.sectionsOpen }),
+  );
+  const workbenchResizeRef = useRef<
+    | {
+        kind: "dock";
+        dock: WorkbenchDock;
+        startPointer: number;
+        startSideWidth: number;
+        startBottomHeight: number;
+      }
+    | {
+        kind: "floating";
+        window: WorkbenchWindowId;
+        startPointerX: number;
+        startPointerY: number;
+        startWidth: number;
+        startHeight: number;
+      }
+    | null
+  >(null);
+  const workbenchDimensionsRef = useRef({
+    settingsWidth: workbenchSideWidth,
+    settingsHeight: workbenchBottomHeight,
+    toolsWidth: workbenchToolsFloatingWidth,
+    toolsHeight: workbenchToolsFloatingHeight,
+    geometryWidth: workbenchGeometryFloatingWidth,
+    geometryHeight: workbenchGeometryFloatingHeight,
+    adjustmentsWidth: workbenchAdjustmentsFloatingWidth,
+    adjustmentsHeight: workbenchAdjustmentsFloatingHeight,
+    paletteWidth: workbenchPaletteFloatingWidth,
+    paletteHeight: workbenchPaletteFloatingHeight,
+    ditheringWidth: workbenchDitheringFloatingWidth,
+    ditheringHeight: workbenchDitheringFloatingHeight,
+  });
+  const workbenchRootRef = useRef<HTMLElement | null>(null);
+  const workbenchSettingsWindowRef = useRef<HTMLDivElement | null>(null);
+  const workbenchDragRef = useRef<{
+    window: WorkbenchWindowId;
+    startPointerX: number;
+    startPointerY: number;
+    startX: number;
+    startY: number;
+  } | null>(null);
+  const workbenchDragMovedRef = useRef(false);
   const [settingsSearch, setSettingsSearch] = useState("");
   const [settingsCategory, setSettingsCategory] = useState<SettingCategory | "all">("all");
   const [settingsPreset, setSettingsPreset] = useState<SettingPresetId>("all");
@@ -1127,6 +1321,552 @@ export function App() {
   const isQl = selectedPlatformId === "sinclair-ql";
   const isPmd = selectedPlatformId === "pmd-85";
   const isZx = selectedPlatformId === "zx-spectrum";
+  const workbenchHasFloatingSections = workbenchGeometryFloating || workbenchAdjustmentsFloating || workbenchPaletteFloating || workbenchDitheringFloating;
+  const workbenchSnapDistance = 16;
+  const workbenchGridSize = 8;
+
+  function snapWorkbenchSize(value: number, minimum: number, maximum: number): number {
+    return Math.min(maximum, Math.max(minimum, Math.round(value / workbenchGridSize) * workbenchGridSize));
+  }
+
+  function snapWorkbenchPosition(position: number, maximum: number): number {
+    if (position - 8 <= workbenchSnapDistance) return 8;
+    if (maximum - position <= workbenchSnapDistance) return maximum;
+    return Math.min(maximum, Math.max(8, Math.round(position / workbenchGridSize) * workbenchGridSize));
+  }
+
+  function workbenchWindowZIndex(window: WorkbenchWindowId): number {
+    return 10 + workbenchWindowOrder.indexOf(window);
+  }
+
+  function bringWorkbenchWindowToFront(window: WorkbenchWindowId): void {
+    setWorkbenchWindowOrder((current) => [
+      ...current.filter((candidate) => candidate !== window),
+      window,
+    ]);
+  }
+
+  function startWorkbenchResize(dock: WorkbenchDock, event: ReactPointerEvent<HTMLDivElement>): void {
+    event.preventDefault();
+    workbenchResizeRef.current = {
+      kind: "dock",
+      dock,
+      startPointer: dock === "bottom" ? event.clientY : event.clientX,
+      startSideWidth: workbenchSideWidth,
+      startBottomHeight: workbenchBottomHeight,
+    };
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = dock === "bottom" ? "ns-resize" : "ew-resize";
+  }
+
+  function startWorkbenchFloatingResize(
+    window: "tools" | WorkbenchFloatingSection,
+    event: ReactPointerEvent<HTMLDivElement>,
+  ): void {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    bringWorkbenchWindowToFront(window);
+    if (window === "tools") {
+      workbenchResizeRef.current = {
+        kind: "floating",
+        window,
+        startPointerX: event.clientX,
+        startPointerY: event.clientY,
+        startWidth: workbenchToolsFloatingWidth,
+        startHeight: workbenchToolsFloatingHeight,
+      };
+    } else if (window === "geometry") {
+      setWorkbenchGeometryFloatingAutoHeight(false);
+      workbenchResizeRef.current = {
+        kind: "floating",
+        window,
+        startPointerX: event.clientX,
+        startPointerY: event.clientY,
+        startWidth: workbenchGeometryFloatingWidth,
+        startHeight: workbenchGeometryFloatingHeight,
+      };
+    } else if (window === "adjustments") {
+      setWorkbenchAdjustmentsFloatingAutoHeight(false);
+      workbenchResizeRef.current = {
+        kind: "floating",
+        window,
+        startPointerX: event.clientX,
+        startPointerY: event.clientY,
+        startWidth: workbenchAdjustmentsFloatingWidth,
+        startHeight: workbenchAdjustmentsFloatingHeight,
+      };
+    } else if (window === "palette") {
+      setWorkbenchPaletteFloatingAutoHeight(false);
+      workbenchResizeRef.current = {
+        kind: "floating",
+        window,
+        startPointerX: event.clientX,
+        startPointerY: event.clientY,
+        startWidth: workbenchPaletteFloatingWidth,
+        startHeight: workbenchPaletteFloatingHeight,
+      };
+    } else {
+      setWorkbenchDitheringFloatingAutoHeight(false);
+      workbenchResizeRef.current = {
+        kind: "floating",
+        window,
+        startPointerX: event.clientX,
+        startPointerY: event.clientY,
+        startWidth: workbenchDitheringFloatingWidth,
+        startHeight: workbenchDitheringFloatingHeight,
+      };
+    }
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "nwse-resize";
+  }
+
+  function startWorkbenchSettingsFloatingResize(event: ReactPointerEvent<HTMLDivElement>): void {
+    if (event.button !== 0 || workbenchSettingsDock !== "floating") return;
+    event.preventDefault();
+    event.stopPropagation();
+    bringWorkbenchWindowToFront("settings");
+    workbenchResizeRef.current = {
+      kind: "floating",
+      window: "settings",
+      startPointerX: event.clientX,
+      startPointerY: event.clientY,
+      startWidth: workbenchSettingsFloatingWidth,
+      startHeight: workbenchSettingsFloatingHeight,
+    };
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "nwse-resize";
+  }
+
+  function adjustWorkbenchFloatingSize(
+    window: "tools" | WorkbenchFloatingSection,
+    deltaWidth: number,
+    deltaHeight: number,
+  ): void {
+    if (window === "tools") {
+      setWorkbenchToolsFloatingWidth((width) => Math.min(760, Math.max(280, width + deltaWidth)));
+      setWorkbenchToolsFloatingHeight((height) => Math.min(560, Math.max(160, height + deltaHeight)));
+      return;
+    }
+    if (window === "geometry") {
+      setWorkbenchGeometryFloatingAutoHeight(false);
+      setWorkbenchGeometryFloatingWidth((width) => Math.min(820, Math.max(360, width + deltaWidth)));
+      setWorkbenchGeometryFloatingHeight((height) => Math.min(680, Math.max(220, height + deltaHeight)));
+      return;
+    }
+    if (window === "adjustments") {
+      setWorkbenchAdjustmentsFloatingAutoHeight(false);
+      setWorkbenchAdjustmentsFloatingWidth((width) => Math.min(820, Math.max(360, width + deltaWidth)));
+      setWorkbenchAdjustmentsFloatingHeight((height) => Math.min(680, Math.max(220, height + deltaHeight)));
+      return;
+    }
+    if (window === "palette") {
+      setWorkbenchPaletteFloatingAutoHeight(false);
+      setWorkbenchPaletteFloatingWidth((width) => Math.min(820, Math.max(320, width + deltaWidth)));
+      setWorkbenchPaletteFloatingHeight((height) => Math.min(680, Math.max(220, height + deltaHeight)));
+      return;
+    }
+    setWorkbenchDitheringFloatingAutoHeight(false);
+    setWorkbenchDitheringFloatingWidth((width) => Math.min(760, Math.max(320, width + deltaWidth)));
+    setWorkbenchDitheringFloatingHeight((height) => Math.min(680, Math.max(220, height + deltaHeight)));
+  }
+
+  function adjustWorkbenchSettingsFloatingSize(deltaWidth: number, deltaHeight: number): void {
+    setWorkbenchSettingsFloatingWidth((width) => Math.min(1000, Math.max(420, width + deltaWidth)));
+    setWorkbenchSettingsFloatingHeight((height) => Math.min(760, Math.max(280, height + deltaHeight)));
+  }
+
+  function adjustWorkbenchSize(dock: WorkbenchDock, delta: number): void {
+    if (dock === "bottom") {
+      setWorkbenchBottomHeight((height) => Math.min(480, Math.max(160, height + delta)));
+      return;
+    }
+    setWorkbenchSideWidth((width) => Math.min(560, Math.max(280, width + delta)));
+  }
+
+  function resetWorkbenchLayout(): void {
+    setWorkbenchSettingsDock(DEFAULT_WORKBENCH_PREFERENCES.dock);
+    setWorkbenchSettingsMinimized(DEFAULT_WORKBENCH_PREFERENCES.minimized);
+    setWorkbenchSideWidth(DEFAULT_WORKBENCH_PREFERENCES.sideWidth);
+    setWorkbenchBottomHeight(DEFAULT_WORKBENCH_PREFERENCES.bottomHeight);
+    setWorkbenchFloatingX(DEFAULT_WORKBENCH_PREFERENCES.floatingX);
+    setWorkbenchFloatingY(DEFAULT_WORKBENCH_PREFERENCES.floatingY);
+    setWorkbenchSettingsFloatingWidth(DEFAULT_WORKBENCH_PREFERENCES.settingsFloatingWidth);
+    setWorkbenchSettingsFloatingHeight(DEFAULT_WORKBENCH_PREFERENCES.settingsFloatingHeight);
+    setWorkbenchToolsFloating(DEFAULT_WORKBENCH_PREFERENCES.toolsFloating);
+    setWorkbenchToolsFloatingX(DEFAULT_WORKBENCH_PREFERENCES.toolsFloatingX);
+    setWorkbenchToolsFloatingY(DEFAULT_WORKBENCH_PREFERENCES.toolsFloatingY);
+    setWorkbenchToolsFloatingWidth(DEFAULT_WORKBENCH_PREFERENCES.toolsFloatingWidth);
+    setWorkbenchToolsFloatingHeight(DEFAULT_WORKBENCH_PREFERENCES.toolsFloatingHeight);
+    setWorkbenchGeometryFloating(DEFAULT_WORKBENCH_PREFERENCES.geometryFloating);
+    setWorkbenchGeometryFloatingX(DEFAULT_WORKBENCH_PREFERENCES.geometryFloatingX);
+    setWorkbenchGeometryFloatingY(DEFAULT_WORKBENCH_PREFERENCES.geometryFloatingY);
+    setWorkbenchGeometryFloatingWidth(DEFAULT_WORKBENCH_PREFERENCES.geometryFloatingWidth);
+    setWorkbenchGeometryFloatingHeight(DEFAULT_WORKBENCH_PREFERENCES.geometryFloatingHeight);
+    setWorkbenchGeometryFloatingAutoHeight(DEFAULT_WORKBENCH_PREFERENCES.geometryFloatingAutoHeight);
+    setWorkbenchAdjustmentsFloating(DEFAULT_WORKBENCH_PREFERENCES.adjustmentsFloating);
+    setWorkbenchAdjustmentsFloatingX(DEFAULT_WORKBENCH_PREFERENCES.adjustmentsFloatingX);
+    setWorkbenchAdjustmentsFloatingY(DEFAULT_WORKBENCH_PREFERENCES.adjustmentsFloatingY);
+    setWorkbenchAdjustmentsFloatingWidth(DEFAULT_WORKBENCH_PREFERENCES.adjustmentsFloatingWidth);
+    setWorkbenchAdjustmentsFloatingHeight(DEFAULT_WORKBENCH_PREFERENCES.adjustmentsFloatingHeight);
+    setWorkbenchAdjustmentsFloatingAutoHeight(DEFAULT_WORKBENCH_PREFERENCES.adjustmentsFloatingAutoHeight);
+    setWorkbenchPaletteFloating(DEFAULT_WORKBENCH_PREFERENCES.paletteFloating);
+    setWorkbenchPaletteFloatingX(DEFAULT_WORKBENCH_PREFERENCES.paletteFloatingX);
+    setWorkbenchPaletteFloatingY(DEFAULT_WORKBENCH_PREFERENCES.paletteFloatingY);
+    setWorkbenchPaletteFloatingWidth(DEFAULT_WORKBENCH_PREFERENCES.paletteFloatingWidth);
+    setWorkbenchPaletteFloatingHeight(DEFAULT_WORKBENCH_PREFERENCES.paletteFloatingHeight);
+    setWorkbenchPaletteFloatingAutoHeight(DEFAULT_WORKBENCH_PREFERENCES.paletteFloatingAutoHeight);
+    setWorkbenchDitheringFloating(DEFAULT_WORKBENCH_PREFERENCES.ditheringFloating);
+    setWorkbenchDitheringFloatingX(DEFAULT_WORKBENCH_PREFERENCES.ditheringFloatingX);
+    setWorkbenchDitheringFloatingY(DEFAULT_WORKBENCH_PREFERENCES.ditheringFloatingY);
+    setWorkbenchDitheringFloatingWidth(DEFAULT_WORKBENCH_PREFERENCES.ditheringFloatingWidth);
+    setWorkbenchDitheringFloatingHeight(DEFAULT_WORKBENCH_PREFERENCES.ditheringFloatingHeight);
+    setWorkbenchDitheringFloatingAutoHeight(DEFAULT_WORKBENCH_PREFERENCES.ditheringFloatingAutoHeight);
+    setWorkbenchWindowOrder([...DEFAULT_WORKBENCH_PREFERENCES.windowOrder]);
+    setWorkbenchToolsOpen(DEFAULT_WORKBENCH_PREFERENCES.toolsOpen);
+    setWorkbenchSectionsOpen({ ...DEFAULT_WORKBENCH_PREFERENCES.sectionsOpen });
+  }
+
+  function restoreWorkbenchPreferences(): void {
+    setWorkbenchSettingsDock(startupWorkbenchPreferences.dock);
+    setWorkbenchSettingsMinimized(startupWorkbenchPreferences.minimized);
+    setWorkbenchSideWidth(startupWorkbenchPreferences.sideWidth);
+    setWorkbenchBottomHeight(startupWorkbenchPreferences.bottomHeight);
+    setWorkbenchFloatingX(startupWorkbenchPreferences.floatingX);
+    setWorkbenchFloatingY(startupWorkbenchPreferences.floatingY);
+    setWorkbenchSettingsFloatingWidth(startupWorkbenchPreferences.settingsFloatingWidth);
+    setWorkbenchSettingsFloatingHeight(startupWorkbenchPreferences.settingsFloatingHeight);
+    setWorkbenchToolsFloating(startupWorkbenchPreferences.toolsFloating);
+    setWorkbenchToolsFloatingX(startupWorkbenchPreferences.toolsFloatingX);
+    setWorkbenchToolsFloatingY(startupWorkbenchPreferences.toolsFloatingY);
+    setWorkbenchToolsFloatingWidth(startupWorkbenchPreferences.toolsFloatingWidth);
+    setWorkbenchToolsFloatingHeight(startupWorkbenchPreferences.toolsFloatingHeight);
+    setWorkbenchGeometryFloating(startupWorkbenchPreferences.geometryFloating);
+    setWorkbenchGeometryFloatingX(startupWorkbenchPreferences.geometryFloatingX);
+    setWorkbenchGeometryFloatingY(startupWorkbenchPreferences.geometryFloatingY);
+    setWorkbenchGeometryFloatingWidth(startupWorkbenchPreferences.geometryFloatingWidth);
+    setWorkbenchGeometryFloatingHeight(startupWorkbenchPreferences.geometryFloatingHeight);
+    setWorkbenchGeometryFloatingAutoHeight(startupWorkbenchPreferences.geometryFloatingAutoHeight);
+    setWorkbenchAdjustmentsFloating(startupWorkbenchPreferences.adjustmentsFloating);
+    setWorkbenchAdjustmentsFloatingX(startupWorkbenchPreferences.adjustmentsFloatingX);
+    setWorkbenchAdjustmentsFloatingY(startupWorkbenchPreferences.adjustmentsFloatingY);
+    setWorkbenchAdjustmentsFloatingWidth(startupWorkbenchPreferences.adjustmentsFloatingWidth);
+    setWorkbenchAdjustmentsFloatingHeight(startupWorkbenchPreferences.adjustmentsFloatingHeight);
+    setWorkbenchAdjustmentsFloatingAutoHeight(startupWorkbenchPreferences.adjustmentsFloatingAutoHeight);
+    setWorkbenchPaletteFloating(startupWorkbenchPreferences.paletteFloating);
+    setWorkbenchPaletteFloatingX(startupWorkbenchPreferences.paletteFloatingX);
+    setWorkbenchPaletteFloatingY(startupWorkbenchPreferences.paletteFloatingY);
+    setWorkbenchPaletteFloatingWidth(startupWorkbenchPreferences.paletteFloatingWidth);
+    setWorkbenchPaletteFloatingHeight(startupWorkbenchPreferences.paletteFloatingHeight);
+    setWorkbenchPaletteFloatingAutoHeight(startupWorkbenchPreferences.paletteFloatingAutoHeight);
+    setWorkbenchDitheringFloating(startupWorkbenchPreferences.ditheringFloating);
+    setWorkbenchDitheringFloatingX(startupWorkbenchPreferences.ditheringFloatingX);
+    setWorkbenchDitheringFloatingY(startupWorkbenchPreferences.ditheringFloatingY);
+    setWorkbenchDitheringFloatingWidth(startupWorkbenchPreferences.ditheringFloatingWidth);
+    setWorkbenchDitheringFloatingHeight(startupWorkbenchPreferences.ditheringFloatingHeight);
+    setWorkbenchDitheringFloatingAutoHeight(startupWorkbenchPreferences.ditheringFloatingAutoHeight);
+    setWorkbenchWindowOrder([...startupWorkbenchPreferences.windowOrder]);
+    setWorkbenchToolsOpen(startupWorkbenchPreferences.toolsOpen);
+    setWorkbenchSectionsOpen({ ...startupWorkbenchPreferences.sectionsOpen });
+  }
+
+  function setWorkbenchSectionOpen(section: WorkbenchSettingsSection, open: boolean): void {
+    setWorkbenchSectionsOpen((current) => ({ ...current, [section]: open }));
+  }
+
+  function startWorkbenchDrag(event: ReactPointerEvent<HTMLElement>): void {
+    if (workbenchSettingsDock !== "floating" || event.button !== 0) return;
+    event.preventDefault();
+    workbenchDragMovedRef.current = false;
+    bringWorkbenchWindowToFront("settings");
+    workbenchDragRef.current = {
+      window: "settings",
+      startPointerX: event.clientX,
+      startPointerY: event.clientY,
+      startX: workbenchFloatingX,
+      startY: workbenchFloatingY,
+    };
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "move";
+  }
+
+  function startWorkbenchTitlebarDrag(
+    window: WorkbenchWindowId,
+    event: ReactPointerEvent<HTMLElement>,
+  ): void {
+    const target = event.target as HTMLElement;
+    if (
+      target.closest(".workbench-window-actions, .workbench-section-float-action, .workbench-tools-float-action, .workbench-floating-resize-handle") !== null ||
+      (target.closest("button") !== null && target.closest(".workbench-window-title") === null)
+    ) return;
+    if (window === "settings") {
+      startWorkbenchDrag(event);
+    } else if (window === "tools") {
+      startWorkbenchToolsDrag(event);
+    } else {
+      startWorkbenchSectionDrag(window, event);
+    }
+  }
+
+  function preventWorkbenchDragClick(event: ReactMouseEvent<HTMLElement>): void {
+    if (!workbenchDragMovedRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    workbenchDragMovedRef.current = false;
+  }
+
+  function startWorkbenchToolsDrag(event: ReactPointerEvent<HTMLElement>): void {
+    if (!workbenchToolsFloating || event.button !== 0) return;
+    event.preventDefault();
+    workbenchDragMovedRef.current = false;
+    bringWorkbenchWindowToFront("tools");
+    workbenchDragRef.current = {
+      window: "tools",
+      startPointerX: event.clientX,
+      startPointerY: event.clientY,
+      startX: workbenchToolsFloatingX,
+      startY: workbenchToolsFloatingY,
+    };
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "move";
+  }
+
+  function startWorkbenchSectionDrag(
+    section: WorkbenchFloatingSection,
+    event: ReactPointerEvent<HTMLElement>,
+  ): void {
+    const floating = section === "geometry"
+      ? workbenchGeometryFloating
+      : section === "adjustments"
+        ? workbenchAdjustmentsFloating
+        : section === "palette"
+          ? workbenchPaletteFloating
+          : workbenchDitheringFloating;
+    const startX = section === "geometry"
+      ? workbenchGeometryFloatingX
+      : section === "adjustments"
+        ? workbenchAdjustmentsFloatingX
+        : section === "palette"
+          ? workbenchPaletteFloatingX
+          : workbenchDitheringFloatingX;
+    const startY = section === "geometry"
+      ? workbenchGeometryFloatingY
+      : section === "adjustments"
+        ? workbenchAdjustmentsFloatingY
+        : section === "palette"
+          ? workbenchPaletteFloatingY
+          : workbenchDitheringFloatingY;
+    if (!floating || event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    workbenchDragMovedRef.current = false;
+    bringWorkbenchWindowToFront(section);
+    workbenchDragRef.current = {
+      window: section,
+      startPointerX: event.clientX,
+      startPointerY: event.clientY,
+      startX,
+      startY,
+    };
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "move";
+  }
+
+  function toggleWorkbenchToolsFloating(): void {
+    setWorkbenchToolsFloating((floating) => {
+      if (!floating) setWorkbenchToolsOpen(true);
+      return !floating;
+    });
+  }
+
+  function toggleWorkbenchSectionFloating(section: WorkbenchFloatingSection): void {
+    if (section === "geometry") {
+      setWorkbenchGeometryFloating((floating) => {
+        if (!floating) setWorkbenchSectionOpen("geometry", true);
+        return !floating;
+      });
+      return;
+    }
+    if (section === "adjustments") {
+      setWorkbenchAdjustmentsFloating((floating) => {
+        if (!floating) setWorkbenchSectionOpen("adjustments", true);
+        return !floating;
+      });
+      return;
+    }
+    if (section === "palette") {
+      setWorkbenchPaletteFloating((floating) => {
+        if (!floating) setWorkbenchSectionOpen("palette", true);
+        return !floating;
+      });
+      return;
+    }
+    setWorkbenchDitheringFloating((floating) => {
+      if (!floating) setWorkbenchSectionOpen("dithering", true);
+      return !floating;
+    });
+  }
+
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent): void => {
+      const resize = workbenchResizeRef.current;
+      if (resize !== null && resize.kind === "dock" && resize.dock === "bottom") {
+        setWorkbenchBottomHeight(snapWorkbenchSize(
+          resize.startBottomHeight + resize.startPointer - event.clientY,
+          160,
+          480,
+        ));
+        return;
+      }
+      if (resize !== null && resize.kind === "dock") {
+        const delta = resize.dock === "left"
+          ? event.clientX - resize.startPointer
+          : resize.startPointer - event.clientX;
+        setWorkbenchSideWidth(snapWorkbenchSize(resize.startSideWidth + delta, 280, 560));
+        return;
+      }
+      if (resize !== null) {
+        const nextWidth = resize.startWidth + event.clientX - resize.startPointerX;
+        const nextHeight = resize.startHeight + event.clientY - resize.startPointerY;
+        if (resize.window === "settings") {
+          setWorkbenchSettingsFloatingWidth(snapWorkbenchSize(nextWidth, 420, 1000));
+          setWorkbenchSettingsFloatingHeight(snapWorkbenchSize(nextHeight, 280, 760));
+        } else if (resize.window === "tools") {
+          setWorkbenchToolsFloatingWidth(snapWorkbenchSize(nextWidth, 280, 760));
+          setWorkbenchToolsFloatingHeight(snapWorkbenchSize(nextHeight, 160, 560));
+        } else if (resize.window === "geometry") {
+          setWorkbenchGeometryFloatingWidth(snapWorkbenchSize(nextWidth, 360, 820));
+          setWorkbenchGeometryFloatingHeight(snapWorkbenchSize(nextHeight, 220, 680));
+        } else if (resize.window === "adjustments") {
+          setWorkbenchAdjustmentsFloatingWidth(snapWorkbenchSize(nextWidth, 360, 820));
+          setWorkbenchAdjustmentsFloatingHeight(snapWorkbenchSize(nextHeight, 220, 680));
+        } else if (resize.window === "palette") {
+          setWorkbenchPaletteFloatingWidth(snapWorkbenchSize(nextWidth, 320, 820));
+          setWorkbenchPaletteFloatingHeight(snapWorkbenchSize(nextHeight, 220, 680));
+        } else {
+          setWorkbenchDitheringFloatingWidth(snapWorkbenchSize(nextWidth, 320, 760));
+          setWorkbenchDitheringFloatingHeight(snapWorkbenchSize(nextHeight, 220, 680));
+        }
+        return;
+      }
+      const drag = workbenchDragRef.current;
+      const root = workbenchRootRef.current;
+      if (drag === null || root === null) return;
+      const bounds = root.getBoundingClientRect();
+      const dimensions = workbenchDimensionsRef.current;
+      const windowWidth = drag.window === "settings"
+        ? dimensions.settingsWidth
+        : drag.window === "tools"
+          ? dimensions.toolsWidth
+          : drag.window === "geometry"
+            ? dimensions.geometryWidth
+            : drag.window === "adjustments"
+              ? dimensions.adjustmentsWidth
+              : drag.window === "palette"
+                ? dimensions.paletteWidth
+                : dimensions.ditheringWidth;
+      const windowHeight = drag.window === "settings"
+        ? workbenchSettingsDock === "floating" ? workbenchSettingsFloatingHeight : dimensions.settingsHeight
+        : drag.window === "tools"
+          ? dimensions.toolsHeight
+        : drag.window === "geometry"
+          ? dimensions.geometryHeight
+          : drag.window === "adjustments"
+            ? dimensions.adjustmentsHeight
+            : drag.window === "palette"
+              ? dimensions.paletteHeight
+              : dimensions.ditheringHeight;
+      const maxX = Math.max(8, bounds.width - windowWidth - 8);
+      const maxY = Math.max(8, bounds.height - windowHeight - 8);
+      const proposedX = Math.min(maxX, Math.max(8, drag.startX + event.clientX - drag.startPointerX));
+      const proposedY = Math.min(maxY, Math.max(8, drag.startY + event.clientY - drag.startPointerY));
+      if (
+        Math.abs(event.clientX - drag.startPointerX) > 3 ||
+        Math.abs(event.clientY - drag.startPointerY) > 3
+      ) workbenchDragMovedRef.current = true;
+      const nextX = snapWorkbenchPosition(proposedX, maxX);
+      const nextY = snapWorkbenchPosition(proposedY, maxY);
+      if (drag.window === "settings") {
+        setWorkbenchFloatingX(nextX);
+        setWorkbenchFloatingY(nextY);
+      } else if (drag.window === "tools") {
+        setWorkbenchToolsFloatingX(nextX);
+        setWorkbenchToolsFloatingY(nextY);
+      } else if (drag.window === "geometry") {
+        setWorkbenchGeometryFloatingX(nextX);
+        setWorkbenchGeometryFloatingY(nextY);
+      } else if (drag.window === "adjustments") {
+        setWorkbenchAdjustmentsFloatingX(nextX);
+        setWorkbenchAdjustmentsFloatingY(nextY);
+      } else if (drag.window === "palette") {
+        setWorkbenchPaletteFloatingX(nextX);
+        setWorkbenchPaletteFloatingY(nextY);
+      } else {
+        setWorkbenchDitheringFloatingX(nextX);
+        setWorkbenchDitheringFloatingY(nextY);
+      }
+    };
+    const stopResize = (): void => {
+      workbenchResizeRef.current = null;
+      workbenchDragRef.current = null;
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+    };
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", stopResize);
+    window.addEventListener("pointercancel", stopResize);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", stopResize);
+      window.removeEventListener("pointercancel", stopResize);
+      stopResize();
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    const root = workbenchRootRef.current;
+    const settingsWindow = workbenchSettingsWindowRef.current;
+    if (root === null || settingsWindow === null) return undefined;
+    const updateOrigin = (): void => {
+      const rootBounds = root.getBoundingClientRect();
+      const settingsBounds = settingsWindow.getBoundingClientRect();
+      root.style.setProperty("--workbench-settings-origin-x", `${settingsBounds.left - rootBounds.left}px`);
+      root.style.setProperty("--workbench-settings-origin-y", `${settingsBounds.top - rootBounds.top}px`);
+    };
+    updateOrigin();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateOrigin);
+    observer?.observe(root);
+    observer?.observe(settingsWindow);
+    window.addEventListener("resize", updateOrigin);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", updateOrigin);
+    };
+  }, [workbenchSettingsDock, workbenchSettingsFloatingWidth, workbenchSettingsFloatingHeight,
+    workbenchSideWidth, workbenchBottomHeight]);
+
+  useEffect(() => {
+    workbenchDimensionsRef.current = {
+      settingsWidth: workbenchSettingsDock === "floating" ? workbenchSettingsFloatingWidth : workbenchSideWidth,
+      settingsHeight: workbenchSettingsDock === "floating" ? workbenchSettingsFloatingHeight : workbenchBottomHeight,
+      toolsWidth: workbenchToolsFloatingWidth,
+      toolsHeight: workbenchToolsFloatingHeight,
+      geometryWidth: workbenchGeometryFloatingWidth,
+      geometryHeight: workbenchGeometryFloatingHeight,
+      adjustmentsWidth: workbenchAdjustmentsFloatingWidth,
+      adjustmentsHeight: workbenchAdjustmentsFloatingHeight,
+      paletteWidth: workbenchPaletteFloatingWidth,
+      paletteHeight: workbenchPaletteFloatingHeight,
+      ditheringWidth: workbenchDitheringFloatingWidth,
+      ditheringHeight: workbenchDitheringFloatingHeight,
+    };
+  }, [workbenchSettingsDock, workbenchSettingsFloatingWidth, workbenchSettingsFloatingHeight,
+    workbenchSideWidth, workbenchBottomHeight, workbenchToolsFloatingWidth,
+    workbenchToolsFloatingHeight, workbenchPaletteFloatingWidth,
+    workbenchGeometryFloatingWidth, workbenchGeometryFloatingHeight,
+    workbenchAdjustmentsFloatingWidth, workbenchAdjustmentsFloatingHeight,
+    workbenchPaletteFloatingHeight, workbenchDitheringFloatingWidth,
+    workbenchDitheringFloatingHeight]);
 
   const pmd85ForegroundPalette = useMemo<readonly Pmd85RgbColor[]>(() => {
     if (!isPmd) return [];
@@ -1203,14 +1943,78 @@ export function App() {
       sourceZoom: sourcePreviewZoom,
       resultZoom: resultPreviewZoom,
       synchronizePan,
+      synchronizeZoom,
       showPixelGrid,
       showAttributeGrid,
       hideAttributes,
       inspectionDrawerOpen,
     });
   }, [workspaceLayout, sourcePreviewContent, resultPreviewContent,
-    previewZoom, sourcePreviewZoom, resultPreviewZoom, synchronizePan, showPixelGrid, showAttributeGrid, hideAttributes,
+    previewZoom, sourcePreviewZoom, resultPreviewZoom, synchronizePan, synchronizeZoom, showPixelGrid, showAttributeGrid, hideAttributes,
     inspectionDrawerOpen]);
+
+  useEffect(() => {
+    saveWorkbenchPreferences(localStorage, {
+      dock: workbenchSettingsDock,
+      minimized: workbenchSettingsMinimized,
+      sideWidth: workbenchSideWidth,
+      bottomHeight: workbenchBottomHeight,
+      floatingX: workbenchFloatingX,
+      floatingY: workbenchFloatingY,
+      settingsFloatingWidth: workbenchSettingsFloatingWidth,
+      settingsFloatingHeight: workbenchSettingsFloatingHeight,
+      toolsFloating: workbenchToolsFloating,
+      toolsFloatingX: workbenchToolsFloatingX,
+      toolsFloatingY: workbenchToolsFloatingY,
+      toolsFloatingWidth: workbenchToolsFloatingWidth,
+      toolsFloatingHeight: workbenchToolsFloatingHeight,
+      geometryFloating: workbenchGeometryFloating,
+      geometryFloatingX: workbenchGeometryFloatingX,
+      geometryFloatingY: workbenchGeometryFloatingY,
+      geometryFloatingWidth: workbenchGeometryFloatingWidth,
+      geometryFloatingHeight: workbenchGeometryFloatingHeight,
+      geometryFloatingAutoHeight: workbenchGeometryFloatingAutoHeight,
+      adjustmentsFloating: workbenchAdjustmentsFloating,
+      adjustmentsFloatingX: workbenchAdjustmentsFloatingX,
+      adjustmentsFloatingY: workbenchAdjustmentsFloatingY,
+      adjustmentsFloatingWidth: workbenchAdjustmentsFloatingWidth,
+      adjustmentsFloatingHeight: workbenchAdjustmentsFloatingHeight,
+      adjustmentsFloatingAutoHeight: workbenchAdjustmentsFloatingAutoHeight,
+      windowOrder: workbenchWindowOrder,
+      paletteFloating: workbenchPaletteFloating,
+      paletteFloatingX: workbenchPaletteFloatingX,
+      paletteFloatingY: workbenchPaletteFloatingY,
+      paletteFloatingWidth: workbenchPaletteFloatingWidth,
+      paletteFloatingHeight: workbenchPaletteFloatingHeight,
+      paletteFloatingAutoHeight: workbenchPaletteFloatingAutoHeight,
+      ditheringFloating: workbenchDitheringFloating,
+      ditheringFloatingX: workbenchDitheringFloatingX,
+      ditheringFloatingY: workbenchDitheringFloatingY,
+      ditheringFloatingWidth: workbenchDitheringFloatingWidth,
+      ditheringFloatingHeight: workbenchDitheringFloatingHeight,
+      ditheringFloatingAutoHeight: workbenchDitheringFloatingAutoHeight,
+      toolsOpen: workbenchToolsOpen,
+      sectionsOpen: workbenchSectionsOpen,
+    });
+  }, [workbenchSettingsDock, workbenchSettingsMinimized, workbenchSideWidth,
+    workbenchBottomHeight, workbenchFloatingX, workbenchFloatingY,
+    workbenchSettingsFloatingWidth, workbenchSettingsFloatingHeight,
+    workbenchToolsFloating, workbenchToolsFloatingX, workbenchToolsFloatingY,
+    workbenchToolsFloatingWidth, workbenchToolsFloatingHeight,
+    workbenchGeometryFloating, workbenchGeometryFloatingX, workbenchGeometryFloatingY,
+    workbenchGeometryFloatingWidth, workbenchGeometryFloatingHeight,
+    workbenchGeometryFloatingAutoHeight, workbenchAdjustmentsFloating,
+    workbenchAdjustmentsFloatingX, workbenchAdjustmentsFloatingY,
+    workbenchAdjustmentsFloatingWidth, workbenchAdjustmentsFloatingHeight,
+    workbenchAdjustmentsFloatingAutoHeight,
+    workbenchWindowOrder,
+    workbenchPaletteFloating, workbenchPaletteFloatingX, workbenchPaletteFloatingY,
+    workbenchPaletteFloatingWidth, workbenchPaletteFloatingHeight,
+    workbenchPaletteFloatingAutoHeight,
+    workbenchDitheringFloating, workbenchDitheringFloatingX, workbenchDitheringFloatingY,
+    workbenchDitheringFloatingWidth, workbenchDitheringFloatingHeight,
+    workbenchDitheringFloatingAutoHeight,
+    workbenchToolsOpen, workbenchSectionsOpen]);
 
   useEffect(() => {
     if (originalImage === null) return;
@@ -1218,6 +2022,7 @@ export function App() {
     startupWorkspaceAppliedRef.current = true;
     if (firstSource) {
       applyWorkspaceLayout(startupApplicationSettings.workspaceLayout);
+      restoreWorkbenchPreferences();
     } else {
       setSourcePreviewContent("image");
       setResultPreviewContent("image");
@@ -2534,8 +3339,14 @@ export function App() {
   }
 
   function setZoom(next: PreviewZoom) {
-    if (activePanSideRef.current === "source") setSourcePreviewZoom(next);
-    else setResultPreviewZoom(next);
+    if (synchronizeZoom) {
+      setSourcePreviewZoom(next);
+      setResultPreviewZoom(next);
+    } else if (activePanSideRef.current === "source") {
+      setSourcePreviewZoom(next);
+    } else {
+      setResultPreviewZoom(next);
+    }
     setPreviewZoom(next);
   }
 
@@ -2580,13 +3391,277 @@ export function App() {
     setZoom(nextZoom);
   }
 
+  function applyWorkbenchLayoutPreset(layout: WorkspaceLayoutId): void {
+    if (layout === "custom") return;
+
+    const baseSections = {
+      geometry: false,
+      adjustments: false,
+      palette: false,
+      dithering: false,
+      tilemap: false,
+    } satisfies Record<WorkbenchSettingsSection, boolean>;
+    setWorkbenchGeometryFloating(false);
+    setWorkbenchAdjustmentsFloating(false);
+
+    if (layout === "conversion") {
+      setWorkbenchSettingsDock("bottom");
+      setWorkbenchSettingsMinimized(false);
+      setWorkbenchToolsFloating(false);
+      setWorkbenchToolsOpen(false);
+      setWorkbenchPaletteFloating(false);
+      setWorkbenchDitheringFloating(false);
+      setWorkbenchSectionsOpen({
+        ...baseSections,
+        geometry: true,
+        adjustments: true,
+        palette: true,
+        dithering: true,
+      });
+      return;
+    }
+
+    if (layout === "palette") {
+      setWorkbenchSettingsDock("bottom");
+      setWorkbenchSettingsMinimized(true);
+      setWorkbenchToolsFloating(false);
+      setWorkbenchToolsOpen(false);
+      setWorkbenchPaletteFloating(true);
+      setWorkbenchDitheringFloating(false);
+      setWorkbenchSectionsOpen({ ...baseSections, palette: true });
+      return;
+    }
+
+    if (layout === "dithering") {
+      setWorkbenchSettingsDock("bottom");
+      setWorkbenchSettingsMinimized(true);
+      setWorkbenchToolsFloating(false);
+      setWorkbenchToolsOpen(false);
+      setWorkbenchPaletteFloating(false);
+      setWorkbenchDitheringFloating(true);
+      setWorkbenchSectionsOpen({ ...baseSections, dithering: true });
+      return;
+    }
+
+    if (layout === "inspection") {
+      setWorkbenchSettingsDock("bottom");
+      setWorkbenchSettingsMinimized(true);
+      setWorkbenchToolsFloating(true);
+      setWorkbenchToolsOpen(true);
+      setWorkbenchPaletteFloating(false);
+      setWorkbenchDitheringFloating(false);
+      setWorkbenchSectionsOpen(baseSections);
+      return;
+    }
+
+    if (layout === "editor") {
+      setWorkbenchSettingsDock("bottom");
+      setWorkbenchSettingsMinimized(true);
+      setWorkbenchToolsFloating(true);
+      setWorkbenchToolsOpen(true);
+      setWorkbenchPaletteFloating(false);
+      setWorkbenchDitheringFloating(false);
+      setWorkbenchSectionsOpen(baseSections);
+      return;
+    }
+
+    if (layout === "tilemap") {
+      setWorkbenchSettingsDock("bottom");
+      setWorkbenchSettingsMinimized(false);
+      setWorkbenchToolsFloating(false);
+      setWorkbenchToolsOpen(false);
+      setWorkbenchPaletteFloating(false);
+      setWorkbenchDitheringFloating(false);
+      setWorkbenchSectionsOpen({ ...baseSections, tilemap: true });
+    }
+  }
+
+  function currentSavedWorkbenchLayout(name: string): SavedWorkbenchLayout {
+    return {
+      id: createSavedWorkbenchLayoutId(name),
+      name,
+      workspaceMode,
+      workspace: {
+        layout: workspaceLayout,
+        sourceContent: sourcePreviewContent,
+        resultContent: resultPreviewContent,
+        previewZoom,
+        sourceZoom: sourcePreviewZoom,
+        resultZoom: resultPreviewZoom,
+        synchronizePan,
+        synchronizeZoom,
+        showPixelGrid,
+        showAttributeGrid,
+        hideAttributes,
+        inspectionDrawerOpen,
+      },
+      workbench: {
+        dock: workbenchSettingsDock,
+        minimized: workbenchSettingsMinimized,
+        sideWidth: workbenchSideWidth,
+        bottomHeight: workbenchBottomHeight,
+        floatingX: workbenchFloatingX,
+        floatingY: workbenchFloatingY,
+        settingsFloatingWidth: workbenchSettingsFloatingWidth,
+        settingsFloatingHeight: workbenchSettingsFloatingHeight,
+        toolsFloating: workbenchToolsFloating,
+        toolsFloatingX: workbenchToolsFloatingX,
+        toolsFloatingY: workbenchToolsFloatingY,
+        toolsFloatingWidth: workbenchToolsFloatingWidth,
+        toolsFloatingHeight: workbenchToolsFloatingHeight,
+        geometryFloating: workbenchGeometryFloating,
+        geometryFloatingX: workbenchGeometryFloatingX,
+        geometryFloatingY: workbenchGeometryFloatingY,
+        geometryFloatingWidth: workbenchGeometryFloatingWidth,
+        geometryFloatingHeight: workbenchGeometryFloatingHeight,
+        geometryFloatingAutoHeight: workbenchGeometryFloatingAutoHeight,
+        adjustmentsFloating: workbenchAdjustmentsFloating,
+        adjustmentsFloatingX: workbenchAdjustmentsFloatingX,
+        adjustmentsFloatingY: workbenchAdjustmentsFloatingY,
+        adjustmentsFloatingWidth: workbenchAdjustmentsFloatingWidth,
+        adjustmentsFloatingHeight: workbenchAdjustmentsFloatingHeight,
+        adjustmentsFloatingAutoHeight: workbenchAdjustmentsFloatingAutoHeight,
+        windowOrder: workbenchWindowOrder,
+        paletteFloating: workbenchPaletteFloating,
+        paletteFloatingX: workbenchPaletteFloatingX,
+        paletteFloatingY: workbenchPaletteFloatingY,
+        paletteFloatingWidth: workbenchPaletteFloatingWidth,
+        paletteFloatingHeight: workbenchPaletteFloatingHeight,
+        paletteFloatingAutoHeight: workbenchPaletteFloatingAutoHeight,
+        ditheringFloating: workbenchDitheringFloating,
+        ditheringFloatingX: workbenchDitheringFloatingX,
+        ditheringFloatingY: workbenchDitheringFloatingY,
+        ditheringFloatingWidth: workbenchDitheringFloatingWidth,
+        ditheringFloatingHeight: workbenchDitheringFloatingHeight,
+        ditheringFloatingAutoHeight: workbenchDitheringFloatingAutoHeight,
+        toolsOpen: workbenchToolsOpen,
+        sectionsOpen: workbenchSectionsOpen,
+      },
+    };
+  }
+
+  function saveCurrentWorkbenchLayout(): void {
+    const selected = savedWorkbenchLayouts.find((layout) => layout.id === selectedSavedWorkbenchLayoutId);
+    const name = normalizeSavedLayoutName(selected?.name ?? layoutNameEntry);
+    if (name.length === 0) return;
+    const existing = savedWorkbenchLayouts.find((layout) =>
+      layout.name.toLocaleLowerCase() === name.toLocaleLowerCase(),
+    );
+    const nextLayout = { ...currentSavedWorkbenchLayout(name), id: existing?.id ?? createSavedWorkbenchLayoutId(name) };
+    const nextLayouts = existing === undefined
+      ? [nextLayout, ...savedWorkbenchLayouts]
+      : savedWorkbenchLayouts.map((layout) => layout.id === existing.id ? nextLayout : layout);
+    setSavedWorkbenchLayouts(nextLayouts);
+    saveSavedWorkbenchLayouts(localStorage, nextLayouts);
+    setSelectedSavedWorkbenchLayoutId(nextLayout.id);
+    setLayoutNameEntry(name);
+  }
+
+  function selectSavedWorkbenchLayout(value: string): void {
+    if (value === NEW_WORKSPACE_VALUE) {
+      setSelectedSavedWorkbenchLayoutId(NEW_WORKSPACE_VALUE);
+      setLayoutNameEntry("");
+      return;
+    }
+    if (value.length === 0) {
+      setSelectedSavedWorkbenchLayoutId("");
+      setLayoutNameEntry("");
+      return;
+    }
+    loadSavedWorkbenchLayout(value);
+  }
+
+  function loadSavedWorkbenchLayout(id: string): void {
+    const saved = savedWorkbenchLayouts.find((layout) => layout.id === id);
+    if (saved === undefined) return;
+    setWorkspaceMode(saved.workspaceMode);
+    setWorkspaceLayout(saved.workspace.layout);
+    setSourcePreviewContent(saved.workspace.sourceContent);
+    setResultPreviewContent(saved.workspace.resultContent);
+    setPreviewZoom(saved.workspace.previewZoom);
+    setSourcePreviewZoom(saved.workspace.sourceZoom ?? saved.workspace.previewZoom);
+    setResultPreviewZoom(saved.workspace.resultZoom ?? saved.workspace.previewZoom);
+    setSynchronizePan(saved.workspace.synchronizePan);
+    setSynchronizeZoom(saved.workspace.synchronizeZoom ?? true);
+    setShowPixelGrid(saved.workspace.showPixelGrid);
+    setShowAttributeGrid(saved.workspace.showAttributeGrid);
+    setHideAttributes(saved.workspace.hideAttributes);
+    setInspectionDrawerOpen(saved.workspace.inspectionDrawerOpen);
+    setWorkbenchSettingsDock(saved.workbench.dock);
+    setWorkbenchSettingsMinimized(saved.workbench.minimized);
+    setWorkbenchSideWidth(saved.workbench.sideWidth);
+    setWorkbenchBottomHeight(saved.workbench.bottomHeight);
+    setWorkbenchFloatingX(saved.workbench.floatingX);
+    setWorkbenchFloatingY(saved.workbench.floatingY);
+    setWorkbenchSettingsFloatingWidth(saved.workbench.settingsFloatingWidth ?? 640);
+    setWorkbenchSettingsFloatingHeight(saved.workbench.settingsFloatingHeight ?? 420);
+    setWorkbenchToolsFloating(saved.workbench.toolsFloating);
+    setWorkbenchToolsFloatingX(saved.workbench.toolsFloatingX);
+    setWorkbenchToolsFloatingY(saved.workbench.toolsFloatingY);
+    setWorkbenchToolsFloatingWidth(saved.workbench.toolsFloatingWidth ?? 360);
+    setWorkbenchToolsFloatingHeight(saved.workbench.toolsFloatingHeight ?? 220);
+    setWorkbenchGeometryFloating(saved.workbench.geometryFloating ?? false);
+    setWorkbenchGeometryFloatingX(saved.workbench.geometryFloatingX ?? 360);
+    setWorkbenchGeometryFloatingY(saved.workbench.geometryFloatingY ?? 96);
+    setWorkbenchGeometryFloatingWidth(saved.workbench.geometryFloatingWidth ?? 520);
+    setWorkbenchGeometryFloatingHeight(saved.workbench.geometryFloatingHeight ?? 360);
+    setWorkbenchGeometryFloatingAutoHeight(saved.workbench.geometryFloatingAutoHeight ?? true);
+    setWorkbenchAdjustmentsFloating(saved.workbench.adjustmentsFloating ?? false);
+    setWorkbenchAdjustmentsFloatingX(saved.workbench.adjustmentsFloatingX ?? 520);
+    setWorkbenchAdjustmentsFloatingY(saved.workbench.adjustmentsFloatingY ?? 128);
+    setWorkbenchAdjustmentsFloatingWidth(saved.workbench.adjustmentsFloatingWidth ?? 520);
+    setWorkbenchAdjustmentsFloatingHeight(saved.workbench.adjustmentsFloatingHeight ?? 300);
+    setWorkbenchAdjustmentsFloatingAutoHeight(saved.workbench.adjustmentsFloatingAutoHeight ?? true);
+    setWorkbenchWindowOrder([...(saved.workbench.windowOrder ?? DEFAULT_WORKBENCH_PREFERENCES.windowOrder)]);
+    setWorkbenchPaletteFloating(saved.workbench.paletteFloating);
+    setWorkbenchPaletteFloatingX(saved.workbench.paletteFloatingX);
+    setWorkbenchPaletteFloatingY(saved.workbench.paletteFloatingY);
+    setWorkbenchPaletteFloatingWidth(saved.workbench.paletteFloatingWidth);
+    setWorkbenchPaletteFloatingHeight(saved.workbench.paletteFloatingHeight);
+    setWorkbenchPaletteFloatingAutoHeight(saved.workbench.paletteFloatingAutoHeight ?? true);
+    setWorkbenchDitheringFloating(saved.workbench.ditheringFloating);
+    setWorkbenchDitheringFloatingX(saved.workbench.ditheringFloatingX);
+    setWorkbenchDitheringFloatingY(saved.workbench.ditheringFloatingY);
+    setWorkbenchDitheringFloatingWidth(saved.workbench.ditheringFloatingWidth);
+    setWorkbenchDitheringFloatingHeight(saved.workbench.ditheringFloatingHeight);
+    setWorkbenchDitheringFloatingAutoHeight(saved.workbench.ditheringFloatingAutoHeight ?? true);
+    setWorkbenchToolsOpen(saved.workbench.toolsOpen);
+    setWorkbenchSectionsOpen({ ...saved.workbench.sectionsOpen });
+    setSelectedSavedWorkbenchLayoutId(saved.id);
+    setLayoutNameEntry(saved.name);
+  }
+
+  function deleteSavedWorkbenchLayout(id: string): void {
+    const nextLayouts = savedWorkbenchLayouts.filter((layout) => layout.id !== id);
+    setSavedWorkbenchLayouts(nextLayouts);
+    saveSavedWorkbenchLayouts(localStorage, nextLayouts);
+    if (selectedSavedWorkbenchLayoutId === id) {
+      setSelectedSavedWorkbenchLayoutId("");
+      setLayoutNameEntry("");
+    }
+  }
+
   function applyWorkspaceLayout(layout: WorkspaceLayoutId): void {
     const tilemapViews = workspaceMode === "tilemap";
     setWorkspaceLayout(layout);
+    applyWorkbenchLayoutPreset(layout);
+    if (layout !== "custom") {
+      setSynchronizeZoom(layout !== "editor" && layout !== "inspection" && layout !== "tilemap");
+    }
     if (layout === "palette") {
       setSourcePreviewContent("image");
       setResultPreviewContent("palette-usage");
       setInspectionDrawerOpen(true);
+      return;
+    }
+    if (layout === "dithering") {
+      setSourcePreviewContent("pre-attribute");
+      setResultPreviewContent("image");
+      setPreviewZoom("fit");
+      setShowPixelGrid(false);
+      setShowAttributeGrid(false);
+      setSynchronizePan(true);
+      setInspectionDrawerOpen(false);
       return;
     }
     if (layout === "tilemap") {
@@ -2630,11 +3705,13 @@ export function App() {
     else setResultPreviewContent(content);
     setWorkspaceLayout("custom");
     if (content === "bitmap-editor") {
+      setSynchronizeZoom(false);
       if (side === "source" && sourcePreviewZoom === "fit") setSourcePreviewZoom(12);
       if (side === "result" && resultPreviewZoom === "fit") setResultPreviewZoom(12);
       setShowPixelGrid(true);
       setShowAttributeGrid(true);
     }
+    if (content === "inspector") setSynchronizeZoom(false);
     if (content === "pre-attribute") setInputPreviewStage("pre-constraint");
     if (content === "image" || content === "source-image") setInputPreviewStage("source");
     if (content === "screen-1") setOutputPreviewStage("screen-1");
@@ -2652,7 +3729,9 @@ export function App() {
 
   function focusSettingsSection(section: SettingsSection): void {
     setSettingsSection(section);
+    setWorkbenchSettingsMinimized(false);
     if (section === "all") return;
+    setWorkbenchSectionOpen(section, true);
     window.requestAnimationFrame(() => {
       const element = document.getElementById(`settings-${section}`);
       if (element === null) return;
@@ -3140,6 +4219,8 @@ export function App() {
       workspaceLayout,
       mouseWheelZoom,
       synchronizePan,
+      synchronizeZoom,
+      showCompareEngines,
     }) as ApplicationSettings & Record<string, unknown>);
     setSettingsSearch("");
     setSettingsCategory("all");
@@ -3172,6 +4253,8 @@ export function App() {
     setAmountEntry(String(canonical.conversion.ditheringAmount));
     setMouseWheelZoom(canonical.application.mouseWheelZoom);
     setSynchronizePan(canonical.application.synchronizePan);
+    setSynchronizeZoom(canonical.application.synchronizeZoom);
+    setShowCompareEngines(canonical.application.showCompareEngines);
     applyWorkspaceLayout(canonical.application.workspaceLayout);
     setSettingsOpen(false);
     setSettingsDraft(null);
@@ -5865,7 +6948,41 @@ export function App() {
         </p>
       </header>
 
-      <section className="proof workspace" aria-labelledby="workspace-title">
+      <section
+        ref={workbenchRootRef}
+        className={`proof workspace workbench-workspace workbench-settings-${workbenchSettingsDock} workbench-settings-${workbenchSettingsMinimized ? "minimized" : "expanded"}`}
+        style={{
+          "--workbench-side-width": `${workbenchSideWidth}px`,
+          "--workbench-bottom-height": `${workbenchBottomHeight}px`,
+          "--workbench-floating-x": `${workbenchFloatingX}px`,
+          "--workbench-floating-y": `${workbenchFloatingY}px`,
+          "--workbench-settings-floating-width": `${workbenchSettingsFloatingWidth}px`,
+          "--workbench-settings-floating-height": `${workbenchSettingsFloatingHeight}px`,
+          "--workbench-settings-origin-x": "0px",
+          "--workbench-settings-origin-y": "0px",
+          "--workbench-tools-floating-x": `${workbenchToolsFloatingX}px`,
+          "--workbench-tools-floating-y": `${workbenchToolsFloatingY}px`,
+          "--workbench-tools-floating-width": `${workbenchToolsFloatingWidth}px`,
+          "--workbench-tools-floating-height": `${workbenchToolsFloatingHeight}px`,
+          "--workbench-geometry-floating-x": `${workbenchGeometryFloatingX}px`,
+          "--workbench-geometry-floating-y": `${workbenchGeometryFloatingY}px`,
+          "--workbench-geometry-floating-width": `${workbenchGeometryFloatingWidth}px`,
+          "--workbench-geometry-floating-height": `${workbenchGeometryFloatingHeight}px`,
+          "--workbench-adjustments-floating-x": `${workbenchAdjustmentsFloatingX}px`,
+          "--workbench-adjustments-floating-y": `${workbenchAdjustmentsFloatingY}px`,
+          "--workbench-adjustments-floating-width": `${workbenchAdjustmentsFloatingWidth}px`,
+          "--workbench-adjustments-floating-height": `${workbenchAdjustmentsFloatingHeight}px`,
+          "--workbench-palette-floating-x": `${workbenchPaletteFloatingX}px`,
+          "--workbench-palette-floating-y": `${workbenchPaletteFloatingY}px`,
+          "--workbench-palette-floating-width": `${workbenchPaletteFloatingWidth}px`,
+          "--workbench-palette-floating-height": `${workbenchPaletteFloatingHeight}px`,
+          "--workbench-dithering-floating-x": `${workbenchDitheringFloatingX}px`,
+          "--workbench-dithering-floating-y": `${workbenchDitheringFloatingY}px`,
+          "--workbench-dithering-floating-width": `${workbenchDitheringFloatingWidth}px`,
+          "--workbench-dithering-floating-height": `${workbenchDitheringFloatingHeight}px`,
+        } as CSSProperties}
+        aria-labelledby="workspace-title"
+      >
         <div className="workspace-heading">
           <div className="workspace-copy">
             <h2 id="workspace-title">Conversion workspace</h2>
@@ -5897,6 +7014,90 @@ export function App() {
             </span>
           </div>
           <div className="heading-actions">
+            <label className="top-workspace-selector">
+              <span>Focus</span>
+              <select
+                aria-label="Configuration focus"
+                value={settingsSection}
+                onChange={(event) => focusSettingsSection(event.target.value as SettingsSection)}
+              >
+                <option value="all">All controls</option>
+                <option value="geometry">Geometry</option>
+                <option value="adjustments">Image adjustments</option>
+                <option value="palette">Palette controls</option>
+                <option value="dithering">Dithering controls</option>
+                {workspaceMode === "tilemap" ? <option value="tilemap">Tilemap controls</option> : null}
+              </select>
+            </label>
+            <label className="top-workspace-selector">
+              <span>Layout</span>
+              <select
+                aria-label="Workspace layout"
+                value={workspaceLayout}
+                onChange={(event) => applyWorkspaceLayout(event.target.value as WorkspaceLayoutId)}
+              >
+                <option value="conversion">Conversion</option>
+                <option value="palette">Palette tuning</option>
+                <option value="dithering">Dithering review</option>
+                <option value="tilemap" disabled={workspaceMode !== "tilemap"}>Tilemap cleanup</option>
+                <option value="editor" disabled={workspaceMode !== "palette"}>Editor</option>
+                <option value="inspection">Pixel inspection</option>
+                <option value="custom">Custom</option>
+              </select>
+            </label>
+            <div className="saved-workspace-top-controls" aria-label="Saved workspaces">
+              {selectedSavedWorkbenchLayoutId === NEW_WORKSPACE_VALUE ? (
+                <input
+                  type="text"
+                  aria-label="New workspace name"
+                  placeholder={NEW_WORKSPACE_LABEL}
+                  maxLength={40}
+                  autoFocus
+                  value={layoutNameEntry}
+                  onChange={(event) => setLayoutNameEntry(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      setSelectedSavedWorkbenchLayoutId("");
+                      setLayoutNameEntry("");
+                    } else if (event.key === "Enter") {
+                      event.preventDefault();
+                      saveCurrentWorkbenchLayout();
+                    }
+                  }}
+                />
+              ) : (
+                <select
+                  aria-label="Saved workspaces"
+                  value={selectedSavedWorkbenchLayoutId}
+                  onChange={(event) => selectSavedWorkbenchLayout(event.target.value)}
+                >
+                  <option value="">Workspace</option>
+                  {savedWorkbenchLayouts.map((layout) => (
+                    <option key={layout.id} value={layout.id}>{layout.name}</option>
+                  ))}
+                  <option value={NEW_WORKSPACE_VALUE}>{NEW_WORKSPACE_LABEL}</option>
+                </select>
+              )}
+              <button
+                className="secondary compact saved-workspace-icon-button"
+                type="button"
+                aria-label="Save workspace"
+                title="Save workspace"
+                disabled={selectedSavedWorkbenchLayoutId === NEW_WORKSPACE_VALUE
+                  ? normalizeSavedLayoutName(layoutNameEntry).length === 0
+                  : selectedSavedWorkbenchLayoutId === ""}
+                onClick={saveCurrentWorkbenchLayout}
+              ><span aria-hidden="true">💾</span></button>
+              <button
+                className="secondary compact saved-workspace-icon-button"
+                type="button"
+                aria-label="Delete selected saved workspace"
+                title="Delete selected saved workspace"
+                disabled={selectedSavedWorkbenchLayoutId === "" || selectedSavedWorkbenchLayoutId === NEW_WORKSPACE_VALUE}
+                onClick={() => deleteSavedWorkbenchLayout(selectedSavedWorkbenchLayoutId)}
+              ><span aria-hidden="true">🗑</span></button>
+            </div>
             <button className="secondary" type="button" onClick={openApplicationSettings}>Settings</button>
             {isPmd ? (
               <label className="file-picker">
@@ -6075,8 +7276,159 @@ export function App() {
             <button className="secondary compact destructive-profile" type="button" disabled={BUILT_IN_PROFILES.some((profile) => profile.id === selectedProfile.id)} onClick={deleteSelectedProfile}>Delete Profile</button>
             <button className="secondary compact delete-retained" type="button" disabled={profiles.length === BUILT_IN_PROFILES.length} onClick={deleteAllImportedProfiles}>Delete retained profiles ({profiles.length - BUILT_IN_PROFILES.length})</button>
           </fieldset>
+          <div
+            className="workbench-window workbench-settings-window"
+            ref={workbenchSettingsWindowRef}
+            data-dock={workbenchSettingsDock}
+            data-minimized={workbenchSettingsMinimized ? "true" : "false"}
+            style={{ zIndex: workbenchWindowZIndex("settings") }}
+            onPointerDown={() => bringWorkbenchWindowToFront("settings")}
+          >
+            <div
+              className={`workbench-resize-handle workbench-resize-${workbenchSettingsDock}`}
+              role="separator"
+              tabIndex={0}
+              aria-label={`Resize Conversion settings ${workbenchSettingsDock === "bottom" ? "height" : "width"}`}
+              aria-orientation={workbenchSettingsDock === "bottom" ? "horizontal" : "vertical"}
+              aria-valuemin={workbenchSettingsDock === "floating" ? 280 : workbenchSettingsDock === "bottom" ? 160 : 280}
+              aria-valuemax={workbenchSettingsDock === "floating" ? 760 : workbenchSettingsDock === "bottom" ? 480 : 560}
+              aria-valuenow={workbenchSettingsDock === "floating" ? workbenchSettingsFloatingHeight : workbenchSettingsDock === "bottom" ? workbenchBottomHeight : workbenchSideWidth}
+              onPointerDown={workbenchSettingsDock === "floating" ? startWorkbenchSettingsFloatingResize : (event) => startWorkbenchResize(workbenchSettingsDock, event)}
+              onKeyDown={(event) => {
+                if (workbenchSettingsDock === "floating") {
+                  const step = event.shiftKey ? 32 : 8;
+                  if (event.key === "ArrowLeft") adjustWorkbenchSettingsFloatingSize(-step, 0);
+                  if (event.key === "ArrowRight") adjustWorkbenchSettingsFloatingSize(step, 0);
+                  if (event.key === "ArrowUp") adjustWorkbenchSettingsFloatingSize(0, -step);
+                  if (event.key === "ArrowDown") adjustWorkbenchSettingsFloatingSize(0, step);
+                } else if (workbenchSettingsDock === "bottom") {
+                  if (event.key === "ArrowUp") adjustWorkbenchSize("bottom", 16);
+                  if (event.key === "ArrowDown") adjustWorkbenchSize("bottom", -16);
+                } else {
+                  if (event.key === "ArrowLeft") adjustWorkbenchSize(workbenchSettingsDock, workbenchSettingsDock === "right" ? 16 : -16);
+                  if (event.key === "ArrowRight") adjustWorkbenchSize(workbenchSettingsDock, workbenchSettingsDock === "right" ? -16 : 16);
+                }
+              }}
+            >
+              <span className="visually-hidden">Drag to resize</span>
+            </div>
+            <div
+              className="workbench-window-titlebar"
+              onPointerDown={(event) => {
+                if (workbenchSettingsDock === "floating") startWorkbenchTitlebarDrag("settings", event);
+              }}
+            >
+              <button className="workbench-window-title" type="button" aria-expanded={!workbenchSettingsMinimized} onClick={(event) => {
+                if (workbenchSettingsDock === "floating" && workbenchDragMovedRef.current) {
+                  preventWorkbenchDragClick(event);
+                  return;
+                }
+                setWorkbenchSettingsMinimized((value) => !value);
+              }}>
+                <span aria-hidden="true">{workbenchSettingsMinimized ? "▶" : "▼"}</span>
+                <span>Conversion settings</span>
+              </button>
+              {workbenchSettingsDock === "floating" ? (
+                <div
+                  className="workbench-window-drag-handle"
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Move Conversion settings window"
+                  title="Drag to move Conversion settings"
+                  onPointerDown={startWorkbenchDrag}
+                  onKeyDown={(event) => {
+                    const step = event.shiftKey ? 32 : 8;
+                    if (event.key === "ArrowLeft") setWorkbenchFloatingX((x) => Math.max(8, x - step));
+                    if (event.key === "ArrowRight") setWorkbenchFloatingX((x) => x + step);
+                    if (event.key === "ArrowUp") setWorkbenchFloatingY((y) => Math.max(8, y - step));
+                    if (event.key === "ArrowDown") setWorkbenchFloatingY((y) => y + step);
+                  }}
+                >⠿</div>
+              ) : null}
+              <div className="workbench-window-actions" aria-label="Conversion settings layout actions">
+                <button className={workbenchSettingsDock === "left" ? "active" : ""} type="button" aria-label="Dock Conversion settings left" title="Dock Conversion settings left" aria-pressed={workbenchSettingsDock === "left"} onClick={() => setWorkbenchSettingsDock("left")}>◀</button>
+                <button className={workbenchSettingsDock === "bottom" ? "active" : ""} type="button" aria-label="Dock Conversion settings below preview" title="Dock Conversion settings below preview" aria-pressed={workbenchSettingsDock === "bottom"} onClick={() => setWorkbenchSettingsDock("bottom")}>▼</button>
+                <button className={workbenchSettingsDock === "right" ? "active" : ""} type="button" aria-label="Dock Conversion settings right" title="Dock Conversion settings right" aria-pressed={workbenchSettingsDock === "right"} onClick={() => setWorkbenchSettingsDock("right")}>▶</button>
+                <button className={workbenchSettingsDock === "floating" ? "active" : ""} type="button" aria-label="Float Conversion settings" title="Float Conversion settings" aria-pressed={workbenchSettingsDock === "floating"} onClick={() => setWorkbenchSettingsDock("floating")}>⤢</button>
+                <button type="button" aria-label="Reset workbench layout" title="Reset workbench layout" onClick={resetWorkbenchLayout}>↺</button>
+                <button type="button" aria-label={`${workbenchSettingsMinimized ? "Restore" : "Minimize"} Conversion settings`} title={`${workbenchSettingsMinimized ? "Restore" : "Minimize"} Conversion settings`} onClick={() => setWorkbenchSettingsMinimized((value) => !value)}>{workbenchSettingsMinimized ? "□" : "—"}</button>
+              </div>
+            </div>
+            <div className="workbench-window-content" hidden={workbenchSettingsMinimized && !workbenchHasFloatingSections}>
+          <details
+            className={`workbench-settings-section${workbenchGeometryFloating ? ` workbench-section-floating workbench-geometry-floating${workbenchGeometryFloatingAutoHeight ? " workbench-floating-auto-height" : ""}` : ""}`}
+            hidden={workbenchSettingsMinimized && !workbenchGeometryFloating}
+            open={workbenchSectionsOpen.geometry}
+            style={workbenchGeometryFloating ? { zIndex: workbenchWindowZIndex("geometry") } : undefined}
+            onPointerDown={(event) => {
+              if (workbenchGeometryFloating) {
+                event.stopPropagation();
+                bringWorkbenchWindowToFront("geometry");
+              }
+            }}
+            onFocusCapture={() => {
+              if (workbenchGeometryFloating) bringWorkbenchWindowToFront("geometry");
+            }}
+            onToggle={(event) => setWorkbenchSectionOpen("geometry", event.currentTarget.open)}
+          >
+            <summary
+              onPointerDown={(event) => {
+                if (workbenchGeometryFloating) startWorkbenchTitlebarDrag("geometry", event);
+              }}
+              onClick={preventWorkbenchDragClick}
+            >
+              <span>Geometry</span>
+              {workbenchGeometryFloating ? (
+                <span
+                  className="workbench-window-drag-handle"
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Move Geometry window"
+                  title="Drag to move Geometry"
+                  onPointerDown={(event) => startWorkbenchSectionDrag("geometry", event)}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                  onKeyDown={(event) => {
+                    const step = event.shiftKey ? 32 : 8;
+                    if (event.key === "ArrowLeft") setWorkbenchGeometryFloatingX((x) => Math.max(8, x - step));
+                    if (event.key === "ArrowRight") setWorkbenchGeometryFloatingX((x) => x + step);
+                    if (event.key === "ArrowUp") setWorkbenchGeometryFloatingY((y) => Math.max(8, y - step));
+                    if (event.key === "ArrowDown") setWorkbenchGeometryFloatingY((y) => y + step);
+                  }}
+                >⠿</span>
+              ) : null}
+              <button
+                className="workbench-section-float-action"
+                type="button"
+                aria-label={workbenchGeometryFloating ? "Dock Geometry into Conversion settings" : "Float Geometry"}
+                title={workbenchGeometryFloating ? "Dock Geometry into Conversion settings" : "Float Geometry"}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  toggleWorkbenchSectionFloating("geometry");
+                }}
+              >{workbenchGeometryFloating ? "▼" : "⤢"}</button>
+            </summary>
+            {workbenchGeometryFloating ? (
+              <div
+                className="workbench-floating-resize-handle"
+                role="button"
+                tabIndex={0}
+                aria-label="Resize Geometry window"
+                onPointerDown={(event) => startWorkbenchFloatingResize("geometry", event)}
+                onKeyDown={(event) => {
+                  const step = event.shiftKey ? 32 : 8;
+                  if (event.key === "ArrowRight") adjustWorkbenchFloatingSize("geometry", step, 0);
+                  if (event.key === "ArrowLeft") adjustWorkbenchFloatingSize("geometry", -step, 0);
+                  if (event.key === "ArrowDown") adjustWorkbenchFloatingSize("geometry", 0, step);
+                  if (event.key === "ArrowUp") adjustWorkbenchFloatingSize("geometry", 0, -step);
+                }}
+              />
+            ) : null}
           <fieldset id="settings-geometry" className={`control-group geometry-group${settingsSection === "geometry" ? " settings-focused" : ""}`}>
-            <legend>Geometry</legend>
+            <legend className="visually-hidden">Geometry</legend>
           <div className="geometry-row geometry-primary-row">
           <label>
             <span>Framing</span>
@@ -6192,14 +7544,16 @@ export function App() {
           <div className="geometry-row orientation-actions">
             <fieldset className="orientation-control">
               <legend>Mirror</legend>
-              <label className="check-control mirror-toggle" title="Mirror horizontally">
-                <input aria-label="Mirror horizontally" type="checkbox" checked={mirrorHorizontal} onChange={(event) => { setMirrorHorizontal(event.target.checked); setState({ kind: "idle" }); }} />
-                <span aria-hidden="true">↔</span>
-              </label>
-              <label className="check-control mirror-toggle" title="Mirror vertically">
-                <input aria-label="Mirror vertically" type="checkbox" checked={mirrorVertical} onChange={(event) => { setMirrorVertical(event.target.checked); setState({ kind: "idle" }); }} />
-                <span aria-hidden="true">↕</span>
-              </label>
+              <div className="mirror-actions">
+                <label className="check-control mirror-toggle" title="Mirror horizontally">
+                  <input aria-label="Mirror horizontally" type="checkbox" checked={mirrorHorizontal} onChange={(event) => { setMirrorHorizontal(event.target.checked); setState({ kind: "idle" }); }} />
+                  <span aria-hidden="true">↔</span>
+                </label>
+                <label className="check-control mirror-toggle" title="Mirror vertically">
+                  <input aria-label="Mirror vertically" type="checkbox" checked={mirrorVertical} onChange={(event) => { setMirrorVertical(event.target.checked); setState({ kind: "idle" }); }} />
+                  <span aria-hidden="true">↕</span>
+                </label>
+              </div>
             </fieldset>
             <fieldset className="pan-control">
               <legend>Pixel pan</legend>
@@ -6225,8 +7579,81 @@ export function App() {
             </fieldset>
           </div>
           </fieldset>
+          </details>
+          <details
+            className={`workbench-settings-section${workbenchAdjustmentsFloating ? ` workbench-section-floating workbench-adjustments-floating${workbenchAdjustmentsFloatingAutoHeight ? " workbench-floating-auto-height" : ""}` : ""}`}
+            hidden={workbenchSettingsMinimized && !workbenchAdjustmentsFloating}
+            open={workbenchSectionsOpen.adjustments}
+            style={workbenchAdjustmentsFloating ? { zIndex: workbenchWindowZIndex("adjustments") } : undefined}
+            onPointerDown={(event) => {
+              if (workbenchAdjustmentsFloating) {
+                event.stopPropagation();
+                bringWorkbenchWindowToFront("adjustments");
+              }
+            }}
+            onFocusCapture={() => {
+              if (workbenchAdjustmentsFloating) bringWorkbenchWindowToFront("adjustments");
+            }}
+            onToggle={(event) => setWorkbenchSectionOpen("adjustments", event.currentTarget.open)}
+          >
+            <summary
+              onPointerDown={(event) => {
+                if (workbenchAdjustmentsFloating) startWorkbenchTitlebarDrag("adjustments", event);
+              }}
+              onClick={preventWorkbenchDragClick}
+            >
+              <span>Image adjustments</span>
+              {workbenchAdjustmentsFloating ? (
+                <span
+                  className="workbench-window-drag-handle"
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Move Image adjustments window"
+                  title="Drag to move Image adjustments"
+                  onPointerDown={(event) => startWorkbenchSectionDrag("adjustments", event)}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                  onKeyDown={(event) => {
+                    const step = event.shiftKey ? 32 : 8;
+                    if (event.key === "ArrowLeft") setWorkbenchAdjustmentsFloatingX((x) => Math.max(8, x - step));
+                    if (event.key === "ArrowRight") setWorkbenchAdjustmentsFloatingX((x) => x + step);
+                    if (event.key === "ArrowUp") setWorkbenchAdjustmentsFloatingY((y) => Math.max(8, y - step));
+                    if (event.key === "ArrowDown") setWorkbenchAdjustmentsFloatingY((y) => y + step);
+                  }}
+                >⠿</span>
+              ) : null}
+              <button
+                className="workbench-section-float-action"
+                type="button"
+                aria-label={workbenchAdjustmentsFloating ? "Dock Image adjustments into Conversion settings" : "Float Image adjustments"}
+                title={workbenchAdjustmentsFloating ? "Dock Image adjustments into Conversion settings" : "Float Image adjustments"}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  toggleWorkbenchSectionFloating("adjustments");
+                }}
+              >{workbenchAdjustmentsFloating ? "▼" : "⤢"}</button>
+            </summary>
+            {workbenchAdjustmentsFloating ? (
+              <div
+                className="workbench-floating-resize-handle"
+                role="button"
+                tabIndex={0}
+                aria-label="Resize Image adjustments window"
+                onPointerDown={(event) => startWorkbenchFloatingResize("adjustments", event)}
+                onKeyDown={(event) => {
+                  const step = event.shiftKey ? 32 : 8;
+                  if (event.key === "ArrowRight") adjustWorkbenchFloatingSize("adjustments", step, 0);
+                  if (event.key === "ArrowLeft") adjustWorkbenchFloatingSize("adjustments", -step, 0);
+                  if (event.key === "ArrowDown") adjustWorkbenchFloatingSize("adjustments", 0, step);
+                  if (event.key === "ArrowUp") adjustWorkbenchFloatingSize("adjustments", 0, -step);
+                }}
+              />
+            ) : null}
           <fieldset id="settings-adjustments" className={`adjustment-control control-group${settingsSection === "adjustments" ? " settings-focused" : ""}`}>
-            <legend>Image adjustments</legend>
+            <legend className="visually-hidden">Image adjustments</legend>
             <RangeNumberControl id="brightness" label="Brightness" value={brightness} min={-100} max={100} onChange={(value) => { setBrightness(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
             <RangeNumberControl id="contrast" label="Contrast" value={contrast} min={-100} max={100} onChange={(value) => { setContrast(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
             <RangeNumberControl id="saturation" label="Saturation" value={saturation} min={-100} max={100} onChange={(value) => { setSaturation(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
@@ -6243,10 +7670,83 @@ export function App() {
               setState({ kind: "idle" });
             }}>Reset adjustments</button>
           </fieldset>
+          </details>
           {workspaceMode === "palette" ? (
           <>
+          <details
+            className={`workbench-settings-section${workbenchPaletteFloating ? ` workbench-section-floating workbench-palette-floating${workbenchPaletteFloatingAutoHeight ? " workbench-floating-auto-height" : ""}` : ""}`}
+            hidden={workbenchSettingsMinimized && !workbenchPaletteFloating}
+            open={workbenchSectionsOpen.palette}
+            style={workbenchPaletteFloating ? { zIndex: workbenchWindowZIndex("palette") } : undefined}
+            onPointerDown={(event) => {
+              if (workbenchPaletteFloating) {
+                event.stopPropagation();
+                bringWorkbenchWindowToFront("palette");
+              }
+            }}
+            onFocusCapture={() => {
+              if (workbenchPaletteFloating) bringWorkbenchWindowToFront("palette");
+            }}
+            onToggle={(event) => setWorkbenchSectionOpen("palette", event.currentTarget.open)}
+          >
+            <summary
+            onPointerDown={(event) => {
+              if (workbenchPaletteFloating) startWorkbenchTitlebarDrag("palette", event);
+            }}
+            onClick={preventWorkbenchDragClick}
+            >
+              <span>{isQl ? "QL palette" : isPmd ? "PMD 85 palette" : "ZX palette and attributes"}</span>
+              {workbenchPaletteFloating ? (
+                <span
+                  className="workbench-window-drag-handle"
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Move Palette window"
+                  title="Drag to move Palette"
+                  onPointerDown={(event) => startWorkbenchSectionDrag("palette", event)}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                  onKeyDown={(event) => {
+                    const step = event.shiftKey ? 32 : 8;
+                    if (event.key === "ArrowLeft") setWorkbenchPaletteFloatingX((x) => Math.max(8, x - step));
+                    if (event.key === "ArrowRight") setWorkbenchPaletteFloatingX((x) => x + step);
+                    if (event.key === "ArrowUp") setWorkbenchPaletteFloatingY((y) => Math.max(8, y - step));
+                    if (event.key === "ArrowDown") setWorkbenchPaletteFloatingY((y) => y + step);
+                  }}
+                >⠿</span>
+              ) : null}
+              <button
+                className="workbench-section-float-action"
+                type="button"
+                aria-label={workbenchPaletteFloating ? "Dock Palette into Conversion settings" : "Float Palette"}
+                title={workbenchPaletteFloating ? "Dock Palette into Conversion settings" : "Float Palette"}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  toggleWorkbenchSectionFloating("palette");
+                }}
+              >{workbenchPaletteFloating ? "▼" : "⤢"}</button>
+            </summary>
+            {workbenchPaletteFloating ? (
+              <div
+                className="workbench-floating-resize-handle"
+                role="button"
+                tabIndex={0}
+                aria-label="Resize Palette window"
+                onPointerDown={(event) => startWorkbenchFloatingResize("palette", event)}
+                onKeyDown={(event) => {
+                  const step = event.shiftKey ? 32 : 8;
+                  if (event.key === "ArrowRight") adjustWorkbenchFloatingSize("palette", step, 0);
+                  if (event.key === "ArrowLeft") adjustWorkbenchFloatingSize("palette", -step, 0);
+                  if (event.key === "ArrowDown") adjustWorkbenchFloatingSize("palette", 0, step);
+                  if (event.key === "ArrowUp") adjustWorkbenchFloatingSize("palette", 0, -step);
+                }}
+              />
+            ) : null}
           <fieldset id="settings-palette" className={`control-group palette-group${settingsSection === "palette" ? " settings-focused" : ""}`}>
-            <legend>{isQl ? "QL palette" : isPmd ? "PMD 85 palette" : "ZX palette and attributes"}</legend>
+            <legend className="visually-hidden">{isQl ? "QL palette" : isPmd ? "PMD 85 palette" : "ZX palette and attributes"}</legend>
             <div className="palette-attributes-grid">
             <section className="palette-subcard" aria-labelledby="palette-subcard-title">
               <h3 id="palette-subcard-title">Palette</h3>
@@ -6307,7 +7807,6 @@ export function App() {
                                 }}
                                 aria-hidden="true"
                               />
-                              <span className="palette-option-code" aria-hidden="true">{option.code}</span>
                             </button>
                           );
                         })}
@@ -6338,23 +7837,27 @@ export function App() {
             ) : null}
           {isZx ? (
           <>
-          <label>
-            <span>Attribute size</span>
-            <select
-              value={attributeHeight}
-              onChange={(event) => {
-                const nextHeight = Number(event.target.value) as AttributeHeight;
-                setAttributeHeight(nextHeight);
-                if (nextHeight < 4) setAttributeHaloVertical(0);
-                setState({ kind: "idle" });
-              }}
-            >
-              <option value={8}>8×8</option>
-              <option value={4}>8×4</option>
-              <option value={2}>8×2</option>
-              <option value={1}>8×1</option>
-            </select>
-          </label>
+          <fieldset className="attribute-size-control">
+            <legend>Size</legend>
+            <div className="segmented-control attribute-size-options" role="radiogroup" aria-label="Attribute size">
+              {([8, 4, 2, 1] as const).map((height) => (
+                <label className="segmented-option" key={height}>
+                  <input
+                    type="radio"
+                    name="attribute-size"
+                    value={height}
+                    checked={attributeHeight === height}
+                    onChange={() => {
+                      setAttributeHeight(height as AttributeHeight);
+                      if (height < 4) setAttributeHaloVertical(0);
+                      setState({ kind: "idle" });
+                    }}
+                  />
+                  <span>8×{height}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
           <RangeNumberControl
             id="attribute-smoothing"
             label={attributeOptimizerId === "zx-guide-reference-halo-v2" ||
@@ -6388,43 +7891,53 @@ export function App() {
           <span className="control-help">
             Edge-aware pair selection for Ordered and Error diffusion.
           </span>
-          <label>
-            <span>Horizontal halo</span>
-            <select
-              value={attributeHaloHorizontal}
-              disabled={dithering === "none"}
-              onChange={(event) => {
-                setAttributeHaloHorizontal(
-                  Number(event.target.value) as AttributeHaloRadius,
-                );
-                setState({ kind: "idle" });
-              }}
-            >
-              <option value={0}>0 px</option>
-              <option value={1}>1 px</option>
-              <option value={2}>2 px</option>
-            </select>
-          </label>
-          <label>
-            <span>Vertical halo</span>
-            <select
-              value={attributeHeight >= 4 ? attributeHaloVertical : 0}
-              disabled={dithering === "none" || attributeHeight < 4}
-              onChange={(event) => {
-                setAttributeHaloVertical(
-                  Number(event.target.value) as AttributeHaloRadius,
-                );
-                setState({ kind: "idle" });
-              }}
-            >
-              <option value={0}>0 px</option>
-              <option value={1}>1 px</option>
-              <option value={2}>2 px</option>
-            </select>
-            {attributeHeight < 4
-              ? <span className="control-help">Disabled for 8×1 and 8×2 attributes.</span>
-              : null}
-          </label>
+          <fieldset className="halo-controls">
+            <legend>Attribute halo</legend>
+            <fieldset className="halo-control">
+              <legend>Horizontal</legend>
+              <div className="segmented-control halo-options" role="radiogroup" aria-label="Horizontal halo">
+                {([0, 1, 2] as const).map((radius) => (
+                  <label className="segmented-option" key={radius}>
+                    <input
+                      type="radio"
+                      name="horizontal-halo"
+                      value={radius}
+                      aria-label={`${radius} pixel${radius === 1 ? "" : "s"}`}
+                      checked={attributeHaloHorizontal === radius}
+                      disabled={dithering === "none"}
+                      onChange={() => {
+                        setAttributeHaloHorizontal(radius as AttributeHaloRadius);
+                        setState({ kind: "idle" });
+                      }}
+                    />
+                    <span>{radius}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <fieldset className="halo-control">
+              <legend>Vertical</legend>
+              <div className="segmented-control halo-options" role="radiogroup" aria-label="Vertical halo">
+                {([0, 1, 2] as const).map((radius) => (
+                  <label className="segmented-option" key={radius}>
+                    <input
+                      type="radio"
+                      name="vertical-halo"
+                      value={radius}
+                      aria-label={`${radius} pixel${radius === 1 ? "" : "s"}`}
+                      checked={(attributeHeight >= 4 ? attributeHaloVertical : 0) === radius}
+                      disabled={dithering === "none" || attributeHeight < 4}
+                      onChange={() => {
+                        setAttributeHaloVertical(radius as AttributeHaloRadius);
+                        setState({ kind: "idle" });
+                      }}
+                    />
+                    <span>{radius}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          </fieldset>
           </>
           ) : isPmd ? (
             <>
@@ -6486,8 +7999,81 @@ export function App() {
             </section>
             </div>
           </fieldset>
+          </details>
+          <details
+            className={`workbench-settings-section${workbenchDitheringFloating ? ` workbench-section-floating workbench-dithering-floating${workbenchDitheringFloatingAutoHeight ? " workbench-floating-auto-height" : ""}` : ""}`}
+            hidden={workbenchSettingsMinimized && !workbenchDitheringFloating}
+            open={workbenchSectionsOpen.dithering}
+            style={workbenchDitheringFloating ? { zIndex: workbenchWindowZIndex("dithering") } : undefined}
+            onPointerDown={(event) => {
+              if (workbenchDitheringFloating) {
+                event.stopPropagation();
+                bringWorkbenchWindowToFront("dithering");
+              }
+            }}
+            onFocusCapture={() => {
+              if (workbenchDitheringFloating) bringWorkbenchWindowToFront("dithering");
+            }}
+            onToggle={(event) => setWorkbenchSectionOpen("dithering", event.currentTarget.open)}
+          >
+            <summary
+            onPointerDown={(event) => {
+              if (workbenchDitheringFloating) startWorkbenchTitlebarDrag("dithering", event);
+            }}
+            onClick={preventWorkbenchDragClick}
+            >
+              <span>Dithering</span>
+              {workbenchDitheringFloating ? (
+                <span
+                  className="workbench-window-drag-handle"
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Move Dithering window"
+                  title="Drag to move Dithering"
+                  onPointerDown={(event) => startWorkbenchSectionDrag("dithering", event)}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                  onKeyDown={(event) => {
+                    const step = event.shiftKey ? 32 : 8;
+                    if (event.key === "ArrowLeft") setWorkbenchDitheringFloatingX((x) => Math.max(8, x - step));
+                    if (event.key === "ArrowRight") setWorkbenchDitheringFloatingX((x) => x + step);
+                    if (event.key === "ArrowUp") setWorkbenchDitheringFloatingY((y) => Math.max(8, y - step));
+                    if (event.key === "ArrowDown") setWorkbenchDitheringFloatingY((y) => y + step);
+                  }}
+                >⠿</span>
+              ) : null}
+              <button
+                className="workbench-section-float-action"
+                type="button"
+                aria-label={workbenchDitheringFloating ? "Dock Dithering into Conversion settings" : "Float Dithering"}
+                title={workbenchDitheringFloating ? "Dock Dithering into Conversion settings" : "Float Dithering"}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  toggleWorkbenchSectionFloating("dithering");
+                }}
+              >{workbenchDitheringFloating ? "▼" : "⤢"}</button>
+            </summary>
+            {workbenchDitheringFloating ? (
+              <div
+                className="workbench-floating-resize-handle"
+                role="button"
+                tabIndex={0}
+                aria-label="Resize Dithering window"
+                onPointerDown={(event) => startWorkbenchFloatingResize("dithering", event)}
+                onKeyDown={(event) => {
+                  const step = event.shiftKey ? 32 : 8;
+                  if (event.key === "ArrowRight") adjustWorkbenchFloatingSize("dithering", step, 0);
+                  if (event.key === "ArrowLeft") adjustWorkbenchFloatingSize("dithering", -step, 0);
+                  if (event.key === "ArrowDown") adjustWorkbenchFloatingSize("dithering", 0, step);
+                  if (event.key === "ArrowUp") adjustWorkbenchFloatingSize("dithering", 0, -step);
+                }}
+              />
+            ) : null}
           <fieldset id="settings-dithering" className={`control-group dithering-group${settingsSection === "dithering" ? " settings-focused" : ""}`}>
-            <legend>Dithering</legend>
+            <legend className="visually-hidden">Dithering</legend>
           <details className="engine-controls dithering-wide">
             <summary>Advanced conversion engines</summary>
             {isZx ? (
@@ -6863,9 +8449,12 @@ export function App() {
             </>
           ) : null}
           </fieldset>
+          </details>
           </>
           ) : (
           <>
+          <details className="workbench-settings-section" hidden={workbenchSettingsMinimized} open={workbenchSectionsOpen.tilemap} onToggle={(event) => setWorkbenchSectionOpen("tilemap", event.currentTarget.open)}>
+            <summary>Tilemap</summary>
           <fieldset id="settings-tilemap" className={`control-group tilemap-settings-group${settingsSection === "tilemap" ? " settings-focused" : ""}`}>
             <legend>Tilemap conversion</legend>
             <div className="tilemap-source-inline">
@@ -7208,6 +8797,7 @@ export function App() {
               288-byte plane.
             </p>
           </fieldset>
+          </details>
           </>
           )}
           </div>
@@ -7525,6 +9115,8 @@ export function App() {
             </div>
           </details>
           ) : null}
+            </div>
+          </div>
 
           <div className="form-footer">
             <div className="actions">
@@ -7580,7 +9172,7 @@ export function App() {
             </div>
 
           </div>
-          {exportError === null ? null : <div className="field-error" role="alert">{exportError}</div>}
+          {exportError === null ? null : <div className="field-error workbench-export-error" role="alert">{exportError}</div>}
         </form>
 
         {settingsOpen && settingsDraft !== null ? (() => {
@@ -7740,77 +9332,111 @@ export function App() {
             </div>
           </div>
 
-          <div className="inspection-controls">
-            <h3>Tools</h3>
-            <label>
-              <span>Configuration focus</span>
-              <select
-                value={settingsSection}
-                onChange={(event) => focusSettingsSection(event.target.value as SettingsSection)}
-              >
-                <option value="all">All controls</option>
-                <option value="geometry">Geometry</option>
-                <option value="adjustments">Image adjustments</option>
-                <option value="palette">Palette controls</option>
-                <option value="dithering">Dithering controls</option>
-                {workspaceMode === "tilemap" ? <option value="tilemap">Tilemap controls</option> : null}
-              </select>
-            </label>
-            <label>
-              <span>Workspace layout</span>
-              <select
-                value={workspaceLayout}
-                onChange={(event) => applyWorkspaceLayout(event.target.value as WorkspaceLayoutId)}
-              >
-                <option value="conversion">Conversion</option>
-                <option value="palette">Palette tuning</option>
-                <option value="tilemap" disabled={workspaceMode !== "tilemap"}>Tilemap cleanup</option>
-                <option value="editor" disabled={workspaceMode !== "palette"}>Editor</option>
-                <option value="inspection">Pixel inspection</option>
-                <option value="custom">Custom</option>
-              </select>
-            </label>
-            {isZx ? <label>
-              <span>Border color</span>
-              <select
-                value={borderColor}
-                onChange={(event) => {
-                  setBorderColor(Number(event.target.value));
-                  if (image !== null) setDirty(true);
+          <details
+            className={`inspection-controls workbench-tools-window${workbenchToolsFloating ? " workbench-tools-floating" : ""}`}
+            open={workbenchToolsOpen}
+            style={workbenchToolsFloating ? { zIndex: workbenchWindowZIndex("tools") } : undefined}
+            onPointerDown={() => {
+              if (workbenchToolsFloating) bringWorkbenchWindowToFront("tools");
+            }}
+            onFocusCapture={() => {
+              if (workbenchToolsFloating) bringWorkbenchWindowToFront("tools");
+            }}
+            onToggle={(event) => setWorkbenchToolsOpen(event.currentTarget.open)}
+          >
+            <summary
+              aria-label="Tools"
+              onPointerDown={(event) => {
+                if (workbenchToolsFloating) startWorkbenchTitlebarDrag("tools", event);
+              }}
+              onClick={preventWorkbenchDragClick}
+            >
+              <span>Tools</span>
+              <span className="workbench-tools-summary">Preview and workspace options</span>
+              {workbenchToolsFloating ? (
+                <span
+                  className="workbench-window-drag-handle"
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Move Tools window"
+                  title="Drag to move Tools"
+                  onPointerDown={startWorkbenchToolsDrag}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                  onKeyDown={(event) => {
+                    const step = event.shiftKey ? 32 : 8;
+                    if (event.key === "ArrowLeft") setWorkbenchToolsFloatingX((x) => Math.max(8, x - step));
+                    if (event.key === "ArrowRight") setWorkbenchToolsFloatingX((x) => x + step);
+                    if (event.key === "ArrowUp") setWorkbenchToolsFloatingY((y) => Math.max(8, y - step));
+                    if (event.key === "ArrowDown") setWorkbenchToolsFloatingY((y) => y + step);
+                  }}
+                >⠿</span>
+              ) : null}
+              <button
+                className="workbench-tools-float-action"
+                type="button"
+                aria-label={workbenchToolsFloating ? "Dock Tools below preview" : "Float Tools"}
+                title={workbenchToolsFloating ? "Dock Tools below preview" : "Float Tools"}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  toggleWorkbenchToolsFloating();
                 }}
-              >
-                {ZX_BASE_COLORS.map((color) => (
-                  <option key={color.code} value={color.code}>{color.name}</option>
-                ))}
-              </select>
+              >{workbenchToolsFloating ? "▼" : "⤢"}</button>
+            </summary>
+            {workbenchToolsFloating ? (
+              <div
+                className="workbench-floating-resize-handle"
+                role="button"
+                tabIndex={0}
+                aria-label="Resize Tools window"
+                onPointerDown={(event) => startWorkbenchFloatingResize("tools", event)}
+                onKeyDown={(event) => {
+                  const step = event.shiftKey ? 32 : 8;
+                  if (event.key === "ArrowRight") adjustWorkbenchFloatingSize("tools", step, 0);
+                  if (event.key === "ArrowLeft") adjustWorkbenchFloatingSize("tools", -step, 0);
+                  if (event.key === "ArrowDown") adjustWorkbenchFloatingSize("tools", 0, step);
+                  if (event.key === "ArrowUp") adjustWorkbenchFloatingSize("tools", 0, -step);
+                }}
+              />
+            ) : null}
+            <div className="workbench-tools-content">
+            <label className="check-control">
+              <input type="checkbox" checked={showPixelGrid} onChange={(event) => setShowPixelGrid(event.target.checked)} />
+              <span>Pixel grid</span>
+            </label>
+            {(isZx || isPmd) ? <label className="check-control">
+              <input type="checkbox" checked={showAttributeGrid} onChange={(event) => setShowAttributeGrid(event.target.checked)} />
+              <span>Cell grid {isPmd ? `6×${targetModeId === "pmd85-colorace" ? 2 : 1}` : `8×${displayedAttributeHeight}`}</span>
             </label> : null}
-            {isPmd ? <label>
-              <span>Palette calibration</span>
-              <select
-                value={pmd85PaletteCalibrationId}
-                onChange={(event) => void changePmd85Calibration(event.target.value)}
-              >
-                {selectedModePalette?.base_calibration_id === undefined ? null : (
-                  <option value={selectedModePalette.base_calibration_id}>
-                    {selectedModePalette.base_calibration_id === "pure-rgb"
-                      ? "Pure RGB"
-                      : selectedModePalette.base_calibration_id === "neutral-white"
-                        ? "Neutral white/silver"
-                        : "Emulator-soft"}
-                  </option>
-                )}
-                {selectedModePalette?.calibrations?.map((calibration) => (
-                  <option key={calibration.id} value={calibration.id}>{calibration.name}</option>
-                ))}
-              </select>
+            {isZx ? <label className="check-control">
+              <input
+                type="checkbox"
+                checked={hideAttributes}
+                onChange={(event) => setHideAttributes(event.target.checked)}
+              />
+              <span>Hide attributes</span>
             </label> : null}
             <label className="check-control">
               <input type="checkbox" checked={synchronizePan} onChange={(event) => setSynchronizePan(event.target.checked)} />
               <span>Synchronize pan</span>
             </label>
-            <label className="check-control">
-              <input type="checkbox" checked={showPixelGrid} onChange={(event) => setShowPixelGrid(event.target.checked)} />
-              <span>Pixel grid</span>
+            <label className="check-control" title="Keep source and result preview zoom levels aligned. Selecting an editor or inspection layout disables this option.">
+              <input
+                type="checkbox"
+                checked={synchronizeZoom}
+                onChange={(event) => {
+                  const enabled = event.target.checked;
+                  setSynchronizeZoom(enabled);
+                  if (enabled) {
+                    setSourcePreviewZoom(previewZoom);
+                    setResultPreviewZoom(previewZoom);
+                  }
+                }}
+              />
+              <span>Synchronize zoom</span>
             </label>
             {isQl && workspaceMode === "palette" ? <label
               className="check-control"
@@ -7840,19 +9466,27 @@ export function App() {
                   </select>
                 </label>
               ) : null}
-            {(isZx || isPmd) ? <label className="check-control">
-              <input type="checkbox" checked={showAttributeGrid} onChange={(event) => setShowAttributeGrid(event.target.checked)} />
-              <span>Cell grid {isPmd ? `6×${targetModeId === "pmd85-colorace" ? 2 : 1}` : `8×${displayedAttributeHeight}`}</span>
+            {isPmd ? <label>
+              <span>Palette calibration</span>
+              <select
+                value={pmd85PaletteCalibrationId}
+                onChange={(event) => void changePmd85Calibration(event.target.value)}
+              >
+                {selectedModePalette?.base_calibration_id === undefined ? null : (
+                  <option value={selectedModePalette.base_calibration_id}>
+                    {selectedModePalette.base_calibration_id === "pure-rgb"
+                      ? "Pure RGB"
+                      : selectedModePalette.base_calibration_id === "neutral-white"
+                        ? "Neutral white/silver"
+                        : "Emulator-soft"}
+                  </option>
+                )}
+                {selectedModePalette?.calibrations?.map((calibration) => (
+                  <option key={calibration.id} value={calibration.id}>{calibration.name}</option>
+                ))}
+              </select>
             </label> : null}
-            {isZx ? <label className="check-control">
-              <input
-                type="checkbox"
-                checked={hideAttributes}
-                onChange={(event) => setHideAttributes(event.target.checked)}
-              />
-              <span>Hide attributes</span>
-            </label> : null}
-            {workspaceMode === "palette" ? (
+            {showCompareEngines && workspaceMode === "palette" ? (
               <button
                 className="secondary compact inspector-toggle"
                 type="button"
@@ -7881,7 +9515,8 @@ export function App() {
                 {tilemapBenchmarkRunning ? "Benchmarking…" : "Compare methods"}
               </button>
             ) : null}
-          </div>
+            </div>
+          </details>
 
           {workspaceMode === "palette" ? (
           <aside className="preview-palette-panel" aria-label="Palette summary">

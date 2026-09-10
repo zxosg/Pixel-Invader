@@ -145,6 +145,51 @@ input.invalid {
   gap: 0.4rem;
 }
 
+.top-workspace-selector {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.top-workspace-selector > span {
+  color: #aebbd0;
+  font-size: 0.64rem;
+  font-weight: 800;
+}
+
+.top-workspace-selector select {
+  width: 9.5rem;
+  min-width: 0;
+}
+
+.saved-workspace-top-controls {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.saved-workspace-top-controls select {
+  width: 10rem;
+  min-width: 0;
+}
+
+.saved-workspace-top-controls input {
+  width: 9rem;
+  min-width: 0;
+}
+
+.saved-workspace-icon-button {
+  display: inline-grid;
+  width: 2rem;
+  min-width: 2rem;
+  place-items: center;
+  padding: 0;
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
 .file-picker.secondary-picker {
   color: #e8edf5;
   background: transparent;
@@ -494,6 +539,13 @@ h1 {
 .mirror-toggle input {
   position: absolute;
   opacity: 0;
+}
+
+.mirror-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
 }
 
 .background-control {
@@ -2045,6 +2097,14 @@ input[type="range"] {
     justify-content: center;
   }
 
+  .profile-control .file-picker {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    line-height: 1;
+  }
+
   .ql-profile-control {
     grid-column: 1 / -1;
     grid-template-columns:
@@ -2220,10 +2280,10 @@ input[type="range"] {
     overflow: hidden;
   }
 
-  .preview-palette-panel .palette-control {
+.preview-palette-panel .palette-control {
     height: 100%;
     min-height: 0;
-    overflow-y: auto;
+  overflow-y: auto;
     padding: 0.4rem;
   }
 
@@ -2808,12 +2868,6 @@ input[type="range"] {
   flex: 0 0 auto;
 }
 
-.palette-option-code {
-  color: #d6deea;
-  font-size: 0.58rem;
-  font-weight: 800;
-}
-
 .palette-subcard .bright-control {
   display: grid;
   gap: 0.12rem;
@@ -2829,9 +2883,57 @@ input[type="range"] {
 }
 
 .attributes-subcard > label,
+.attributes-subcard > fieldset,
 .attributes-subcard > .check-control,
 .attributes-subcard > .control-help {
   min-width: 0;
+}
+
+.attribute-size-control,
+.halo-controls,
+.halo-control {
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.attribute-size-control > legend,
+.halo-controls > legend,
+.halo-control > legend {
+  margin: 0 0 0.18rem;
+  padding: 0;
+  color: #d6deea;
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.attribute-size-options {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.halo-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+
+.halo-controls > legend {
+  grid-column: 1 / -1;
+}
+
+.halo-options {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.halo-control .segmented-option {
+  min-height: 1.65rem;
+  font-size: 0.62rem;
+}
+
+.halo-control .segmented-option:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .attributes-subcard > .control-help {
@@ -2879,6 +2981,12 @@ input[type="range"] {
     border-left: 0;
     padding-top: 0.4rem;
     padding-left: 0;
+  }
+}
+
+@media (max-width: 760px) {
+  .halo-controls {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -3633,5 +3741,791 @@ input[type="range"] {
 @media (max-width: 760px) {
   .controls {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Desktop workbench prototype. The preview remains a protected center stage;
+   settings can be tiled below, to the left, or to the right without changing
+   conversion state or preview rendering. */
+@media (min-width: 1280px) {
+  .workbench-workspace {
+    position: relative;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(28rem, 1fr) auto auto;
+    align-content: stretch;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .workbench-workspace.workbench-settings-bottom.workbench-settings-expanded {
+    grid-template-rows: auto auto minmax(12rem, 1fr) var(--workbench-bottom-height) auto;
+  }
+
+  .workbench-workspace .conversion-form,
+  .workbench-workspace .controls {
+    display: contents;
+    border: 0;
+    padding: 0;
+  }
+
+  .workbench-workspace .profile-control {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .workbench-workspace .inspection-workspace {
+    grid-column: 1;
+    grid-row: 3;
+    grid-template-columns: minmax(0, 1fr) 3rem minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto auto;
+    min-width: 0;
+    min-height: 0;
+    height: auto;
+    border-top: 0;
+    padding-top: 0;
+  }
+
+  .workbench-workspace .inspection-heading {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+
+  .workbench-workspace .inspection-actions {
+    grid-column: 2;
+    grid-row: 2;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .workbench-workspace .source-panel {
+    grid-column: 1;
+    grid-row: 2;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .workbench-workspace .result-panel {
+    grid-column: 3;
+    grid-row: 2;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .workbench-workspace .inspection-controls {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    min-width: 0;
+    min-height: 0;
+    max-height: 7rem;
+    overflow: auto;
+    border: 1px solid #33425d;
+    border-radius: 0.45rem;
+    padding: 0.35rem;
+    background: #111824;
+  }
+
+  .workbench-workspace .preview-palette-panel,
+  .workbench-workspace .tilemap-charset-panel {
+    display: none;
+  }
+
+  .workbench-workspace .inspection-drawer {
+    grid-column: 1 / -1;
+    grid-row: 4;
+    min-width: 0;
+  }
+
+  .workbench-workspace .workbench-settings-window {
+    grid-column: 1;
+    grid-row: 4;
+    min-width: 0;
+    min-height: 0;
+    max-height: min(34vh, 30rem);
+  }
+
+  .workbench-settings-window .workbench-window-content {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    align-content: start;
+    gap: 0.35rem;
+    min-width: 0;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 0.35rem;
+    scrollbar-gutter: stable;
+  }
+
+  .workbench-settings-window .control-group {
+    grid-column: auto !important;
+    grid-row: auto !important;
+    min-width: 0;
+  }
+
+  .workbench-settings-window .workbench-settings-section {
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    border: 1px solid #33425d;
+    border-radius: 0.35rem;
+    background: #111824;
+  }
+
+  .workbench-settings-window:has(.workbench-section-floating) {
+    position: relative;
+    overflow: visible;
+  }
+
+  .workbench-settings-window:has(.workbench-section-floating) .workbench-window-content {
+    overflow: visible;
+  }
+
+  .workbench-settings-window .workbench-settings-section.workbench-section-floating {
+    position: absolute;
+    z-index: 12;
+    max-width: calc(100% - 1rem);
+    max-height: calc(100% - 1rem);
+    overflow-x: hidden;
+    overflow-y: auto;
+    box-shadow: 0 0.7rem 2rem rgb(0 0 0 / 38%);
+  }
+
+  .workbench-settings-window .workbench-settings-section.workbench-dithering-floating {
+    top: min(var(--workbench-dithering-floating-y), calc(100% - 2rem));
+    left: min(var(--workbench-dithering-floating-x), calc(100% - 2rem));
+    width: min(var(--workbench-dithering-floating-width), calc(100% - 1rem));
+    height: min(var(--workbench-dithering-floating-height), calc(100% - 1rem));
+  }
+
+  .workbench-settings-window .workbench-settings-section.workbench-geometry-floating {
+    top: min(var(--workbench-geometry-floating-y), calc(100% - 2rem));
+    left: min(var(--workbench-geometry-floating-x), calc(100% - 2rem));
+    width: min(var(--workbench-geometry-floating-width), calc(100% - 1rem));
+    height: min(var(--workbench-geometry-floating-height), calc(100% - 1rem));
+  }
+
+  .workbench-settings-window .workbench-settings-section.workbench-adjustments-floating {
+    top: min(var(--workbench-adjustments-floating-y), calc(100% - 2rem));
+    left: min(var(--workbench-adjustments-floating-x), calc(100% - 2rem));
+    width: min(var(--workbench-adjustments-floating-width), calc(100% - 1rem));
+    height: min(var(--workbench-adjustments-floating-height), calc(100% - 1rem));
+  }
+
+  .workbench-settings-window .workbench-settings-section.workbench-floating-auto-height {
+    height: auto;
+  }
+
+  .workbench-settings-window .workbench-settings-section.workbench-dithering-floating .dithering-group {
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+  }
+
+  .workbench-settings-window .workbench-settings-section.workbench-dithering-floating .dithering-group > *,
+  .workbench-settings-window .workbench-settings-section.workbench-dithering-floating .amount-control {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .workbench-settings-window .workbench-settings-section.workbench-dithering-floating select,
+  .workbench-settings-window .workbench-settings-section.workbench-dithering-floating input[type="range"] {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .workbench-floating-resize-handle {
+    position: absolute;
+    right: 0.18rem;
+    bottom: 0.18rem;
+    z-index: 2;
+    width: 0.8rem;
+    height: 0.8rem;
+    border-right: 2px solid #79b7ff;
+    border-bottom: 2px solid #79b7ff;
+    cursor: nwse-resize;
+    opacity: 0.8;
+  }
+
+  .workbench-floating-resize-handle:hover,
+  .workbench-floating-resize-handle:focus-visible {
+    opacity: 1;
+  }
+
+  .workbench-floating-resize-handle:focus-visible {
+    outline: 2px solid #ffdc6a;
+    outline-offset: 1px;
+  }
+
+  .workbench-settings-window[data-minimized="true"] .workbench-window-content:not([hidden]) .workbench-settings-section:not(.workbench-section-floating) {
+    display: none;
+  }
+
+  .workbench-settings-window .workbench-settings-section > summary,
+  .workbench-tools-window > summary {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.35rem;
+    cursor: pointer;
+    list-style: none;
+    padding: 0.22rem 0.35rem;
+    color: #dce7f7;
+    font-size: 0.72rem;
+    font-weight: 800;
+  }
+
+  .workbench-settings-window .workbench-settings-section > summary::-webkit-details-marker,
+  .workbench-tools-window > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .workbench-settings-window .workbench-settings-section > summary::before,
+  .workbench-tools-window > summary::before {
+    flex: 0 0 auto;
+    content: "▸";
+    color: #79b7ff;
+  }
+
+  .workbench-settings-window .workbench-settings-section[open] > summary::before,
+  .workbench-tools-window[open] > summary::before {
+    content: "▾";
+  }
+
+  .workbench-settings-window .workbench-settings-section > summary:hover,
+  .workbench-settings-window .workbench-settings-section > summary:focus-visible,
+  .workbench-tools-window > summary:hover,
+  .workbench-tools-window > summary:focus-visible {
+    background: #172b43;
+  }
+
+  .workbench-settings-window .workbench-settings-section > summary:focus-visible,
+  .workbench-tools-window > summary:focus-visible {
+    outline: 2px solid #ffdc6a;
+    outline-offset: -2px;
+  }
+
+  .workbench-settings-window .workbench-settings-section > fieldset {
+    min-width: 0;
+    border: 0;
+    border-top: 1px solid #33425d;
+    border-radius: 0;
+    padding: 0.28rem;
+  }
+
+  .workbench-settings-window[data-dock="left"] {
+    grid-column: 1;
+    grid-row: 3 / span 2;
+    max-height: none;
+  }
+
+  .workbench-settings-window[data-dock="left"]:not([data-minimized="true"]),
+  .workbench-settings-window[data-dock="right"]:not([data-minimized="true"]) {
+    height: 100%;
+  }
+
+  .workbench-settings-window[data-dock="left"] .workbench-window-content,
+  .workbench-settings-window[data-dock="right"] .workbench-window-content {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workbench-workspace.workbench-settings-left,
+  .workbench-workspace.workbench-settings-right {
+    grid-template-columns: minmax(0, 1fr) var(--workbench-side-width);
+  }
+
+  .workbench-workspace.workbench-settings-left {
+    grid-template-columns: var(--workbench-side-width) minmax(0, 1fr);
+  }
+
+  .workbench-workspace.workbench-settings-left .inspection-workspace {
+    grid-column: 2;
+  }
+
+  .workbench-workspace.workbench-settings-right .inspection-workspace {
+    grid-column: 1;
+  }
+
+  .workbench-workspace.workbench-settings-left .workbench-settings-window {
+    grid-column: 1;
+  }
+
+  .workbench-workspace.workbench-settings-right .workbench-settings-window {
+    grid-column: 2;
+    grid-row: 3 / span 2;
+    max-height: none;
+  }
+
+  .workbench-workspace.workbench-settings-bottom.workbench-settings-expanded .workbench-settings-window {
+    height: 100%;
+    max-height: none;
+  }
+
+  .workbench-settings-window[data-dock="bottom"] {
+    min-height: 0;
+  }
+
+  .workbench-settings-window[data-dock="bottom"] .workbench-window-content {
+    height: 100%;
+  }
+
+  /* Keep a dock's footprint fixed when the settings body is taller than the
+     available row. The content scrolls instead of forcing the preview stage
+     or the surrounding workbench to grow. Floating child sections retain
+     their escape hatch below. */
+  .workbench-settings-window[data-dock="bottom"]:not(:has(.workbench-section-floating)) .workbench-window-content,
+  .workbench-settings-window[data-dock="left"]:not(:has(.workbench-section-floating)) .workbench-window-content,
+  .workbench-settings-window[data-dock="right"]:not(:has(.workbench-section-floating)) .workbench-window-content {
+    height: 100%;
+    min-height: 0;
+    max-height: 100%;
+    grid-auto-rows: max-content;
+    align-items: start;
+    overflow-y: scroll;
+    overscroll-behavior: contain;
+  }
+
+  /* Open sections must contribute their full height to the parent scroll
+     region. Without this, the section grid items can shrink to the dock and
+     clip their controls internally, leaving nothing useful to scroll. */
+  .workbench-settings-window[data-dock="bottom"]:not(:has(.workbench-section-floating)) .workbench-settings-section:not(.workbench-section-floating),
+  .workbench-settings-window[data-dock="left"]:not(:has(.workbench-section-floating)) .workbench-settings-section:not(.workbench-section-floating),
+  .workbench-settings-window[data-dock="right"]:not(:has(.workbench-section-floating)) .workbench-settings-section:not(.workbench-section-floating) {
+    min-height: max-content;
+    overflow: visible;
+  }
+
+  .workbench-workspace.workbench-settings-floating .workbench-settings-window {
+    position: absolute;
+    grid-column: auto;
+    grid-row: auto;
+    z-index: 10;
+    top: max(0.5rem, min(var(--workbench-floating-y), calc(100% - var(--workbench-settings-floating-height) - 0.5rem)));
+    left: max(0.5rem, min(var(--workbench-floating-x), calc(100% - var(--workbench-settings-floating-width) - 0.5rem)));
+    width: min(var(--workbench-settings-floating-width), calc(100% - 1rem));
+    height: min(var(--workbench-settings-floating-height), calc(100% - 1rem));
+    max-width: calc(100% - 1rem);
+    max-height: calc(100% - 1rem);
+    box-shadow: 0 0.7rem 2rem rgb(0 0 0 / 38%);
+  }
+
+  .workbench-workspace.workbench-settings-floating .workbench-settings-window[data-minimized="true"] {
+    height: auto;
+  }
+
+  .workbench-settings-window[data-dock="floating"] .workbench-resize-handle {
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: auto;
+    display: block;
+    width: 0.8rem;
+    height: 0.8rem;
+    cursor: nwse-resize;
+    border-radius: 0 0 0.35rem 0;
+    background: linear-gradient(135deg, transparent 48%, #79b7ff 50%, #79b7ff 58%, transparent 60%);
+  }
+
+  .workbench-settings-window[data-dock="floating"] .workbench-window-content {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* Floating child windows are rendered inside the settings window for
+     composition, but their saved coordinates belong to the workbench. Keep
+     them in that coordinate space instead of constraining them to the
+     settings window's bounds. */
+  .workbench-settings-window .workbench-settings-section.workbench-section-floating {
+    max-width: none;
+    max-height: none;
+  }
+
+  .workbench-settings-window .workbench-settings-section.workbench-geometry-floating {
+    top: calc(var(--workbench-geometry-floating-y) - var(--workbench-settings-origin-y));
+    left: calc(var(--workbench-geometry-floating-x) - var(--workbench-settings-origin-x));
+    width: var(--workbench-geometry-floating-width);
+    height: var(--workbench-geometry-floating-height);
+  }
+
+  .workbench-settings-window .workbench-settings-section.workbench-adjustments-floating {
+    top: calc(var(--workbench-adjustments-floating-y) - var(--workbench-settings-origin-y));
+    left: calc(var(--workbench-adjustments-floating-x) - var(--workbench-settings-origin-x));
+    width: var(--workbench-adjustments-floating-width);
+    height: var(--workbench-adjustments-floating-height);
+  }
+
+  .workbench-settings-window .workbench-settings-section.workbench-dithering-floating {
+    top: calc(var(--workbench-dithering-floating-y) - var(--workbench-settings-origin-y));
+    left: calc(var(--workbench-dithering-floating-x) - var(--workbench-settings-origin-x));
+    width: var(--workbench-dithering-floating-width);
+    height: var(--workbench-dithering-floating-height);
+  }
+
+  .workbench-settings-window .workbench-settings-section.workbench-floating-auto-height {
+    height: auto;
+  }
+
+  .workbench-settings-window:has(.workbench-section-floating),
+  .workbench-settings-window:has(.workbench-section-floating) .workbench-window-content {
+    overflow: visible;
+  }
+
+  .workbench-settings-window[data-dock="floating"] .geometry-primary-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .workbench-settings-window[data-dock="floating"] .palette-attributes-grid,
+  .workbench-settings-window[data-dock="floating"] .dithering-group {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workbench-workspace .form-footer {
+    grid-column: 1 / -1;
+    grid-row: 5;
+    min-width: 0;
+  }
+
+  .workbench-workspace .workbench-export-error {
+    grid-column: 1 / -1;
+    grid-row: 6;
+  }
+
+  .workbench-window {
+    position: relative;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    border: 1px solid #3d5575;
+    border-radius: 0.45rem;
+    background: rgb(15 24 39 / 94%);
+  }
+
+  .workbench-window-titlebar {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.35rem;
+    border-bottom: 1px solid #33425d;
+    padding: 0.25rem 0.35rem;
+    background: #172b43;
+  }
+
+  .workbench-resize-handle {
+    position: absolute;
+    z-index: 2;
+    display: block;
+    border: 0;
+    padding: 0;
+    background: transparent;
+  }
+
+  .workbench-resize-handle:hover,
+  .workbench-resize-handle:focus-visible {
+    background: #79b7ff;
+  }
+
+  .workbench-resize-bottom {
+    top: 0;
+    right: 0.5rem;
+    left: 0.5rem;
+    height: 0.35rem;
+    cursor: ns-resize;
+  }
+
+  .workbench-resize-left,
+  .workbench-resize-right {
+    top: 2rem;
+    bottom: 0.35rem;
+    width: 0.35rem;
+    cursor: ew-resize;
+  }
+
+  .workbench-resize-left {
+    right: 0;
+  }
+
+  .workbench-resize-right {
+    left: 0;
+  }
+
+  .workbench-resize-floating {
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: auto;
+    width: 0.8rem;
+    height: 0.8rem;
+    cursor: nwse-resize;
+  }
+
+  .workbench-settings-window[data-minimized="true"] .workbench-resize-handle {
+    display: none;
+  }
+
+  .workbench-window-title,
+  .workbench-window-actions button {
+    min-height: 1.55rem;
+    border: 1px solid transparent;
+    border-radius: 0.25rem;
+    color: #e9f4ff;
+    background: transparent;
+    font-size: 0.68rem;
+    font-weight: 800;
+  }
+
+  .workbench-window-title {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.1rem 0.2rem;
+    text-align: left;
+  }
+
+  .workbench-window-drag-handle {
+    flex: 1 1 auto;
+    min-width: 1.5rem;
+    cursor: move;
+    color: #79b7ff;
+    font-size: 0.95rem;
+    line-height: 1;
+    text-align: center;
+  }
+
+  .workbench-window-drag-handle:hover,
+  .workbench-window-drag-handle:focus-visible {
+    color: #fff;
+  }
+
+  .workbench-window-drag-handle:focus-visible {
+    outline: 2px solid #ffdc6a;
+    outline-offset: 1px;
+  }
+
+  .workbench-window-title span:last-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .workbench-window-actions {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 0.12rem;
+  }
+
+  .workbench-window-actions button {
+    width: 1.55rem;
+    padding: 0;
+    cursor: pointer;
+  }
+
+  .workbench-window-title:hover,
+  .workbench-window-actions button:hover,
+  .workbench-window-actions button.active {
+    border-color: #79b7ff;
+    color: #fff;
+    background: #245b7b;
+  }
+
+  .workbench-window-title:focus-visible,
+  .workbench-window-actions button:focus-visible {
+    outline: 2px solid #ffdc6a;
+    outline-offset: 1px;
+  }
+
+  .workbench-window-content {
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .workbench-window-content[hidden] {
+    display: none;
+  }
+
+  .workbench-tools-window {
+    display: block;
+    max-height: none;
+    overflow: hidden;
+    padding: 0;
+  }
+
+  .workbench-workspace .workbench-tools-window.workbench-tools-floating {
+    position: absolute;
+    z-index: 11;
+    grid-column: auto;
+    grid-row: auto;
+    top: min(var(--workbench-tools-floating-y), calc(100% - 2rem));
+    left: min(var(--workbench-tools-floating-x), calc(100% - 2rem));
+    width: min(var(--workbench-tools-floating-width), calc(100% - 1rem));
+    height: min(var(--workbench-tools-floating-height), calc(100% - 1rem));
+    max-width: calc(100% - 1rem);
+    max-height: calc(100% - 1rem);
+    overflow: hidden;
+    box-shadow: 0 0.7rem 2rem rgb(0 0 0 / 38%);
+  }
+
+  .workbench-tools-floating .workbench-tools-content {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    height: calc(100% - 1.55rem);
+    max-height: none;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+  }
+
+  .workbench-tools-window > summary {
+    min-height: 1.55rem;
+    border: 1px solid #33425d;
+    border-radius: 0.35rem;
+    background: #111824;
+  }
+
+  .workbench-tools-summary {
+    min-width: 0;
+    overflow: hidden;
+    color: #9fb0c9;
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .workbench-tools-float-action {
+    flex: 0 0 auto;
+    width: 1.45rem;
+    min-height: 1.35rem;
+    border: 1px solid #52627d;
+    border-radius: 0.2rem;
+    color: #e9f4ff;
+    background: transparent;
+    cursor: pointer;
+    font-size: 0.7rem;
+    font-weight: 800;
+    line-height: 1;
+  }
+
+  .workbench-tools-float-action:hover,
+  .workbench-tools-float-action:focus-visible {
+    border-color: #79b7ff;
+    background: #245b7b;
+  }
+
+  .workbench-tools-float-action:focus-visible {
+    outline: 2px solid #ffdc6a;
+    outline-offset: 1px;
+  }
+
+  .workbench-section-float-action {
+    flex: 0 0 auto;
+    width: 1.45rem;
+    min-height: 1.35rem;
+    border: 1px solid #52627d;
+    border-radius: 0.2rem;
+    color: #e9f4ff;
+    background: transparent;
+    cursor: pointer;
+    font-size: 0.7rem;
+    font-weight: 800;
+    line-height: 1;
+  }
+
+  .workbench-section-float-action:hover,
+  .workbench-section-float-action:focus-visible {
+    border-color: #79b7ff;
+    background: #245b7b;
+  }
+
+  .workbench-section-float-action:focus-visible {
+    outline: 2px solid #ffdc6a;
+    outline-offset: 1px;
+  }
+
+  .workbench-tools-content {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+    gap: 0.25rem 0.45rem;
+    min-width: 0;
+    padding: 0.35rem;
+    border: 1px solid #33425d;
+    border-top: 0;
+    border-radius: 0 0 0.35rem 0.35rem;
+    background: #111824;
+  }
+
+  .workbench-tools-window:not(.workbench-tools-floating) .workbench-tools-content {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: end;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+  }
+
+  .workbench-tools-window:not(.workbench-tools-floating) .workbench-tools-content > label,
+  .workbench-tools-window:not(.workbench-tools-floating) .workbench-tools-content > fieldset,
+  .workbench-tools-window:not(.workbench-tools-floating) .workbench-tools-content > button {
+    flex: 0 0 auto;
+    width: auto;
+    max-width: 14rem;
+  }
+
+  .workbench-tools-window:not(.workbench-tools-floating) .workbench-tools-content > label:not(.check-control) {
+    min-width: 9rem;
+  }
+
+  .workbench-tools-window:not(.workbench-tools-floating) .workbench-tools-content > .check-control {
+    align-self: center;
+    min-width: max-content;
+    padding-inline: 0.2rem;
+  }
+
+  .workbench-tools-window:not(.workbench-tools-floating) .workbench-tools-content > .inspector-toggle {
+    min-width: max-content;
+  }
+
+  .workbench-tools-content > label,
+  .workbench-tools-content > button {
+    min-width: 0;
+  }
+
+  .workbench-tools-content .saved-layout-controls {
+    display: grid;
+    grid-column: 1 / -1;
+    gap: 0.25rem;
+    min-width: 0;
+    margin: 0;
+    border: 1px solid #33425d;
+    border-radius: 0.3rem;
+    padding: 0.28rem;
+  }
+
+  .saved-layout-controls legend {
+    padding: 0 0.2rem;
+    color: #d6deea;
+    font-size: 0.65rem;
+    font-weight: 800;
+  }
+
+  .saved-layout-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 0.25rem;
+    min-width: 0;
+  }
+
+  .saved-layout-row:last-child {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .saved-layout-row select,
+  .saved-layout-row input,
+  .saved-layout-row button {
+    min-width: 0;
+  }
+
+  .workbench-settings-window[data-minimized="true"] {
+    align-self: start;
   }
 }

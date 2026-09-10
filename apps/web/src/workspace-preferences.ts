@@ -1,6 +1,7 @@
 export type WorkspaceLayoutId =
   | "conversion"
   | "palette"
+  | "dithering"
   | "tilemap"
   | "editor"
   | "inspection"
@@ -14,6 +15,7 @@ export interface WorkspacePreferences {
   readonly sourceZoom?: WorkspacePreferences["previewZoom"];
   readonly resultZoom?: WorkspacePreferences["previewZoom"];
   readonly synchronizePan: boolean;
+  readonly synchronizeZoom: boolean;
   readonly showPixelGrid: boolean;
   readonly showAttributeGrid: boolean;
   readonly hideAttributes: boolean;
@@ -26,6 +28,7 @@ export const DEFAULT_WORKSPACE_PREFERENCES: WorkspacePreferences = {
   resultContent: "image",
   previewZoom: "fit",
   synchronizePan: true,
+  synchronizeZoom: true,
   showPixelGrid: false,
   showAttributeGrid: false,
   hideAttributes: false,
@@ -35,7 +38,7 @@ export const DEFAULT_WORKSPACE_PREFERENCES: WorkspacePreferences = {
 const STORAGE_KEY = "retro-converter.workspace-preferences.v1";
 const CONTENTS = new Set(["image", "source-image", "result-image", "pre-attribute", "screen-1", "screen-2", "merged-low", "merged-high", "palette-usage", "tile-usage", "unified-editor", "tile-editor", "bitmap-editor", "inspector", "difference"]);
 const ZOOMS = new Set(["fit", 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
-const LAYOUTS = new Set(["conversion", "palette", "tilemap", "editor", "inspection", "custom"]);
+const LAYOUTS = new Set(["conversion", "palette", "dithering", "tilemap", "editor", "inspection", "custom"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -60,6 +63,7 @@ export function loadWorkspacePreferences(
         !(sourceZoom === "fit" || (typeof sourceZoom === "number" && ZOOMS.has(sourceZoom))) ||
         !(resultZoom === "fit" || (typeof resultZoom === "number" && ZOOMS.has(resultZoom))) ||
         typeof parsed.synchronizePan !== "boolean" ||
+        (parsed.synchronizeZoom !== undefined && typeof parsed.synchronizeZoom !== "boolean") ||
         typeof parsed.showPixelGrid !== "boolean" || typeof parsed.showAttributeGrid !== "boolean" ||
         typeof parsed.hideAttributes !== "boolean" || typeof parsed.inspectionDrawerOpen !== "boolean") {
       return DEFAULT_WORKSPACE_PREFERENCES;
@@ -70,6 +74,7 @@ export function loadWorkspacePreferences(
       resultContent: resultContent === "tile-editor" ? "unified-editor" : resultContent as WorkspacePreferences["resultContent"],
       previewZoom: previewZoom as WorkspacePreferences["previewZoom"],
       synchronizePan: parsed.synchronizePan,
+      synchronizeZoom: parsed.synchronizeZoom === undefined ? true : parsed.synchronizeZoom,
       showPixelGrid: parsed.showPixelGrid,
       showAttributeGrid: parsed.showAttributeGrid,
       hideAttributes: parsed.hideAttributes,

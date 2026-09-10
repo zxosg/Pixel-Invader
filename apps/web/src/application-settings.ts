@@ -13,6 +13,8 @@ export interface ApplicationSettings {
   readonly workspaceLayout: WorkspaceLayoutId;
   readonly mouseWheelZoom: boolean;
   readonly synchronizePan: boolean;
+  readonly synchronizeZoom: boolean;
+  readonly showCompareEngines: boolean;
 }
 
 export interface ApplicationSettingsCatalog {
@@ -33,12 +35,14 @@ export const DEFAULT_APPLICATION_SETTINGS: ApplicationSettings = {
   workspaceLayout: "conversion",
   mouseWheelZoom: true,
   synchronizePan: true,
+  synchronizeZoom: true,
+  showCompareEngines: false,
 };
 
 const FRAMINGS = new Set(["fill", "fit", "crop", "stretch"]);
 const DITHERING = new Set(["none", "ordered", "error-diffusion"]);
 const LAYOUTS = new Set([
-  "conversion", "palette", "tilemap", "editor", "inspection", "custom",
+  "conversion", "palette", "dithering", "tilemap", "editor", "inspection", "custom",
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -53,7 +57,9 @@ export function validateApplicationSettings(value: unknown): ApplicationSettings
       typeof value.ditheringAmount !== "number" || !Number.isFinite(value.ditheringAmount) ||
       value.ditheringAmount < 0 || value.ditheringAmount > 100 ||
       typeof value.workspaceLayout !== "string" || !LAYOUTS.has(value.workspaceLayout) ||
-      typeof value.mouseWheelZoom !== "boolean" || typeof value.synchronizePan !== "boolean") {
+      typeof value.mouseWheelZoom !== "boolean" || typeof value.synchronizePan !== "boolean" ||
+      (value.synchronizeZoom !== undefined && typeof value.synchronizeZoom !== "boolean") ||
+      (value.showCompareEngines !== undefined && typeof value.showCompareEngines !== "boolean")) {
     return null;
   }
   return {
@@ -66,6 +72,12 @@ export function validateApplicationSettings(value: unknown): ApplicationSettings
     workspaceLayout: value.workspaceLayout as WorkspaceLayoutId,
     mouseWheelZoom: value.mouseWheelZoom,
     synchronizePan: value.synchronizePan,
+    synchronizeZoom: value.synchronizeZoom === undefined
+      ? DEFAULT_APPLICATION_SETTINGS.synchronizeZoom
+      : value.synchronizeZoom,
+    showCompareEngines: value.showCompareEngines === undefined
+      ? DEFAULT_APPLICATION_SETTINGS.showCompareEngines
+      : value.showCompareEngines,
   };
 }
 
