@@ -37,6 +37,13 @@ describe("application settings", () => {
     expect(validateApplicationSettings({ ...DEFAULT_APPLICATION_SETTINGS, framing: "bad" })).toBeNull();
   });
 
+  it("normalizes legacy Custom startup layouts to Conversion", () => {
+    expect(validateApplicationSettings({
+      ...DEFAULT_APPLICATION_SETTINGS,
+      workspaceLayout: "custom",
+    })?.workspaceLayout).toBe("conversion");
+  });
+
   it("resolves missing profile, preset, and incompatible mode", () => {
     const result = resolveApplicationSettings(
       { ...DEFAULT_APPLICATION_SETTINGS, profileId: "missing", presetId: "missing", modeId: "missing" as never },

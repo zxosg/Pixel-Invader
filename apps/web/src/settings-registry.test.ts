@@ -29,7 +29,8 @@ describe("settings registry", () => {
     const values = createSettingsDraft({ ditheringAmount: 50, mouseWheelZoom: true });
     expect(filterSettings(SETTINGS_REGISTRY, "", "dithering", "all", values).map((item) => item.id)).toContain("ditheringAmount");
     expect(filterSettings(SETTINGS_REGISTRY, "", "all", "modified", values).map((item) => item.id)).toEqual(["ditheringAmount"]);
-    expect(filterSettings(SETTINGS_REGISTRY, "", "all", "workspace-mouse", values).map((item) => item.id)).toEqual(expect.arrayContaining(["workspaceLayout", "mouseWheelZoom"]));
+    expect(filterSettings(SETTINGS_REGISTRY, "", "all", "workspace-mouse", values).map((item) => item.id)).toContain("mouseWheelZoom");
+    expect(filterSettings(SETTINGS_REGISTRY, "", "startup", "all", values).map((item) => item.id)).toContain("workspaceLayout");
   });
 
   it("validates, scopes, and safely loads values", () => {

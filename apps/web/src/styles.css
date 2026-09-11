@@ -11,6 +11,127 @@
   text-rendering: optimizeLegibility;
 }
 
+@media (min-width: 760px) and (max-width: 1279px) {
+  .workbench-workspace {
+    position: relative;
+    isolation: isolate;
+  }
+
+  /* Floating previews are mounted here instead of inside the inspection grid.
+     The layer is a transparent workbench-level stacking surface; only its
+     preview children receive pointer events. */
+  .workbench-workspace .workbench-preview-layer {
+    position: absolute;
+    z-index: 20;
+    inset: 0;
+    min-width: 0;
+    min-height: 0;
+    overflow: visible;
+    pointer-events: none;
+  }
+
+  .workbench-workspace .workbench-preview-layer > .preview-panel-floating {
+    pointer-events: auto;
+  }
+
+  .workbench-workspace .preview-panel {
+    position: relative;
+  }
+
+  .workbench-workspace .preview-panel-floating {
+    position: absolute;
+    z-index: 14;
+    top: var(--workbench-source-floating-y);
+    left: var(--workbench-source-floating-x);
+    width: min(var(--workbench-source-floating-width), calc(100% - 1rem));
+    height: min(var(--workbench-source-floating-height), calc(100% - 1rem));
+    min-width: 320px;
+    min-height: 220px;
+    max-width: calc(100% - 1rem);
+    max-height: calc(100% - 1rem);
+    overflow: hidden;
+    border: 1px solid #52627d;
+    border-radius: 0.45rem;
+    background: #0b111b;
+    box-shadow: 0 0.8rem 2.4rem rgb(0 0 0 / 48%);
+  }
+
+  .workbench-workspace .preview-result-window {
+    top: var(--workbench-result-floating-y);
+    left: var(--workbench-result-floating-x);
+    width: min(var(--workbench-result-floating-width), calc(100% - 1rem));
+    height: min(var(--workbench-result-floating-height), calc(100% - 1rem));
+  }
+
+  .workbench-workspace .preview-panel-floating .preview-panel-heading {
+    min-height: 1.7rem;
+    border-bottom: 1px solid #33425d;
+    background: #172b43;
+    cursor: move;
+    user-select: none;
+  }
+
+  .workbench-workspace .preview-panel-floating .preview-frame {
+    min-height: 0;
+    max-height: none;
+    height: 100%;
+  }
+
+  .workbench-workspace .inspection-workspace.preview-source-floating:not(.preview-result-floating) .comparison,
+  .workbench-workspace .inspection-workspace.preview-result-floating:not(.preview-source-floating) .comparison {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workbench-workspace .inspection-workspace.preview-source-floating.preview-result-floating .comparison {
+    display: none;
+  }
+
+  .workbench-workspace .preview-panel-floating.workbench-floating-auto-height {
+    height: auto;
+  }
+
+  .workbench-workspace .preview-panel-floating .workbench-floating-resize-handle {
+    position: absolute;
+    right: 0.18rem;
+    bottom: 0.18rem;
+    z-index: 2;
+    width: 0.8rem;
+    height: 0.8rem;
+    border-right: 2px solid #79b7ff;
+    border-bottom: 2px solid #79b7ff;
+    cursor: nwse-resize;
+  }
+
+  .preview-window-float-action {
+    flex: 0 0 auto;
+    width: 1.45rem;
+    min-height: 1.35rem;
+    border: 1px solid #52627d;
+    border-radius: 0.2rem;
+    color: #e9f4ff;
+    background: transparent;
+    cursor: pointer;
+    font-size: 0.7rem;
+    font-weight: 800;
+  }
+
+  .preview-window-float-action:focus-visible,
+  .workbench-floating-resize-handle:focus-visible,
+  .preview-docked-resize-handle:focus-visible {
+    outline: 2px solid #ffdc6a;
+    outline-offset: 1px;
+  }
+
+  .workbench-workspace.workbench-settings-floating .workbench-window-titlebar,
+  .workbench-workspace .workbench-tools-window.workbench-tools-floating > summary,
+  .workbench-workspace .workbench-settings-section.workbench-section-floating > summary,
+  .workbench-workspace .preview-panel-floating .preview-panel-heading {
+    border-bottom-color: #d28be4;
+    background: #563878;
+    color: #fff4ff;
+  }
+}
+
 .app-error-boundary {
   min-height: 100vh;
   display: grid;
@@ -1757,6 +1878,30 @@ input[type="range"] {
   text-align: center;
 }
 
+/* Keep the desktop Tools dock compact even before the full workstation
+   layout breakpoint. The title/actions and one-line control strip share the
+   available width instead of creating a second wrapped row. */
+@media (min-width: 760px) {
+  .workbench-tools-window:not(.workbench-tools-floating):not(.workbench-tools-side-docked) {
+    display: flex;
+    min-width: 0;
+    align-items: stretch;
+  }
+
+  .workbench-tools-window:not(.workbench-tools-floating):not(.workbench-tools-side-docked) > summary {
+    flex: 0 0 auto;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .workbench-tools-window:not(.workbench-tools-floating):not(.workbench-tools-side-docked) > .workbench-tools-content {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+}
+
 /* Desktop workstation layout: matched previews first, compact controls below. */
 @media (min-width: 1280px) {
   .shell {
@@ -2943,6 +3088,36 @@ input[type="range"] {
   line-height: 1.2;
 }
 
+.attributes-subcard > .pmd-palette-calibration {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-self: stretch;
+  margin-top: auto;
+  gap: 0.18rem;
+  color: #f4fbff;
+  font-size: 0.84rem;
+  font-weight: 800;
+  text-align: left;
+}
+
+.attributes-subcard.pmd-attributes-subcard {
+  display: flex;
+  flex-direction: column;
+}
+
+.attributes-subcard > .pmd-palette-calibration > span {
+  min-width: 0;
+}
+
+.attributes-subcard > .pmd-palette-calibration > select {
+  justify-self: start;
+  width: min(100%, 7rem);
+  min-width: 0;
+  min-height: 1.45rem;
+  padding: 0.12rem 0.25rem;
+  font-size: 0.62rem;
+}
+
 .dithering-group > label,
 .dithering-group > fieldset,
 .dithering-group > details,
@@ -3748,8 +3923,9 @@ input[type="range"] {
    settings can be tiled below, to the left, or to the right without changing
    conversion state or preview rendering. */
 @media (min-width: 1280px) {
-  .workbench-workspace {
+.workbench-workspace {
     position: relative;
+    isolation: isolate;
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto auto minmax(28rem, 1fr) auto auto;
     align-content: stretch;
@@ -3783,6 +3959,13 @@ input[type="range"] {
     height: auto;
     border-top: 0;
     padding-top: 0;
+  }
+
+  /* The preview wrapper is intentionally transparent to the workbench grid.
+     Preview panes remain direct grid items while docked, which keeps the
+     existing canvas layout and refs stable. */
+  .workbench-workspace .workbench-preview-dock {
+    display: contents;
   }
 
   .workbench-workspace .inspection-heading {
@@ -3909,6 +4092,13 @@ input[type="range"] {
     left: min(var(--workbench-adjustments-floating-x), calc(100% - 2rem));
     width: min(var(--workbench-adjustments-floating-width), calc(100% - 1rem));
     height: min(var(--workbench-adjustments-floating-height), calc(100% - 1rem));
+  }
+
+  .workbench-settings-window .workbench-settings-section.workbench-palette-floating {
+    top: min(var(--workbench-palette-floating-y), calc(100% - 2rem));
+    left: min(var(--workbench-palette-floating-x), calc(100% - 2rem));
+    width: min(var(--workbench-palette-floating-width), calc(100% - 1rem));
+    height: min(var(--workbench-palette-floating-height), calc(100% - 1rem));
   }
 
   .workbench-settings-window .workbench-settings-section.workbench-floating-auto-height {
@@ -4055,6 +4245,14 @@ input[type="range"] {
     max-height: none;
   }
 
+  /* Side docks are layout containers, not stacking layers. Keep them in the
+     normal paint order so the later Result preview is not covered when it
+     remains docked while Source is floating. */
+  .workbench-workspace.workbench-settings-left .workbench-settings-window[data-dock="left"],
+  .workbench-workspace.workbench-settings-right .workbench-settings-window[data-dock="right"] {
+    z-index: auto !important;
+  }
+
   .workbench-workspace.workbench-settings-bottom.workbench-settings-expanded .workbench-settings-window {
     height: 100%;
     max-height: none;
@@ -4152,6 +4350,13 @@ input[type="range"] {
     height: var(--workbench-adjustments-floating-height);
   }
 
+  .workbench-settings-window .workbench-settings-section.workbench-palette-floating {
+    top: calc(var(--workbench-palette-floating-y) - var(--workbench-settings-origin-y));
+    left: calc(var(--workbench-palette-floating-x) - var(--workbench-settings-origin-x));
+    width: var(--workbench-palette-floating-width);
+    height: var(--workbench-palette-floating-height);
+  }
+
   .workbench-settings-window .workbench-settings-section.workbench-dithering-floating {
     top: calc(var(--workbench-dithering-floating-y) - var(--workbench-settings-origin-y));
     left: calc(var(--workbench-dithering-floating-x) - var(--workbench-settings-origin-x));
@@ -4166,6 +4371,66 @@ input[type="range"] {
   .workbench-settings-window:has(.workbench-section-floating),
   .workbench-settings-window:has(.workbench-section-floating) .workbench-window-content {
     overflow: visible;
+  }
+
+  /* Once every settings child has left the dock, remove the empty host
+     window while keeping the floating children in the workbench layer. */
+  .workbench-settings-window.workbench-settings-empty-dock {
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+    display: block;
+    width: auto;
+    height: auto;
+    min-width: 0;
+    min-height: 0;
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    pointer-events: none;
+  }
+
+  .workbench-settings-window.workbench-settings-empty-dock > .workbench-window-titlebar,
+  .workbench-settings-window.workbench-settings-empty-dock > .workbench-resize-handle {
+    display: none;
+  }
+
+  .workbench-settings-window.workbench-settings-empty-dock > .workbench-window-content {
+    position: static;
+    display: block;
+    width: 0;
+    height: 0;
+    min-width: 0;
+    min-height: 0;
+    overflow: visible;
+    padding: 0;
+    pointer-events: none;
+  }
+
+  .workbench-settings-window.workbench-settings-empty-dock > .workbench-window-content > .workbench-settings-section.workbench-section-floating {
+    pointer-events: auto;
+  }
+
+  .workbench-settings-window.workbench-settings-empty-dock > .workbench-window-content > .workbench-settings-section.workbench-geometry-floating {
+    top: var(--workbench-geometry-floating-y);
+    left: var(--workbench-geometry-floating-x);
+  }
+
+  .workbench-settings-window.workbench-settings-empty-dock > .workbench-window-content > .workbench-settings-section.workbench-adjustments-floating {
+    top: var(--workbench-adjustments-floating-y);
+    left: var(--workbench-adjustments-floating-x);
+  }
+
+  .workbench-settings-window.workbench-settings-empty-dock > .workbench-window-content > .workbench-settings-section.workbench-palette-floating {
+    top: var(--workbench-palette-floating-y);
+    left: var(--workbench-palette-floating-x);
+  }
+
+  .workbench-settings-window.workbench-settings-empty-dock > .workbench-window-content > .workbench-settings-section.workbench-dithering-floating {
+    top: var(--workbench-dithering-floating-y);
+    left: var(--workbench-dithering-floating-x);
   }
 
   .workbench-settings-window[data-dock="floating"] .geometry-primary-row {
@@ -4351,6 +4616,30 @@ input[type="range"] {
     padding: 0;
   }
 
+  /* Bottom and side docks share the same toolbar structure. The bottom dock
+     keeps the title/actions and controls on one compact row. */
+  .workbench-tools-window:not(.workbench-tools-floating):not(.workbench-tools-side-docked) {
+    display: flex;
+    align-items: stretch;
+    min-width: 0;
+  }
+
+  .workbench-tools-window:not(.workbench-tools-floating):not(.workbench-tools-side-docked) > summary {
+    flex: 0 0 auto;
+    min-width: 0;
+    max-width: none;
+    border-right: 0;
+    border-radius: 0.35rem 0 0 0.35rem;
+  }
+
+  .workbench-tools-window:not(.workbench-tools-floating):not(.workbench-tools-side-docked) > .workbench-tools-content {
+    flex: 1 1 0;
+    min-width: 0;
+    border-top: 1px solid #33425d;
+    border-left: 0;
+    border-radius: 0 0.35rem 0.35rem 0;
+  }
+
   .workbench-workspace .workbench-tools-window.workbench-tools-floating {
     position: absolute;
     z-index: 11;
@@ -4454,7 +4743,7 @@ input[type="range"] {
     background: #111824;
   }
 
-  .workbench-tools-window:not(.workbench-tools-floating) .workbench-tools-content {
+  .workbench-tools-window:not(.workbench-tools-floating):not(.workbench-tools-side-docked) .workbench-tools-content {
     display: flex;
     flex-wrap: nowrap;
     align-items: end;
@@ -4463,26 +4752,206 @@ input[type="range"] {
     scrollbar-width: thin;
   }
 
-  .workbench-tools-window:not(.workbench-tools-floating) .workbench-tools-content > label,
-  .workbench-tools-window:not(.workbench-tools-floating) .workbench-tools-content > fieldset,
-  .workbench-tools-window:not(.workbench-tools-floating) .workbench-tools-content > button {
+  .workbench-tools-window:not(.workbench-tools-floating):not(.workbench-tools-side-docked) .workbench-tools-content > label,
+  .workbench-tools-window:not(.workbench-tools-floating):not(.workbench-tools-side-docked) .workbench-tools-content > fieldset,
+  .workbench-tools-window:not(.workbench-tools-floating):not(.workbench-tools-side-docked) .workbench-tools-content > button {
     flex: 0 0 auto;
     width: auto;
     max-width: 14rem;
   }
 
-  .workbench-tools-window:not(.workbench-tools-floating) .workbench-tools-content > label:not(.check-control) {
+  .workbench-tools-window:not(.workbench-tools-floating):not(.workbench-tools-side-docked) .workbench-tools-content > label:not(.check-control) {
     min-width: 9rem;
   }
 
-  .workbench-tools-window:not(.workbench-tools-floating) .workbench-tools-content > .check-control {
+  .workbench-tools-window:not(.workbench-tools-floating):not(.workbench-tools-side-docked) .workbench-tools-content > .check-control {
     align-self: center;
     min-width: max-content;
     padding-inline: 0.2rem;
   }
 
-  .workbench-tools-window:not(.workbench-tools-floating) .workbench-tools-content > .inspector-toggle {
+  .workbench-tools-window:not(.workbench-tools-floating):not(.workbench-tools-side-docked) .workbench-tools-content > .inspector-toggle {
     min-width: max-content;
+  }
+
+  .workbench-tools-dock-select {
+    flex: 0 0 auto;
+    min-width: 6rem;
+    max-width: 8rem;
+    border-color: #52627d;
+    padding: 0.12rem 0.25rem;
+    font-size: 0.62rem;
+  }
+
+  /* Side-docked Tools is a narrow, always-available vertical rail. The
+     controls stay in the rail so the side layout remains predictable and
+     does not open a wide flyout over the previews. */
+  .workbench-workspace .workbench-tools-window.workbench-tools-side-docked {
+    position: absolute;
+    z-index: 13;
+    top: 4rem;
+    bottom: 2.5rem;
+    display: flex;
+    flex-direction: column;
+    width: 2.45rem;
+    min-width: 2.45rem;
+    max-height: none;
+    overflow: hidden;
+    border: 1px solid #33425d;
+    border-radius: 0.35rem;
+    background: #111824;
+  }
+
+  .workbench-tools-side-docked > summary {
+    position: relative;
+    inset: auto;
+    order: 2;
+    flex: 0 0 auto;
+    min-height: 8.4rem;
+    width: 100%;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 0.28rem;
+    padding: 0.35rem 0.18rem;
+    border-color: #3d5575;
+    background: #172b43;
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+  }
+
+  .workbench-tools-side-docked > summary > span:first-child {
+    flex: 0 0 auto;
+    color: #e9f4ff;
+    font-size: 0.72rem;
+    line-height: 1;
+  }
+
+  .workbench-tools-side-docked .workbench-tools-summary {
+    display: block;
+    flex: 0 0 auto;
+    color: #aab9cf;
+    font-size: 0.52rem;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .workbench-tools-side-docked .workbench-tools-dock-select {
+    position: relative;
+    right: auto;
+    bottom: auto;
+    flex: 0 0 auto;
+    width: 1.45rem;
+    min-width: 1.45rem;
+    height: 1.4rem;
+    padding: 0;
+    writing-mode: initial;
+    transform: rotate(90deg);
+  }
+
+  .workbench-tools-side-docked .workbench-tools-float-action {
+    position: relative;
+    right: auto;
+    bottom: auto;
+    flex: 0 0 auto;
+    width: 1.35rem;
+    min-height: 1.25rem;
+    writing-mode: initial;
+    transform: rotate(90deg);
+  }
+
+  .workbench-tools-side-docked[data-dock="left"] {
+    left: 0.2rem;
+  }
+
+  .workbench-tools-side-docked[data-dock="right"] {
+    right: 0.2rem;
+  }
+
+  .workbench-tools-side-docked[data-dock="left"] .workbench-tools-content,
+  .workbench-tools-side-docked[data-dock="right"] .workbench-tools-content {
+    position: relative;
+    order: 1;
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    max-width: none;
+    overflow-x: hidden;
+    overflow-y: auto;
+    gap: 0.18rem;
+    padding: 0.3rem 0.12rem;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    white-space: normal;
+  }
+
+  .workbench-tools-side-docked .workbench-tools-content > .check-control {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    gap: 0.18rem;
+    padding: 0.12rem 0;
+    text-align: center;
+  }
+
+  .workbench-tools-side-docked .workbench-tools-content > .check-control span {
+    display: block;
+    max-width: none;
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    white-space: nowrap;
+    font-size: 0.55rem;
+    line-height: 1;
+  }
+
+  .workbench-tools-side-docked .tools-option-zoom { order: 1; }
+  .workbench-tools-side-docked .tools-option-pan { order: 2; }
+  .workbench-tools-side-docked .tools-option-hide { order: 3; }
+  .workbench-tools-side-docked .tools-option-cell { order: 4; }
+  .workbench-tools-side-docked .tools-option-pixel { order: 5; }
+
+  .workbench-tools-side-docked .workbench-tools-content > :not(.tools-option-zoom):not(.tools-option-pan):not(.tools-option-hide):not(.tools-option-cell):not(.tools-option-pixel) {
+    order: 6;
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    gap: 0.15rem;
+  }
+
+  .workbench-tools-side-docked .workbench-tools-content > :not(.tools-option-zoom):not(.tools-option-pan):not(.tools-option-hide):not(.tools-option-cell):not(.tools-option-pixel) > span {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    white-space: nowrap;
+    font-size: 0.55rem;
+  }
+
+  .workbench-tools-side-docked .workbench-tools-content select {
+    width: 1.45rem;
+    min-width: 1.45rem;
+    max-width: 1.45rem;
+    padding: 0.1rem;
+    font-size: 0.55rem;
+  }
+
+  .workbench-tools-side-docked .workbench-tools-content button {
+    width: 1.45rem;
+    min-width: 1.45rem;
+    padding-inline: 0.1rem;
+    font-size: 0.55rem;
   }
 
   .workbench-tools-content > label,
@@ -4528,4 +4997,264 @@ input[type="range"] {
   .workbench-settings-window[data-minimized="true"] {
     align-self: start;
   }
+
+  /* Preview panes are workbench windows too. Docked panes use independent
+     flex shares so the preview stage always consumes the available width;
+     floating panes leave the grid entirely and are positioned against the
+     workbench root, allowing them to overlap every other workbench window. */
+  .workbench-workspace .inspection-workspace {
+    position: static;
+    overflow: visible;
+    grid-template-columns:
+      minmax(240px, var(--workbench-source-docked-width))
+      3rem
+      minmax(240px, var(--workbench-result-docked-width));
+  }
+
+  /* Floating previews are rendered into this root-level layer so side-docked
+     Conversion settings cannot clip or cover them through the inspection
+     grid's layout context. */
+  .workbench-workspace .workbench-preview-layer {
+    position: absolute;
+    z-index: 20;
+    inset: 0;
+    min-width: 0;
+    min-height: 0;
+    overflow: visible;
+    pointer-events: none;
+  }
+
+  .workbench-workspace .workbench-preview-layer > .preview-panel-floating {
+    pointer-events: auto;
+  }
+
+  .workbench-workspace .preview-panel {
+    position: relative;
+  }
+
+  .workbench-workspace .preview-panel-floating {
+    position: absolute;
+    z-index: 14;
+    top: var(--workbench-source-floating-y);
+    left: var(--workbench-source-floating-x);
+    width: min(var(--workbench-source-floating-width), calc(100% - 1rem));
+    height: min(var(--workbench-source-floating-height), calc(100% - 1rem));
+    min-width: 320px;
+    min-height: 220px;
+    max-width: calc(100% - 1rem);
+    max-height: calc(100% - 1rem);
+    overflow: hidden;
+    border: 1px solid #52627d;
+    border-radius: 0.45rem;
+    background: #0b111b;
+    box-shadow: 0 0.8rem 2.4rem rgb(0 0 0 / 48%);
+  }
+
+  .workbench-workspace .preview-result-window {
+    top: var(--workbench-result-floating-y);
+    left: var(--workbench-result-floating-x);
+    width: min(var(--workbench-result-floating-width), calc(100% - 1rem));
+    height: min(var(--workbench-result-floating-height), calc(100% - 1rem));
+  }
+
+  /* A side settings dock and the inspection stage occupy the same workbench
+     row. Raise only the visible docked preview above that layout sibling;
+     floating previews keep their per-window z-order below. */
+  .workbench-workspace[data-preview-layout="source-floating"] .result-panel-docked,
+  .workbench-workspace[data-preview-layout="result-floating"] .source-panel-docked {
+    position: relative;
+    z-index: 2;
+    display: grid;
+    grid-row: 2;
+    grid-column: 1;
+    min-width: 0;
+    min-height: 0;
+    visibility: visible;
+  }
+
+  .workbench-workspace[data-preview-layout="source-floating"] .result-panel-docked .preview-frame,
+  .workbench-workspace[data-preview-layout="result-floating"] .source-panel-docked .preview-frame {
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .workbench-workspace .preview-panel-floating .preview-panel-heading {
+    min-height: 1.7rem;
+    border-bottom: 1px solid #33425d;
+    padding: 0.18rem 0.3rem;
+    background: #172b43;
+    cursor: move;
+    user-select: none;
+  }
+
+  .workbench-workspace .preview-panel-floating .preview-panel-heading h3 {
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .workbench-workspace .preview-panel-floating .preview-panel-title {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    clip-path: inset(50%);
+  }
+
+  .workbench-workspace .preview-panel-floating .preview-content-selector {
+    flex: 0 1 13rem;
+  }
+
+  .preview-window-float-action {
+    flex: 0 0 auto;
+    width: 1.45rem;
+    min-height: 1.35rem;
+    border: 1px solid #52627d;
+    border-radius: 0.2rem;
+    color: #e9f4ff;
+    background: transparent;
+    cursor: pointer;
+    font-size: 0.7rem;
+    font-weight: 800;
+    line-height: 1;
+  }
+
+  .preview-window-float-action:hover,
+  .preview-window-float-action:focus-visible {
+    border-color: #79b7ff;
+    background: #245b7b;
+  }
+
+  .preview-window-float-action:focus-visible {
+    outline: 2px solid #ffdc6a;
+    outline-offset: 1px;
+  }
+
+  .preview-floating-zoom-actions {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 0.12rem;
+    align-items: center;
+  }
+
+  .preview-floating-zoom-actions button {
+    width: 1.35rem;
+    min-height: 1.25rem;
+    padding: 0;
+    font-size: 0.7rem;
+    line-height: 1;
+  }
+
+  /* Floating windows get a dedicated plum title treatment so they remain
+     easy to locate above the preview and other workbench surfaces. */
+  .workbench-workspace.workbench-settings-floating .workbench-window-titlebar,
+  .workbench-workspace .workbench-tools-window.workbench-tools-floating > summary,
+  .workbench-workspace .workbench-settings-section.workbench-section-floating > summary,
+  .workbench-workspace .preview-panel-floating .preview-panel-heading {
+    border-bottom-color: #d28be4;
+    background: #563878;
+    color: #fff4ff;
+  }
+
+  .workbench-workspace.workbench-settings-floating .workbench-window-titlebar {
+    box-shadow: inset 0 0.16rem 0 #e5a2f1;
+  }
+
+  .workbench-workspace .workbench-tools-window.workbench-tools-floating > summary,
+  .workbench-workspace .workbench-settings-section.workbench-section-floating > summary,
+  .workbench-workspace .preview-panel-floating .preview-panel-heading {
+    box-shadow: inset 0 0.12rem 0 #d994e9;
+  }
+
+  .workbench-workspace .preview-panel-floating .preview-frame {
+    min-height: 0;
+    max-height: none;
+    height: 100%;
+  }
+
+  .workbench-workspace .preview-panel-floating.workbench-floating-auto-height {
+    height: auto;
+  }
+
+  .preview-docked-resize-handle {
+    position: absolute;
+    top: 0;
+    right: -0.25rem;
+    bottom: 0;
+    z-index: 3;
+    width: 0.5rem;
+    cursor: ew-resize;
+    touch-action: none;
+  }
+
+  .preview-docked-resize-handle::after {
+    position: absolute;
+    top: 35%;
+    bottom: 35%;
+    left: 0.18rem;
+    width: 2px;
+    content: "";
+    background: #52627d;
+  }
+
+  .preview-docked-resize-handle:hover::after,
+  .preview-docked-resize-handle:focus-visible::after {
+    background: #79b7ff;
+  }
+
+  .preview-docked-resize-handle:focus-visible {
+    outline: 2px solid #ffdc6a;
+    outline-offset: -1px;
+  }
+
+  .workbench-workspace .preview-source-floating .source-panel:not(.preview-panel-floating),
+  .workbench-workspace .preview-result-floating .result-panel:not(.preview-panel-floating) {
+    display: none;
+  }
+
+  .workbench-workspace .inspection-workspace.preview-source-floating:not(.preview-result-floating),
+  .workbench-workspace .inspection-workspace.preview-result-floating:not(.preview-source-floating) {
+    grid-template-columns: minmax(240px, 1fr) 3rem;
+  }
+
+  .workbench-workspace .inspection-workspace.preview-source-floating:not(.preview-result-floating) .result-panel,
+  .workbench-workspace .inspection-workspace.preview-result-floating:not(.preview-source-floating) .source-panel {
+    grid-column: 1;
+  }
+
+  .workbench-workspace .inspection-workspace.preview-source-floating:not(.preview-result-floating) .inspection-actions,
+  .workbench-workspace .inspection-workspace.preview-result-floating:not(.preview-source-floating) .inspection-actions {
+    grid-column: 2;
+  }
+
+  .workbench-workspace .inspection-workspace.preview-source-floating.preview-result-floating {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workbench-workspace .inspection-workspace.preview-source-floating.preview-result-floating .inspection-actions {
+    grid-column: 1;
+    grid-row: 2;
+    align-self: center;
+    justify-self: center;
+    flex-direction: row;
+    min-height: 2.5rem;
+  }
+
+  .workbench-workspace .inspection-workspace.preview-source-floating.preview-result-floating .inspection-actions-hidden-when-floating {
+    display: none;
+  }
+
+  .workbench-workspace .inspection-workspace.preview-source-floating.preview-result-floating .inspection-actions .zoom-slider {
+    width: 12rem;
+  }
+
+  .workbench-workspace .inspection-workspace.preview-source-floating.preview-result-floating .preview-docked-resize-handle {
+    display: none;
+  }
+
 }

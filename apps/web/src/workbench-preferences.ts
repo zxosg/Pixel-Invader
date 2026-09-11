@@ -1,5 +1,6 @@
 export type WorkbenchDock = "bottom" | "left" | "right" | "floating";
-export type WorkbenchWindowId = "settings" | "tools" | "geometry" | "adjustments" | "palette" | "dithering";
+export type WorkbenchToolsDock = WorkbenchDock;
+export type WorkbenchWindowId = "settings" | "tools" | "geometry" | "adjustments" | "palette" | "dithering" | "source" | "result";
 
 export type WorkbenchSettingsSection =
   | "geometry"
@@ -17,7 +18,9 @@ export interface WorkbenchPreferences {
   readonly floatingY: number;
   readonly settingsFloatingWidth: number;
   readonly settingsFloatingHeight: number;
-  readonly toolsFloating: boolean;
+  readonly toolsDock: WorkbenchToolsDock;
+  /** Legacy persisted field. New writes use toolsDock. */
+  readonly toolsFloating?: boolean;
   readonly toolsFloatingX: number;
   readonly toolsFloatingY: number;
   readonly toolsFloatingWidth: number;
@@ -47,6 +50,20 @@ export interface WorkbenchPreferences {
   readonly ditheringFloatingWidth: number;
   readonly ditheringFloatingHeight: number;
   readonly ditheringFloatingAutoHeight: boolean;
+  readonly sourceFloating: boolean;
+  readonly sourceFloatingX: number;
+  readonly sourceFloatingY: number;
+  readonly sourceFloatingWidth: number;
+  readonly sourceFloatingHeight: number;
+  readonly sourceFloatingAutoHeight: boolean;
+  readonly resultFloating: boolean;
+  readonly resultFloatingX: number;
+  readonly resultFloatingY: number;
+  readonly resultFloatingWidth: number;
+  readonly resultFloatingHeight: number;
+  readonly resultFloatingAutoHeight: boolean;
+  readonly sourceDockedWidth: number;
+  readonly resultDockedWidth: number;
   readonly toolsOpen: boolean;
   readonly sectionsOpen: Readonly<Record<WorkbenchSettingsSection, boolean>>;
 }
@@ -62,7 +79,7 @@ export const DEFAULT_WORKBENCH_PREFERENCES: WorkbenchPreferences = {
   floatingY: 96,
   settingsFloatingWidth: 640,
   settingsFloatingHeight: 420,
-  toolsFloating: false,
+  toolsDock: "bottom",
   toolsFloatingX: 780,
   toolsFloatingY: 96,
   toolsFloatingWidth: 360,
@@ -92,6 +109,20 @@ export const DEFAULT_WORKBENCH_PREFERENCES: WorkbenchPreferences = {
   ditheringFloatingWidth: 520,
   ditheringFloatingHeight: 360,
   ditheringFloatingAutoHeight: true,
+  sourceFloating: false,
+  sourceFloatingX: 64,
+  sourceFloatingY: 64,
+  sourceFloatingWidth: 640,
+  sourceFloatingHeight: 420,
+  sourceFloatingAutoHeight: true,
+  resultFloating: false,
+  resultFloatingX: 760,
+  resultFloatingY: 64,
+  resultFloatingWidth: 760,
+  resultFloatingHeight: 420,
+  resultFloatingAutoHeight: true,
+  sourceDockedWidth: 1,
+  resultDockedWidth: 1,
   toolsOpen: false,
   sectionsOpen: {
     geometry: true,
@@ -103,7 +134,8 @@ export const DEFAULT_WORKBENCH_PREFERENCES: WorkbenchPreferences = {
 };
 
 const DOCKS = new Set<WorkbenchDock>(["bottom", "left", "right", "floating"]);
-const WINDOWS: readonly WorkbenchWindowId[] = ["settings", "tools", "geometry", "adjustments", "palette", "dithering"];
+const WINDOWS: readonly WorkbenchWindowId[] = ["settings", "tools", "geometry", "adjustments", "palette", "dithering", "source", "result"];
+const CURRENT_WINDOWS: readonly WorkbenchWindowId[] = ["settings", "tools", "geometry", "adjustments", "palette", "dithering"];
 const LEGACY_WINDOWS: readonly WorkbenchWindowId[] = ["settings", "tools", "palette", "dithering"];
 const SECTIONS: readonly WorkbenchSettingsSection[] = [
   "geometry",
@@ -144,7 +176,15 @@ function loadWindowOrder(value: unknown): readonly WorkbenchWindowId[] | null {
       typeof candidate === "string" && LEGACY_WINDOWS.includes(candidate as WorkbenchWindowId),
     );
     if (legacyOrder.length === LEGACY_WINDOWS.length && new Set(legacyOrder).size === LEGACY_WINDOWS.length) {
-      return ["settings", "tools", "geometry", "adjustments", ...legacyOrder.filter((window) => window === "palette" || window === "dithering")];
+      return ["settings", "tools", "geometry", "adjustments", ...legacyOrder.filter((window) => window === "palette" || window === "dithering"), "source", "result"];
+    }
+  }
+  if (value.length === CURRENT_WINDOWS.length) {
+    const currentOrder = value.filter((candidate): candidate is WorkbenchWindowId =>
+      typeof candidate === "string" && CURRENT_WINDOWS.includes(candidate as WorkbenchWindowId),
+    );
+    if (currentOrder.length === CURRENT_WINDOWS.length && new Set(currentOrder).size === CURRENT_WINDOWS.length) {
+      return [...currentOrder, "source", "result"];
     }
   }
   if (value.length !== WINDOWS.length) return null;
@@ -173,7 +213,9 @@ export function loadWorkbenchPreferences(
       !isFiniteNumberInRange(parsed.floatingY, 0, 10000) ||
       (parsed.settingsFloatingWidth !== undefined && !isFiniteNumberInRange(parsed.settingsFloatingWidth, 420, 1000)) ||
       (parsed.settingsFloatingHeight !== undefined && !isFiniteNumberInRange(parsed.settingsFloatingHeight, 280, 760)) ||
-      typeof parsed.toolsFloating !== "boolean" ||
+      (parsed.toolsDock !== undefined
+        ? (typeof parsed.toolsDock !== "string" || !DOCKS.has(parsed.toolsDock as WorkbenchDock))
+        : (parsed.toolsFloating !== undefined && typeof parsed.toolsFloating !== "boolean")) ||
       !isFiniteNumberInRange(parsed.toolsFloatingX, 0, 10000) ||
       !isFiniteNumberInRange(parsed.toolsFloatingY, 0, 10000) ||
       (parsed.toolsFloatingWidth !== undefined && !isFiniteNumberInRange(parsed.toolsFloatingWidth, 280, 760)) ||
@@ -203,6 +245,20 @@ export function loadWorkbenchPreferences(
       !isFiniteNumberInRange(parsed.ditheringFloatingWidth, 320, 760) ||
       !isFiniteNumberInRange(parsed.ditheringFloatingHeight, 220, 680) ||
       (parsed.ditheringFloatingAutoHeight !== undefined && typeof parsed.ditheringFloatingAutoHeight !== "boolean") ||
+      (parsed.sourceFloating !== undefined && typeof parsed.sourceFloating !== "boolean") ||
+      (parsed.sourceFloatingX !== undefined && !isFiniteNumberInRange(parsed.sourceFloatingX, 0, 10000)) ||
+      (parsed.sourceFloatingY !== undefined && !isFiniteNumberInRange(parsed.sourceFloatingY, 0, 10000)) ||
+      (parsed.sourceFloatingWidth !== undefined && !isFiniteNumberInRange(parsed.sourceFloatingWidth, 320, 1600)) ||
+      (parsed.sourceFloatingHeight !== undefined && !isFiniteNumberInRange(parsed.sourceFloatingHeight, 220, 900)) ||
+      (parsed.sourceFloatingAutoHeight !== undefined && typeof parsed.sourceFloatingAutoHeight !== "boolean") ||
+      (parsed.resultFloating !== undefined && typeof parsed.resultFloating !== "boolean") ||
+      (parsed.resultFloatingX !== undefined && !isFiniteNumberInRange(parsed.resultFloatingX, 0, 10000)) ||
+      (parsed.resultFloatingY !== undefined && !isFiniteNumberInRange(parsed.resultFloatingY, 0, 10000)) ||
+      (parsed.resultFloatingWidth !== undefined && !isFiniteNumberInRange(parsed.resultFloatingWidth, 320, 1600)) ||
+      (parsed.resultFloatingHeight !== undefined && !isFiniteNumberInRange(parsed.resultFloatingHeight, 220, 900)) ||
+      (parsed.resultFloatingAutoHeight !== undefined && typeof parsed.resultFloatingAutoHeight !== "boolean") ||
+      (parsed.sourceDockedWidth !== undefined && !isFiniteNumberInRange(parsed.sourceDockedWidth, 0.25, 10)) ||
+      (parsed.resultDockedWidth !== undefined && !isFiniteNumberInRange(parsed.resultDockedWidth, 0.25, 10)) ||
       typeof parsed.toolsOpen !== "boolean" ||
       sectionsOpen === null
     ) {
@@ -217,7 +273,9 @@ export function loadWorkbenchPreferences(
       floatingY: parsed.floatingY,
       settingsFloatingWidth: parsed.settingsFloatingWidth ?? 640,
       settingsFloatingHeight: parsed.settingsFloatingHeight ?? 420,
-      toolsFloating: parsed.toolsFloating,
+      toolsDock: parsed.toolsDock === undefined
+        ? parsed.toolsFloating === true ? "floating" : "bottom"
+        : parsed.toolsDock as WorkbenchToolsDock,
       toolsFloatingX: parsed.toolsFloatingX,
       toolsFloatingY: parsed.toolsFloatingY,
       toolsFloatingWidth: parsed.toolsFloatingWidth ?? 360,
@@ -247,6 +305,20 @@ export function loadWorkbenchPreferences(
       ditheringFloatingWidth: parsed.ditheringFloatingWidth,
       ditheringFloatingHeight: parsed.ditheringFloatingHeight,
       ditheringFloatingAutoHeight: parsed.ditheringFloatingAutoHeight ?? true,
+      sourceFloating: parsed.sourceFloating ?? false,
+      sourceFloatingX: parsed.sourceFloatingX ?? 64,
+      sourceFloatingY: parsed.sourceFloatingY ?? 64,
+      sourceFloatingWidth: parsed.sourceFloatingWidth ?? 640,
+      sourceFloatingHeight: parsed.sourceFloatingHeight ?? 420,
+      sourceFloatingAutoHeight: parsed.sourceFloatingAutoHeight ?? true,
+      resultFloating: parsed.resultFloating ?? false,
+      resultFloatingX: parsed.resultFloatingX ?? 760,
+      resultFloatingY: parsed.resultFloatingY ?? 64,
+      resultFloatingWidth: parsed.resultFloatingWidth ?? 760,
+      resultFloatingHeight: parsed.resultFloatingHeight ?? 420,
+      resultFloatingAutoHeight: parsed.resultFloatingAutoHeight ?? true,
+      sourceDockedWidth: parsed.sourceDockedWidth ?? 1,
+      resultDockedWidth: parsed.resultDockedWidth ?? 1,
       toolsOpen: parsed.toolsOpen,
       sectionsOpen,
     };

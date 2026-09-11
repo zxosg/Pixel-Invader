@@ -69,7 +69,9 @@ export function validateApplicationSettings(value: unknown): ApplicationSettings
     framing: value.framing as ApplicationSettings["framing"],
     dithering: value.dithering as ApplicationSettings["dithering"],
     ditheringAmount: value.ditheringAmount,
-    workspaceLayout: value.workspaceLayout as WorkspaceLayoutId,
+    workspaceLayout: value.workspaceLayout === "custom"
+      ? "conversion"
+      : value.workspaceLayout as WorkspaceLayoutId,
     mouseWheelZoom: value.mouseWheelZoom,
     synchronizePan: value.synchronizePan,
     synchronizeZoom: value.synchronizeZoom === undefined
