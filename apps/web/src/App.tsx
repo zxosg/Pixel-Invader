@@ -1908,10 +1908,10 @@ export function App() {
         const minimumShare = 0.25;
         if (resize.preview === "source") {
           const next = resize.startSourceWidth + delta / available;
-          setWorkbenchSourceDockedWidth(Math.min(3, Math.max(minimumShare, next)));
+          setWorkbenchSourceDockedWidth(Math.min(10, Math.max(minimumShare, next)));
         } else {
           const next = resize.startResultWidth + delta / available;
-          setWorkbenchResultDockedWidth(Math.min(3, Math.max(minimumShare, next)));
+          setWorkbenchResultDockedWidth(Math.min(10, Math.max(minimumShare, next)));
         }
         return;
       }
@@ -2341,7 +2341,10 @@ export function App() {
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
 
-  useEffect(() => {
+  // Floating a preview moves its canvas into the root-level portal host. The
+  // canvas is a new DOM node after that move, so repaint it in the layout
+  // phase instead of waiting for another conversion or content change.
+  useLayoutEffect(() => {
     const canvas = canvasRef.current;
     if (canvas === null || image === null) return;
     const displayResult = workspaceMode === "tilemap" &&
@@ -2444,9 +2447,13 @@ export function App() {
     resultPreviewContent,
     tilemapStale, hideAttributes, selectedPlatformId, targetModeId,
     isPmd, brightness, contrast, saturation, gamma, smoothing, sharpening,
+    workbenchSourceFloating, workbenchResultFloating, workbenchPreviewLayer,
   ]);
 
-  useEffect(() => {
+  // Keep the converted canvas in sync for the same docked/floating transition
+  // as the source canvas. This covers normal image previews as well as screen
+  // and tilemap result stages.
+  useLayoutEffect(() => {
     const canvas = convertedCanvasRef.current;
     const displayResult = workspaceMode === "tilemap" &&
         charsetState.kind === "ready" && !tilemapStale
@@ -2553,6 +2560,7 @@ export function App() {
     sourcePreviewContent, resultPreviewContent,
     tilemapStale, hideAttributes, qlMixedDisplayResolution,
     brightness, contrast, saturation, gamma, smoothing, sharpening,
+    workbenchSourceFloating, workbenchResultFloating, workbenchPreviewLayer,
   ]);
 
   useEffect(() => {
@@ -5680,10 +5688,16 @@ export function App() {
     if (bitmapEditorFullPointerRef.current?.pointerId === event.pointerId) {
       bitmapEditorFullPointerRef.current = null;
     }
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
     event.stopPropagation();
   }
 
   function undoFullBitmap(): void {
+    bitmapEditorFullPointerRef.current = null;
+    bitmapEditorPointerRef.current = null;
+    panDragRef.current = null;
     const previous = bitmapEditorUndoFull[bitmapEditorUndoFull.length - 1];
     const current = bitmapEditorFullBufferRef.current;
     if (previous === undefined || current === null) return;
@@ -5699,6 +5713,9 @@ export function App() {
   }
 
   function redoFullBitmap(): void {
+    bitmapEditorFullPointerRef.current = null;
+    bitmapEditorPointerRef.current = null;
+    panDragRef.current = null;
     const next = bitmapEditorRedoFull[bitmapEditorRedoFull.length - 1];
     const current = bitmapEditorFullBufferRef.current;
     if (next === undefined || current === null) return;
@@ -5714,6 +5731,9 @@ export function App() {
   }
 
   function revertFullBitmap(): void {
+    bitmapEditorFullPointerRef.current = null;
+    bitmapEditorPointerRef.current = null;
+    panDragRef.current = null;
     if (bitmapEditorRevertSource === null) return;
     if (!window.confirm("Revert source edits? This will discard all manual bitmap changes and restore the original imported source.")) return;
     const restored = { ...bitmapEditorRevertSource, rgba: bitmapEditorRevertSource.rgba.slice() };
@@ -6738,7 +6758,11 @@ export function App() {
     ? lastFinal
     : draftPreviewResult(draftState) ?? lastFinal;
   const displayedAttributeHeight = displayedResult?.attributeHeight ?? attributeHeight;
-  useEffect(() => {
+  // Paint after the preview subtree has been committed to its current host.
+  // This is important when a bitmap editor moves through a portal: a passive
+  // effect can leave the newly attached canvas blank until another content
+  // selection causes a later render.
+  useLayoutEffect(() => {
     const sourceCanvas = bitmapEditorSourceCanvasRef.current;
     const resultCanvas = bitmapEditorResultCanvasRef.current;
     const target = bitmapEditorBuffer ?? (() => {
@@ -6761,7 +6785,16 @@ export function App() {
         0,
       );
     }
-  }, [bitmapEditorBuffer, displayedResult, outputPreviewStage, sourcePreviewContent, resultPreviewContent]);
+  }, [
+    bitmapEditorBuffer,
+    displayedResult,
+    outputPreviewStage,
+    sourcePreviewContent,
+    resultPreviewContent,
+    workbenchSourceFloating,
+    workbenchResultFloating,
+    workbenchPreviewLayer,
+  ]);
   const displayedWidth = displayedResult?.verticalSpatialDiagnostics === undefined
     ? displayedResult?.width ?? 256
     : outputPreviewStage === "merged" || outputPreviewStage === "screen-2"
@@ -6894,7 +6927,7 @@ export function App() {
     const compatible = workspaceMode === "palette" && displayedResult !== null;
     const attributeWidth = displayedResult?.platformId === "pmd-85" ? 6 : displayedResult?.platformId === "zx-spectrum" ? 8 : null;
     const attributeHeight = displayedResult?.platformId === "pmd-85" ? targetModeId === "pmd85-colorace" ? 2 : 1 : displayedResult?.attributeHeight ?? null;
-    const bitmapEditorActions = <div className="bitmap-editor-full-toolbar" aria-label="Bitmap editor actions" onPointerDown={(event) => event.stopPropagation()}>
+    const bitmapEditorActions = <div className="bitmap-editor-full-toolbar" aria-label="Bitmap editor actions" onPointerDown={(event) => { bitmapEditorFullPointerRef.current = null; bitmapEditorPointerRef.current = null; panDragRef.current = null; event.stopPropagation(); }}>
       <button className="secondary compact bitmap-editor-full-action bitmap-editor-mode-button" type="button" onClick={() => setBitmapEditorPaintMode((mode) => mode === "set" ? "reset" : mode === "reset" ? "toggle" : mode === "toggle" ? "none" : "set")} title="Pixel mode" aria-label={`Pixel mode: ${bitmapEditorPaintMode}`}>
         {bitmapEditorPaintMode === "set" ? "＋" : bitmapEditorPaintMode === "reset" ? "−" : bitmapEditorPaintMode === "toggle" ? "↔" : "·"}
       </button>
@@ -10095,7 +10128,7 @@ export function App() {
                   onPointerDown={(event) => startWorkbenchDockedPreviewResize("source", event)}
                   onKeyDown={(event) => {
                     const step = event.shiftKey ? 0.08 : 0.02;
-                    if (event.key === "ArrowRight") setWorkbenchSourceDockedWidth((width) => Math.min(3, width + step));
+                    if (event.key === "ArrowRight") setWorkbenchSourceDockedWidth((width) => Math.min(10, width + step));
                     if (event.key === "ArrowLeft") setWorkbenchSourceDockedWidth((width) => Math.max(0.25, width - step));
                   }}
                 />
@@ -10377,7 +10410,7 @@ export function App() {
                   onPointerDown={(event) => startWorkbenchDockedPreviewResize("result", event)}
                   onKeyDown={(event) => {
                     const step = event.shiftKey ? 0.08 : 0.02;
-                    if (event.key === "ArrowRight") setWorkbenchResultDockedWidth((width) => Math.min(3, width + step));
+                    if (event.key === "ArrowRight") setWorkbenchResultDockedWidth((width) => Math.min(10, width + step));
                     if (event.key === "ArrowLeft") setWorkbenchResultDockedWidth((width) => Math.max(0.25, width - step));
                   }}
                 />

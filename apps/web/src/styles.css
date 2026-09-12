@@ -5004,7 +5004,20 @@ input[type="range"] {
      workbench root, allowing them to overlap every other workbench window. */
   .workbench-workspace .inspection-workspace {
     position: static;
+    width: 100%;
+    justify-self: stretch;
     overflow: visible;
+    grid-template-columns:
+      minmax(240px, var(--workbench-source-docked-width))
+      3rem
+      minmax(240px, var(--workbench-result-docked-width));
+  }
+
+  /* The narrow desktop tilemap layout above has a more specific
+     body:has(.tilemap-charset-panel) selector which reserves the old palette
+     columns after Result. The workbench owns preview sizing now, so those
+     columns must never reduce the available tiled preview width. */
+  body:has(.tilemap-charset-panel) .workbench-workspace[data-preview-layout="both-docked"] .inspection-workspace {
     grid-template-columns:
       minmax(240px, var(--workbench-source-docked-width))
       3rem
@@ -5030,6 +5043,13 @@ input[type="range"] {
 
   .workbench-workspace .preview-panel {
     position: relative;
+    width: auto;
+    max-width: none;
+  }
+
+  .workbench-workspace .preview-panel-docked {
+    justify-self: stretch;
+    min-width: 0;
   }
 
   .workbench-workspace .preview-panel-floating {
