@@ -44,6 +44,38 @@ describe("application settings", () => {
     })?.workspaceLayout).toBe("conversion");
   });
 
+  it("migrates the legacy comparison flag to Development mode", () => {
+    expect(validateApplicationSettings({
+      ...DEFAULT_APPLICATION_SETTINGS,
+      developmentMode: undefined,
+      showCompareEngines: true,
+    })).toMatchObject({ developmentMode: true });
+    expect(validateApplicationSettings({
+      ...DEFAULT_APPLICATION_SETTINGS,
+      developmentMode: undefined,
+      showCompareEngines: false,
+    })).toMatchObject({ developmentMode: false });
+  });
+
+  it("prefers Development mode when both settings are present", () => {
+    expect(validateApplicationSettings({
+      ...DEFAULT_APPLICATION_SETTINGS,
+      developmentMode: false,
+      showCompareEngines: true,
+    })?.developmentMode).toBe(false);
+  });
+
+  it("writes the canonical Development mode field", () => {
+    const store = storage();
+    saveApplicationSettings(store, {
+      ...DEFAULT_APPLICATION_SETTINGS,
+      developmentMode: true,
+    });
+    const saved = JSON.parse(store.getItem(APPLICATION_SETTINGS_KEY) ?? "null") as Record<string, unknown>;
+    expect(saved.developmentMode).toBe(true);
+    expect(saved.showCompareEngines).toBeUndefined();
+  });
+
   it("resolves missing profile, preset, and incompatible mode", () => {
     const result = resolveApplicationSettings(
       { ...DEFAULT_APPLICATION_SETTINGS, profileId: "missing", presetId: "missing", modeId: "missing" as never },

@@ -141,7 +141,7 @@ export function canonicalizeSettingsForSave({ draft, current, profiles }: Settin
     mouseWheelZoom: booleanValue(draft, "mouseWheelZoom", true),
     synchronizePan: booleanValue(draft, "synchronizePan", true),
     synchronizeZoom: booleanValue(draft, "synchronizeZoom", true),
-    showCompareEngines: booleanValue(draft, "showCompareEngines", false),
+    developmentMode: booleanValue(draft, "developmentMode", false),
   }, {
     profiles: profileIds,
     compatibleModeIds: Object.keys(profile.palette.modes),

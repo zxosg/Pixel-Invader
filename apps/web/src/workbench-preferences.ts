@@ -1,6 +1,6 @@
 export type WorkbenchDock = "bottom" | "left" | "right" | "floating";
 export type WorkbenchToolsDock = WorkbenchDock;
-export type WorkbenchWindowId = "settings" | "tools" | "geometry" | "adjustments" | "palette" | "dithering" | "source" | "result";
+export type WorkbenchWindowId = "settings" | "tools" | "geometry" | "adjustments" | "palette" | "dithering" | "tilemap" | "source" | "result";
 
 export type WorkbenchSettingsSection =
   | "geometry"
@@ -50,6 +50,12 @@ export interface WorkbenchPreferences {
   readonly ditheringFloatingWidth: number;
   readonly ditheringFloatingHeight: number;
   readonly ditheringFloatingAutoHeight: boolean;
+  readonly tilemapFloating: boolean;
+  readonly tilemapFloatingX: number;
+  readonly tilemapFloatingY: number;
+  readonly tilemapFloatingWidth: number;
+  readonly tilemapFloatingHeight: number;
+  readonly tilemapFloatingAutoHeight: boolean;
   readonly sourceFloating: boolean;
   readonly sourceFloatingX: number;
   readonly sourceFloatingY: number;
@@ -96,7 +102,7 @@ export const DEFAULT_WORKBENCH_PREFERENCES: WorkbenchPreferences = {
   adjustmentsFloatingWidth: 520,
   adjustmentsFloatingHeight: 300,
   adjustmentsFloatingAutoHeight: true,
-  windowOrder: ["settings", "tools", "geometry", "adjustments", "palette", "dithering"],
+  windowOrder: ["settings", "tools", "geometry", "adjustments", "palette", "dithering", "tilemap", "source", "result"],
   paletteFloating: false,
   paletteFloatingX: 360,
   paletteFloatingY: 96,
@@ -109,6 +115,12 @@ export const DEFAULT_WORKBENCH_PREFERENCES: WorkbenchPreferences = {
   ditheringFloatingWidth: 520,
   ditheringFloatingHeight: 360,
   ditheringFloatingAutoHeight: true,
+  tilemapFloating: false,
+  tilemapFloatingX: 520,
+  tilemapFloatingY: 96,
+  tilemapFloatingWidth: 720,
+  tilemapFloatingHeight: 420,
+  tilemapFloatingAutoHeight: true,
   sourceFloating: false,
   sourceFloatingX: 64,
   sourceFloatingY: 64,
@@ -134,8 +146,9 @@ export const DEFAULT_WORKBENCH_PREFERENCES: WorkbenchPreferences = {
 };
 
 const DOCKS = new Set<WorkbenchDock>(["bottom", "left", "right", "floating"]);
-const WINDOWS: readonly WorkbenchWindowId[] = ["settings", "tools", "geometry", "adjustments", "palette", "dithering", "source", "result"];
+const WINDOWS: readonly WorkbenchWindowId[] = ["settings", "tools", "geometry", "adjustments", "palette", "dithering", "tilemap", "source", "result"];
 const CURRENT_WINDOWS: readonly WorkbenchWindowId[] = ["settings", "tools", "geometry", "adjustments", "palette", "dithering"];
+const PREVIEW_WINDOWS: readonly WorkbenchWindowId[] = [...CURRENT_WINDOWS, "source", "result"];
 const LEGACY_WINDOWS: readonly WorkbenchWindowId[] = ["settings", "tools", "palette", "dithering"];
 const SECTIONS: readonly WorkbenchSettingsSection[] = [
   "geometry",
@@ -176,7 +189,7 @@ function loadWindowOrder(value: unknown): readonly WorkbenchWindowId[] | null {
       typeof candidate === "string" && LEGACY_WINDOWS.includes(candidate as WorkbenchWindowId),
     );
     if (legacyOrder.length === LEGACY_WINDOWS.length && new Set(legacyOrder).size === LEGACY_WINDOWS.length) {
-      return ["settings", "tools", "geometry", "adjustments", ...legacyOrder.filter((window) => window === "palette" || window === "dithering"), "source", "result"];
+      return ["settings", "tools", "geometry", "adjustments", ...legacyOrder.filter((window) => window === "palette" || window === "dithering"), "tilemap", "source", "result"];
     }
   }
   if (value.length === CURRENT_WINDOWS.length) {
@@ -184,7 +197,15 @@ function loadWindowOrder(value: unknown): readonly WorkbenchWindowId[] | null {
       typeof candidate === "string" && CURRENT_WINDOWS.includes(candidate as WorkbenchWindowId),
     );
     if (currentOrder.length === CURRENT_WINDOWS.length && new Set(currentOrder).size === CURRENT_WINDOWS.length) {
-      return [...currentOrder, "source", "result"];
+      return [...currentOrder, "tilemap", "source", "result"];
+    }
+  }
+  if (value.length === PREVIEW_WINDOWS.length) {
+    const previewOrder = value.filter((candidate): candidate is WorkbenchWindowId =>
+      typeof candidate === "string" && PREVIEW_WINDOWS.includes(candidate as WorkbenchWindowId),
+    );
+    if (previewOrder.length === PREVIEW_WINDOWS.length && new Set(previewOrder).size === PREVIEW_WINDOWS.length) {
+      return [...previewOrder.slice(0, -2), "tilemap", ...previewOrder.slice(-2)];
     }
   }
   if (value.length !== WINDOWS.length) return null;
@@ -245,6 +266,12 @@ export function loadWorkbenchPreferences(
       !isFiniteNumberInRange(parsed.ditheringFloatingWidth, 320, 760) ||
       !isFiniteNumberInRange(parsed.ditheringFloatingHeight, 220, 680) ||
       (parsed.ditheringFloatingAutoHeight !== undefined && typeof parsed.ditheringFloatingAutoHeight !== "boolean") ||
+      (parsed.tilemapFloating !== undefined && typeof parsed.tilemapFloating !== "boolean") ||
+      (parsed.tilemapFloatingX !== undefined && !isFiniteNumberInRange(parsed.tilemapFloatingX, 0, 10000)) ||
+      (parsed.tilemapFloatingY !== undefined && !isFiniteNumberInRange(parsed.tilemapFloatingY, 0, 10000)) ||
+      (parsed.tilemapFloatingWidth !== undefined && !isFiniteNumberInRange(parsed.tilemapFloatingWidth, 320, 1200)) ||
+      (parsed.tilemapFloatingHeight !== undefined && !isFiniteNumberInRange(parsed.tilemapFloatingHeight, 220, 900)) ||
+      (parsed.tilemapFloatingAutoHeight !== undefined && typeof parsed.tilemapFloatingAutoHeight !== "boolean") ||
       (parsed.sourceFloating !== undefined && typeof parsed.sourceFloating !== "boolean") ||
       (parsed.sourceFloatingX !== undefined && !isFiniteNumberInRange(parsed.sourceFloatingX, 0, 10000)) ||
       (parsed.sourceFloatingY !== undefined && !isFiniteNumberInRange(parsed.sourceFloatingY, 0, 10000)) ||
@@ -305,6 +332,12 @@ export function loadWorkbenchPreferences(
       ditheringFloatingWidth: parsed.ditheringFloatingWidth,
       ditheringFloatingHeight: parsed.ditheringFloatingHeight,
       ditheringFloatingAutoHeight: parsed.ditheringFloatingAutoHeight ?? true,
+      tilemapFloating: parsed.tilemapFloating ?? false,
+      tilemapFloatingX: parsed.tilemapFloatingX ?? 520,
+      tilemapFloatingY: parsed.tilemapFloatingY ?? 96,
+      tilemapFloatingWidth: parsed.tilemapFloatingWidth ?? 720,
+      tilemapFloatingHeight: parsed.tilemapFloatingHeight ?? 420,
+      tilemapFloatingAutoHeight: parsed.tilemapFloatingAutoHeight ?? true,
       sourceFloating: parsed.sourceFloating ?? false,
       sourceFloatingX: parsed.sourceFloatingX ?? 64,
       sourceFloatingY: parsed.sourceFloatingY ?? 64,

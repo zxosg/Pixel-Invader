@@ -77,6 +77,20 @@ export function sanitizeArtifactBaseName(fileName: string): string {
   return safe;
 }
 
+function canonicalizeJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalizeJsonValue);
+  if (typeof value !== "object" || value === null) return value;
+  return Object.fromEntries(
+    Object.keys(value as Record<string, unknown>)
+      .sort()
+      .map((key) => [key, canonicalizeJsonValue((value as Record<string, unknown>)[key])]),
+  );
+}
+
+export function canonicalJsonStringify(value: unknown): string {
+  return JSON.stringify(canonicalizeJsonValue(value));
+}
+
 export interface MetadataInput {
   readonly sourceSha256: string;
   readonly sourceFormat: "png" | "jpeg" | "pmd85-bin";

@@ -6,12 +6,37 @@ import { PMD85_VRAM_BYTES } from "@retro-converter/pmd-85";
 import {
   APPLICATION_VERSION,
   buildConversionMetadata,
+  canonicalJsonStringify,
   formatApplicationDisplayVersion,
   sanitizeArtifactBaseName,
   sha256Hex,
 } from "./artifacts.js";
 
 describe("artifact helpers", () => {
+  it("canonicalizes JSON object key order without changing array order", () => {
+    const archived = {
+      conversion: {
+        settings: {
+          orderedMatrix: "checkerboard-2x1",
+          artisticPattern: "checkerboard",
+          structured: { schemaVersion: 1, weights: [2, 1] },
+        },
+      },
+    };
+    const rebuilt = {
+      conversion: {
+        settings: {
+          structured: { weights: [2, 1], schemaVersion: 1 },
+          artisticPattern: "checkerboard",
+          orderedMatrix: "checkerboard-2x1",
+        },
+      },
+    };
+    expect(canonicalJsonStringify(archived)).toBe(canonicalJsonStringify(rebuilt));
+    expect(canonicalJsonStringify({ values: [1, 2] }))
+      .not.toBe(canonicalJsonStringify({ values: [2, 1] }));
+  });
+
   it("formats a recognizable release and optional sanitized build identity", () => {
     expect(APPLICATION_VERSION).toBe("1.0.0-draft.8");
     expect(formatApplicationDisplayVersion(APPLICATION_VERSION))

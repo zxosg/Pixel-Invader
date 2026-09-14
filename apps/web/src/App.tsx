@@ -31,6 +31,7 @@ import {
 import {
   APPLICATION_DISPLAY_VERSION,
   buildConversionMetadata,
+  canonicalJsonStringify,
   sanitizeArtifactBaseName,
   sha256Hex,
 } from "./artifacts.js";
@@ -252,7 +253,7 @@ import {
   type BitmapPixelColor,
   type BitmapPaintMode,
 } from "./full-bitmap-editor.js";
-import { resolvePreviewAspect } from "./preview-aspect.js";
+import { fitPreviewToViewport, resolvePreviewAspect, type PreviewFitSize } from "./preview-aspect.js";
 import { frameFallbackSourcePreview } from "./source-preview.js";
 import {
   renderQlMixedDisplayPreview,
@@ -305,7 +306,7 @@ type PreviewZoom = "fit" | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13
 type PreviewContent = "image" | "source-image" | "result-image" | "bitmap-editor" | "pre-attribute" | "screen-1" | "screen-2" | "merged-low" | "merged-high" | "palette-usage" | "tile-usage" | "unified-editor" | "inspector" | "difference";
 type SettingsSection = "all" | "geometry" | "adjustments" | "palette" | "dithering" | "tilemap";
 type WorkbenchFocusTarget = SettingsSection | "settings" | "tools" | "source" | "result";
-type WorkbenchFloatingSection = "geometry" | "adjustments" | "palette" | "dithering" | "source" | "result";
+type WorkbenchFloatingSection = "geometry" | "adjustments" | "palette" | "dithering" | "tilemap" | "source" | "result";
 
 function gridPathForDimensions(
   width: number,
@@ -1099,13 +1100,20 @@ export function App() {
   const [previewZoom, setPreviewZoom] = useState<PreviewZoom>(DEFAULT_WORKSPACE_PREFERENCES.previewZoom);
   const [sourcePreviewZoom, setSourcePreviewZoom] = useState<PreviewZoom>(DEFAULT_WORKSPACE_PREFERENCES.previewZoom);
   const [resultPreviewZoom, setResultPreviewZoom] = useState<PreviewZoom>(DEFAULT_WORKSPACE_PREFERENCES.previewZoom);
+  const [previewViewportSizes, setPreviewViewportSizes] = useState<{
+    readonly source: { readonly width: number; readonly height: number };
+    readonly result: { readonly width: number; readonly height: number };
+  }>({
+    source: { width: 0, height: 0 },
+    result: { width: 0, height: 0 },
+  });
   const [synchronizePan, setSynchronizePan] = useState(startupApplicationSettings.synchronizePan);
   const [synchronizeZoom, setSynchronizeZoom] = useState(startupApplicationSettings.synchronizeZoom);
   const [mouseWheelZoom, setMouseWheelZoom] = useState(startupApplicationSettings.mouseWheelZoom);
   const [showPixelGrid, setShowPixelGrid] = useState(DEFAULT_WORKSPACE_PREFERENCES.showPixelGrid);
   const [showAttributeGrid, setShowAttributeGrid] = useState(DEFAULT_WORKSPACE_PREFERENCES.showAttributeGrid);
   const [hideAttributes, setHideAttributes] = useState(DEFAULT_WORKSPACE_PREFERENCES.hideAttributes);
-  const [showCompareEngines, setShowCompareEngines] = useState(startupApplicationSettings.showCompareEngines);
+  const [developmentMode, setDevelopmentMode] = useState(startupApplicationSettings.developmentMode);
   const [scaleQlToDisplayAspect, setScaleQlToDisplayAspect] = useState(true);
   const [qlMixedDisplayResolution, setQlMixedDisplayResolution] =
     useState<QlMixedDisplayResolution>("high");
@@ -1247,6 +1255,24 @@ export function App() {
   const [workbenchDitheringFloatingAutoHeight, setWorkbenchDitheringFloatingAutoHeight] = useState(
     startupWorkbenchPreferences.ditheringFloatingAutoHeight,
   );
+  const [workbenchTilemapFloating, setWorkbenchTilemapFloating] = useState(
+    startupWorkbenchPreferences.tilemapFloating,
+  );
+  const [workbenchTilemapFloatingX, setWorkbenchTilemapFloatingX] = useState(
+    startupWorkbenchPreferences.tilemapFloatingX,
+  );
+  const [workbenchTilemapFloatingY, setWorkbenchTilemapFloatingY] = useState(
+    startupWorkbenchPreferences.tilemapFloatingY,
+  );
+  const [workbenchTilemapFloatingWidth, setWorkbenchTilemapFloatingWidth] = useState(
+    startupWorkbenchPreferences.tilemapFloatingWidth,
+  );
+  const [workbenchTilemapFloatingHeight, setWorkbenchTilemapFloatingHeight] = useState(
+    startupWorkbenchPreferences.tilemapFloatingHeight,
+  );
+  const [workbenchTilemapFloatingAutoHeight, setWorkbenchTilemapFloatingAutoHeight] = useState(
+    startupWorkbenchPreferences.tilemapFloatingAutoHeight,
+  );
   const [workbenchSourceFloating, setWorkbenchSourceFloating] = useState(startupWorkbenchPreferences.sourceFloating);
   const [workbenchSourceFloatingX, setWorkbenchSourceFloatingX] = useState(startupWorkbenchPreferences.sourceFloatingX);
   const [workbenchSourceFloatingY, setWorkbenchSourceFloatingY] = useState(startupWorkbenchPreferences.sourceFloatingY);
@@ -1308,6 +1334,8 @@ export function App() {
     paletteHeight: workbenchPaletteFloatingHeight,
     ditheringWidth: workbenchDitheringFloatingWidth,
     ditheringHeight: workbenchDitheringFloatingHeight,
+    tilemapWidth: workbenchTilemapFloatingWidth,
+    tilemapHeight: workbenchTilemapFloatingHeight,
     sourceWidth: workbenchSourceFloatingWidth,
     sourceHeight: workbenchSourceFloatingHeight,
     resultWidth: workbenchResultFloatingWidth,
@@ -1317,6 +1345,7 @@ export function App() {
   const workbenchSettingsWindowRef = useRef<HTMLDivElement | null>(null);
   const workbenchPreviewWorkspaceRef = useRef<HTMLDivElement | null>(null);
   const [workbenchPreviewLayer, setWorkbenchPreviewLayer] = useState<HTMLDivElement | null>(null);
+  const [benchmarkPanelHost, setBenchmarkPanelHost] = useState<HTMLDivElement | null>(null);
   const workbenchDragRef = useRef<{
     window: WorkbenchWindowId;
     startPointerX: number;
@@ -1346,6 +1375,7 @@ export function App() {
     useState<ReadonlySet<string>>(() => new Set());
   const [tilemapBenchmarkOpen, setTilemapBenchmarkOpen] = useState(false);
   const [tilemapBenchmarkRunning, setTilemapBenchmarkRunning] = useState(false);
+  const tilemapBenchmarkRunRef = useRef(0);
   const [tilemapBenchmarkRows, setTilemapBenchmarkRows] = useState<readonly {
     readonly strategy: DerivedCharsetStrategy;
     readonly score: number;
@@ -1360,7 +1390,7 @@ export function App() {
   const isQl = selectedPlatformId === "sinclair-ql";
   const isPmd = selectedPlatformId === "pmd-85";
   const isZx = selectedPlatformId === "zx-spectrum";
-  const workbenchHasFloatingSections = workbenchGeometryFloating || workbenchAdjustmentsFloating || workbenchPaletteFloating || workbenchDitheringFloating;
+  const workbenchHasFloatingSections = workbenchGeometryFloating || workbenchAdjustmentsFloating || workbenchPaletteFloating || workbenchDitheringFloating || (workspaceMode === "tilemap" && workbenchTilemapFloating);
   const workbenchToolsFloating = workbenchToolsDock === "floating";
   const previewLayout = workbenchSourceFloating
     ? workbenchResultFloating ? "both-floating" : "source-floating"
@@ -1370,7 +1400,7 @@ export function App() {
     (workbenchSectionsOpen.adjustments && !workbenchAdjustmentsFloating) ||
     (workbenchSectionsOpen.palette && !workbenchPaletteFloating) ||
     (workbenchSectionsOpen.dithering && !workbenchDitheringFloating) ||
-    (workbenchSectionsOpen.tilemap && workspaceMode === "tilemap");
+    (workbenchSectionsOpen.tilemap && workspaceMode === "tilemap" && !workbenchTilemapFloating);
   const workbenchSettingsDockEmpty = workbenchHasFloatingSections && !workbenchHasDockedSettingsSections;
   const workbenchSnapDistance = 16;
   const workbenchGridSize = 8;
@@ -1402,6 +1432,8 @@ export function App() {
               ? workbenchPaletteFloating
               : window === "dithering"
                 ? workbenchDitheringFloating
+                : window === "tilemap"
+                  ? workbenchTilemapFloating
                 : window === "source"
                   ? workbenchSourceFloating
                   : workbenchResultFloating;
@@ -1486,6 +1518,16 @@ export function App() {
         startWidth: workbenchDitheringFloatingWidth,
         startHeight: workbenchDitheringFloatingHeight,
       };
+    } else if (window === "tilemap") {
+      setWorkbenchTilemapFloatingAutoHeight(false);
+      workbenchResizeRef.current = {
+        kind: "floating",
+        window,
+        startPointerX: event.clientX,
+        startPointerY: event.clientY,
+        startWidth: workbenchTilemapFloatingWidth,
+        startHeight: workbenchTilemapFloatingHeight,
+      };
     } else {
       const preview = window;
       if (preview === "source") setWorkbenchSourceFloatingAutoHeight(false);
@@ -1552,6 +1594,12 @@ export function App() {
       setWorkbenchDitheringFloatingAutoHeight(false);
       setWorkbenchDitheringFloatingWidth((width) => Math.min(760, Math.max(320, width + deltaWidth)));
       setWorkbenchDitheringFloatingHeight((height) => Math.min(680, Math.max(220, height + deltaHeight)));
+      return;
+    }
+    if (window === "tilemap") {
+      setWorkbenchTilemapFloatingAutoHeight(false);
+      setWorkbenchTilemapFloatingWidth((width) => Math.min(1200, Math.max(320, width + deltaWidth)));
+      setWorkbenchTilemapFloatingHeight((height) => Math.min(900, Math.max(220, height + deltaHeight)));
       return;
     }
     if (window === "source") {
@@ -1634,6 +1682,12 @@ export function App() {
     setWorkbenchDitheringFloatingWidth(DEFAULT_WORKBENCH_PREFERENCES.ditheringFloatingWidth);
     setWorkbenchDitheringFloatingHeight(DEFAULT_WORKBENCH_PREFERENCES.ditheringFloatingHeight);
     setWorkbenchDitheringFloatingAutoHeight(DEFAULT_WORKBENCH_PREFERENCES.ditheringFloatingAutoHeight);
+    setWorkbenchTilemapFloating(DEFAULT_WORKBENCH_PREFERENCES.tilemapFloating);
+    setWorkbenchTilemapFloatingX(DEFAULT_WORKBENCH_PREFERENCES.tilemapFloatingX);
+    setWorkbenchTilemapFloatingY(DEFAULT_WORKBENCH_PREFERENCES.tilemapFloatingY);
+    setWorkbenchTilemapFloatingWidth(DEFAULT_WORKBENCH_PREFERENCES.tilemapFloatingWidth);
+    setWorkbenchTilemapFloatingHeight(DEFAULT_WORKBENCH_PREFERENCES.tilemapFloatingHeight);
+    setWorkbenchTilemapFloatingAutoHeight(DEFAULT_WORKBENCH_PREFERENCES.tilemapFloatingAutoHeight);
     setWorkbenchSourceFloating(DEFAULT_WORKBENCH_PREFERENCES.sourceFloating);
     setWorkbenchSourceFloatingX(DEFAULT_WORKBENCH_PREFERENCES.sourceFloatingX);
     setWorkbenchSourceFloatingY(DEFAULT_WORKBENCH_PREFERENCES.sourceFloatingY);
@@ -1698,6 +1752,12 @@ export function App() {
     setWorkbenchDitheringFloatingWidth(startupWorkbenchPreferences.ditheringFloatingWidth);
     setWorkbenchDitheringFloatingHeight(startupWorkbenchPreferences.ditheringFloatingHeight);
     setWorkbenchDitheringFloatingAutoHeight(startupWorkbenchPreferences.ditheringFloatingAutoHeight);
+    setWorkbenchTilemapFloating(startupWorkbenchPreferences.tilemapFloating);
+    setWorkbenchTilemapFloatingX(startupWorkbenchPreferences.tilemapFloatingX);
+    setWorkbenchTilemapFloatingY(startupWorkbenchPreferences.tilemapFloatingY);
+    setWorkbenchTilemapFloatingWidth(startupWorkbenchPreferences.tilemapFloatingWidth);
+    setWorkbenchTilemapFloatingHeight(startupWorkbenchPreferences.tilemapFloatingHeight);
+    setWorkbenchTilemapFloatingAutoHeight(startupWorkbenchPreferences.tilemapFloatingAutoHeight);
     setWorkbenchSourceFloating(startupWorkbenchPreferences.sourceFloating);
     setWorkbenchSourceFloatingX(startupWorkbenchPreferences.sourceFloatingX);
     setWorkbenchSourceFloatingY(startupWorkbenchPreferences.sourceFloatingY);
@@ -1807,21 +1867,27 @@ export function App() {
         ? workbenchAdjustmentsFloating
         : section === "palette"
           ? workbenchPaletteFloating
-          : workbenchDitheringFloating;
+          : section === "dithering"
+            ? workbenchDitheringFloating
+            : workbenchTilemapFloating;
     const startX = section === "geometry"
       ? workbenchGeometryFloatingX
       : section === "adjustments"
         ? workbenchAdjustmentsFloatingX
         : section === "palette"
           ? workbenchPaletteFloatingX
-          : workbenchDitheringFloatingX;
+          : section === "dithering"
+            ? workbenchDitheringFloatingX
+            : workbenchTilemapFloatingX;
     const startY = section === "geometry"
       ? workbenchGeometryFloatingY
       : section === "adjustments"
         ? workbenchAdjustmentsFloatingY
         : section === "palette"
           ? workbenchPaletteFloatingY
-          : workbenchDitheringFloatingY;
+          : section === "dithering"
+            ? workbenchDitheringFloatingY
+            : workbenchTilemapFloatingY;
     if (!floating || event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
@@ -1875,6 +1941,14 @@ export function App() {
     if (section === "result") {
       setWorkbenchResultFloating((floating) => !floating);
       bringWorkbenchWindowToFront("result");
+      return;
+    }
+    if (section === "tilemap") {
+      setWorkbenchTilemapFloating((floating) => {
+        if (!floating) setWorkbenchSectionOpen("tilemap", true);
+        return !floating;
+      });
+      bringWorkbenchWindowToFront("tilemap");
       return;
     }
     setWorkbenchDitheringFloating((floating) => {
@@ -1936,6 +2010,9 @@ export function App() {
         } else if (resize.window === "dithering") {
           setWorkbenchDitheringFloatingWidth(snapWorkbenchSize(nextWidth, 320, 760));
           setWorkbenchDitheringFloatingHeight(snapWorkbenchSize(nextHeight, 220, 680));
+        } else if (resize.window === "tilemap") {
+          setWorkbenchTilemapFloatingWidth(snapWorkbenchSize(nextWidth, 320, 1200));
+          setWorkbenchTilemapFloatingHeight(snapWorkbenchSize(nextHeight, 220, 900));
         } else if (resize.window === "source") {
           setWorkbenchSourceFloatingWidth(snapWorkbenchSize(nextWidth, 320, 1600));
           setWorkbenchSourceFloatingHeight(snapWorkbenchSize(nextHeight, 220, 900));
@@ -1960,9 +2037,11 @@ export function App() {
               ? dimensions.adjustmentsWidth
               : drag.window === "palette"
                 ? dimensions.paletteWidth
-                : drag.window === "dithering"
-                  ? dimensions.ditheringWidth
-                  : drag.window === "source"
+              : drag.window === "dithering"
+                ? dimensions.ditheringWidth
+                : drag.window === "tilemap"
+                  ? dimensions.tilemapWidth
+                : drag.window === "source"
                     ? dimensions.sourceWidth
                     : dimensions.resultWidth;
       const windowHeight = drag.window === "settings"
@@ -1977,6 +2056,8 @@ export function App() {
               ? dimensions.paletteHeight
               : drag.window === "dithering"
                 ? dimensions.ditheringHeight
+                : drag.window === "tilemap"
+                  ? dimensions.tilemapHeight
                 : drag.window === "source"
                   ? dimensions.sourceHeight
                   : dimensions.resultHeight;
@@ -2008,6 +2089,9 @@ export function App() {
       } else if (drag.window === "dithering") {
         setWorkbenchDitheringFloatingX(nextX);
         setWorkbenchDitheringFloatingY(nextY);
+      } else if (drag.window === "tilemap") {
+        setWorkbenchTilemapFloatingX(nextX);
+        setWorkbenchTilemapFloatingY(nextY);
       } else if (drag.window === "source") {
         setWorkbenchSourceFloatingX(nextX);
         setWorkbenchSourceFloatingY(nextY);
@@ -2074,6 +2158,8 @@ export function App() {
       paletteHeight: workbenchPaletteFloatingHeight,
       ditheringWidth: workbenchDitheringFloatingWidth,
       ditheringHeight: workbenchDitheringFloatingHeight,
+      tilemapWidth: workbenchTilemapFloatingWidth,
+      tilemapHeight: workbenchTilemapFloatingHeight,
       sourceWidth: workbenchSourceFloatingWidth,
       sourceHeight: workbenchSourceFloatingHeight,
       resultWidth: workbenchResultFloatingWidth,
@@ -2086,6 +2172,7 @@ export function App() {
     workbenchAdjustmentsFloatingWidth, workbenchAdjustmentsFloatingHeight,
     workbenchPaletteFloatingHeight, workbenchDitheringFloatingWidth,
     workbenchDitheringFloatingHeight, workbenchSourceFloatingWidth,
+    workbenchTilemapFloatingWidth, workbenchTilemapFloatingHeight,
     workbenchSourceFloatingHeight, workbenchResultFloatingWidth,
     workbenchResultFloatingHeight]);
 
@@ -2214,6 +2301,12 @@ export function App() {
       ditheringFloatingWidth: workbenchDitheringFloatingWidth,
       ditheringFloatingHeight: workbenchDitheringFloatingHeight,
       ditheringFloatingAutoHeight: workbenchDitheringFloatingAutoHeight,
+      tilemapFloating: workbenchTilemapFloating,
+      tilemapFloatingX: workbenchTilemapFloatingX,
+      tilemapFloatingY: workbenchTilemapFloatingY,
+      tilemapFloatingWidth: workbenchTilemapFloatingWidth,
+      tilemapFloatingHeight: workbenchTilemapFloatingHeight,
+      tilemapFloatingAutoHeight: workbenchTilemapFloatingAutoHeight,
       sourceFloating: workbenchSourceFloating,
       sourceFloatingX: workbenchSourceFloatingX,
       sourceFloatingY: workbenchSourceFloatingY,
@@ -2249,6 +2342,9 @@ export function App() {
     workbenchDitheringFloating, workbenchDitheringFloatingX, workbenchDitheringFloatingY,
     workbenchDitheringFloatingWidth, workbenchDitheringFloatingHeight,
     workbenchDitheringFloatingAutoHeight,
+    workbenchTilemapFloating, workbenchTilemapFloatingX, workbenchTilemapFloatingY,
+    workbenchTilemapFloatingWidth, workbenchTilemapFloatingHeight,
+    workbenchTilemapFloatingAutoHeight,
     workbenchSourceFloating, workbenchSourceFloatingX, workbenchSourceFloatingY,
     workbenchSourceFloatingWidth, workbenchSourceFloatingHeight, workbenchSourceFloatingAutoHeight,
     workbenchResultFloating, workbenchResultFloatingX, workbenchResultFloatingY,
@@ -2910,6 +3006,18 @@ export function App() {
     setBenchmarkRunning(false);
     setBenchmarkRows([]);
   }, [currentBenchmarkContextKey]);
+
+  useEffect(() => {
+    if (developmentMode) return;
+    benchmarkRunRef.current += 1;
+    benchmarkWorkerRef.current?.dispose();
+    benchmarkWorkerRef.current = null;
+    tilemapBenchmarkRunRef.current += 1;
+    setBenchmarkRunning(false);
+    setTilemapBenchmarkRunning(false);
+    setBenchmarkOpen(false);
+    setTilemapBenchmarkOpen(false);
+  }, [developmentMode]);
 
   useEffect(() => {
     setTilemapBenchmarkRows([]);
@@ -3658,6 +3766,7 @@ export function App() {
       setWorkbenchToolsOpen(false);
       setWorkbenchPaletteFloating(false);
       setWorkbenchDitheringFloating(false);
+      setWorkbenchTilemapFloating(false);
       setWorkbenchSectionsOpen({
         ...baseSections,
         geometry: true,
@@ -3675,6 +3784,7 @@ export function App() {
       setWorkbenchToolsOpen(false);
       setWorkbenchPaletteFloating(true);
       setWorkbenchDitheringFloating(false);
+      setWorkbenchTilemapFloating(false);
       setWorkbenchSectionsOpen({ ...baseSections, palette: true });
       return;
     }
@@ -3686,6 +3796,7 @@ export function App() {
       setWorkbenchToolsOpen(false);
       setWorkbenchPaletteFloating(false);
       setWorkbenchDitheringFloating(true);
+      setWorkbenchTilemapFloating(false);
       setWorkbenchSectionsOpen({ ...baseSections, dithering: true });
       return;
     }
@@ -3697,6 +3808,7 @@ export function App() {
       setWorkbenchToolsOpen(true);
       setWorkbenchPaletteFloating(false);
       setWorkbenchDitheringFloating(false);
+      setWorkbenchTilemapFloating(false);
       setWorkbenchSectionsOpen(baseSections);
       return;
     }
@@ -3708,6 +3820,7 @@ export function App() {
       setWorkbenchToolsOpen(true);
       setWorkbenchPaletteFloating(false);
       setWorkbenchDitheringFloating(false);
+      setWorkbenchTilemapFloating(false);
       setWorkbenchSectionsOpen(baseSections);
       return;
     }
@@ -3719,6 +3832,7 @@ export function App() {
       setWorkbenchToolsOpen(false);
       setWorkbenchPaletteFloating(false);
       setWorkbenchDitheringFloating(false);
+      setWorkbenchTilemapFloating(false);
       setWorkbenchSectionsOpen({ ...baseSections, tilemap: true });
     }
   }
@@ -3781,6 +3895,12 @@ export function App() {
         ditheringFloatingWidth: workbenchDitheringFloatingWidth,
         ditheringFloatingHeight: workbenchDitheringFloatingHeight,
         ditheringFloatingAutoHeight: workbenchDitheringFloatingAutoHeight,
+        tilemapFloating: workbenchTilemapFloating,
+        tilemapFloatingX: workbenchTilemapFloatingX,
+        tilemapFloatingY: workbenchTilemapFloatingY,
+        tilemapFloatingWidth: workbenchTilemapFloatingWidth,
+        tilemapFloatingHeight: workbenchTilemapFloatingHeight,
+        tilemapFloatingAutoHeight: workbenchTilemapFloatingAutoHeight,
         sourceFloating: workbenchSourceFloating,
         sourceFloatingX: workbenchSourceFloatingX,
         sourceFloatingY: workbenchSourceFloatingY,
@@ -3878,7 +3998,7 @@ export function App() {
       : DEFAULT_WORKBENCH_PREFERENCES.windowOrder;
     setWorkbenchWindowOrder([
       ...savedWindowOrder,
-      ...(["source", "result"] as const).filter((window) => !savedWindowOrder.includes(window)),
+      ...(["tilemap", "source", "result"] as const).filter((window) => !savedWindowOrder.includes(window)),
     ]);
     setWorkbenchPaletteFloating(saved.workbench.paletteFloating);
     setWorkbenchPaletteFloatingX(saved.workbench.paletteFloatingX);
@@ -3892,6 +4012,12 @@ export function App() {
     setWorkbenchDitheringFloatingWidth(saved.workbench.ditheringFloatingWidth);
     setWorkbenchDitheringFloatingHeight(saved.workbench.ditheringFloatingHeight);
     setWorkbenchDitheringFloatingAutoHeight(saved.workbench.ditheringFloatingAutoHeight ?? true);
+    setWorkbenchTilemapFloating(saved.workbench.tilemapFloating ?? false);
+    setWorkbenchTilemapFloatingX(saved.workbench.tilemapFloatingX ?? 520);
+    setWorkbenchTilemapFloatingY(saved.workbench.tilemapFloatingY ?? 96);
+    setWorkbenchTilemapFloatingWidth(saved.workbench.tilemapFloatingWidth ?? 720);
+    setWorkbenchTilemapFloatingHeight(saved.workbench.tilemapFloatingHeight ?? 420);
+    setWorkbenchTilemapFloatingAutoHeight(saved.workbench.tilemapFloatingAutoHeight ?? true);
     setWorkbenchSourceFloating(saved.workbench.sourceFloating ?? false);
     setWorkbenchSourceFloatingX(saved.workbench.sourceFloatingX ?? 64);
     setWorkbenchSourceFloatingY(saved.workbench.sourceFloatingY ?? 64);
@@ -4010,8 +4136,8 @@ export function App() {
 
   function focusSettingsSection(section: Exclude<SettingsSection, "all">): void {
     setSettingsSection(section);
-    setWorkbenchSettingsMinimized(false);
-    bringWorkbenchWindowToFront(section === "tilemap" ? "settings" : section);
+    setWorkbenchSettingsMinimized(section !== "tilemap" || !workbenchTilemapFloating);
+    bringWorkbenchWindowToFront(section === "tilemap" ? "tilemap" : section);
     setWorkbenchSectionOpen(section, true);
     window.requestAnimationFrame(() => {
       const element = document.getElementById(`settings-${section}`);
@@ -4051,6 +4177,20 @@ export function App() {
       bringWorkbenchWindowToFront(target);
       window.requestAnimationFrame(() => {
         document.querySelector<HTMLElement>(`.${target}-panel select, .${target}-panel canvas, .${target}-panel button`)?.focus({ preventScroll: true });
+      });
+      return;
+    }
+    if (target === "tilemap") {
+      setSettingsSection("tilemap");
+      setWorkbenchSectionOpen("tilemap", true);
+      if (workbenchTilemapFloating) {
+        bringWorkbenchWindowToFront("tilemap");
+      } else {
+        setWorkbenchSettingsMinimized(false);
+        bringWorkbenchWindowToFront("settings");
+      }
+      window.requestAnimationFrame(() => {
+        document.getElementById("settings-tilemap")?.querySelector<HTMLElement>("select, input, button, textarea")?.focus({ preventScroll: true });
       });
       return;
     }
@@ -4548,7 +4688,7 @@ export function App() {
       mouseWheelZoom,
       synchronizePan,
       synchronizeZoom,
-      showCompareEngines,
+      developmentMode,
     }) as ApplicationSettings & Record<string, unknown>);
     setSettingsSearch("");
     setSettingsCategory("all");
@@ -4582,7 +4722,7 @@ export function App() {
     setMouseWheelZoom(canonical.application.mouseWheelZoom);
     setSynchronizePan(canonical.application.synchronizePan);
     setSynchronizeZoom(canonical.application.synchronizeZoom);
-    setShowCompareEngines(canonical.application.showCompareEngines);
+    setDevelopmentMode(canonical.application.developmentMode);
     const nextStartupLayout = normalizeStartupWorkspaceLayout(canonical.application.workspaceLayout);
     setStartupWorkspaceLayout(nextStartupLayout);
     applyWorkspaceLayout(nextStartupLayout);
@@ -4640,7 +4780,7 @@ export function App() {
   }
 
   async function runEngineBenchmark() {
-    if (image === null || !settingsValid || benchmarkRunning) return;
+    if (!developmentMode || image === null || !settingsValid || benchmarkRunning) return;
     const benchmarkContextKeyAtStart = currentBenchmarkContextKey;
     const benchmarkRun = benchmarkRunRef.current + 1;
     benchmarkRunRef.current = benchmarkRun;
@@ -4934,6 +5074,7 @@ export function App() {
   }
 
   async function runTilemapBenchmark() {
+    if (!developmentMode) return;
     if (
       tilemapBenchmarkRunning ||
       lastFinal === null ||
@@ -4946,6 +5087,8 @@ export function App() {
         (existingCharset === null || !existingCharsetChoiceValid)
       )
     ) return;
+    const tilemapBenchmarkRun = tilemapBenchmarkRunRef.current + 1;
+    tilemapBenchmarkRunRef.current = tilemapBenchmarkRun;
     setTilemapBenchmarkOpen(true);
     setTilemapBenchmarkRunning(true);
     setExportError(null);
@@ -4966,6 +5109,7 @@ export function App() {
     }[] = [];
     try {
       for (const strategy of strategies) {
+        if (tilemapBenchmarkRunRef.current !== tilemapBenchmarkRun) return;
         const worker = new ConversionWorkerClient();
         const started = performance.now();
         try {
@@ -5010,6 +5154,7 @@ export function App() {
               ? 4
               : strategy === "best-coverage" ? 1 : 0,
           });
+          if (tilemapBenchmarkRunRef.current !== tilemapBenchmarkRun) return;
           rows.push({
             strategy,
             score: commonPreviewError(source.previewRgba, result.previewRgba),
@@ -5024,15 +5169,21 @@ export function App() {
         left.score - right.score ||
         left.strategy.localeCompare(right.strategy)
       );
-      setTilemapBenchmarkRows(rows);
+      if (tilemapBenchmarkRunRef.current === tilemapBenchmarkRun) {
+        setTilemapBenchmarkRows(rows);
+      }
     } catch (error: unknown) {
-      setExportError(
-        `Tilemap benchmark failed: ${
-          error instanceof Error ? error.message : "Unknown error."
-        }`,
-      );
+      if (tilemapBenchmarkRunRef.current === tilemapBenchmarkRun) {
+        setExportError(
+          `Tilemap benchmark failed: ${
+            error instanceof Error ? error.message : "Unknown error."
+          }`,
+        );
+      }
     } finally {
-      setTilemapBenchmarkRunning(false);
+      if (tilemapBenchmarkRunRef.current === tilemapBenchmarkRun) {
+        setTilemapBenchmarkRunning(false);
+      }
     }
   }
 
@@ -5448,31 +5599,9 @@ export function App() {
     if (bitmapEditorPointerRef.current?.pointerId === event.pointerId) bitmapEditorPointerRef.current = null;
   }
 
-  function fullBitmapBufferFromResult(): BitmapEditorBuffer | null {
-    const activeResult = draftPreviewResult(draftState) ?? lastFinal;
-    if (activeResult === null) return null;
-    const frameIndex = outputPreviewStage === "screen-2" ? 1 : 0;
-    const frame = activeResult.frames[frameIndex] ?? activeResult.frames[0];
-    const rgba = frame?.previewRgba ?? activeResult.mergedPreviewRgba;
-    if (rgba.length !== activeResult.width * activeResult.height * 4) return null;
-    const pixels = new Uint8Array(activeResult.width * activeResult.height);
-    if (activeResult.platformId === "zx-spectrum" && frame?.encoded !== undefined) {
-      for (let y = 0; y < activeResult.height; y += 1) {
-        for (let x = 0; x < activeResult.width; x += 1) {
-          const byte = frame.encoded[zxBitmapOffset(Math.floor(x / 8), y)] ?? 0;
-          pixels[y * activeResult.width + x] = (byte >> (7 - (x & 7))) & 1;
-        }
-      }
-    } else {
-      for (let offset = 0; offset < pixels.length; offset += 1) {
-        const red = rgba[offset * 4] ?? 0;
-        const green = rgba[offset * 4 + 1] ?? 0;
-        const blue = rgba[offset * 4 + 2] ?? 0;
-        pixels[offset] = red + green + blue >= 384 ? 1 : 0;
-      }
-    }
-    bitmapEditorEncodedRef.current = frame?.encoded?.slice() ?? null;
-    return { width: activeResult.width, height: activeResult.height, rgba: rgba.slice(), pixels };
+  function fullBitmapBufferFromSource(): BitmapEditorBuffer | null {
+    if (image === null || image.rgba.length !== image.width * image.height * 4) return null;
+    return { width: image.width, height: image.height, rgba: image.rgba.slice() };
   }
 
   const bitmapEditorColorForState: BitmapPixelColor = (x, y, on) => {
@@ -5608,7 +5737,7 @@ export function App() {
 
   function promoteBitmapResult(pixel: { readonly x: number; readonly y: number }): void {
     if (bitmapEditorPaintMode === "none") return;
-    const base = bitmapEditorFullBufferRef.current ?? fullBitmapBufferFromResult();
+    const base = bitmapEditorFullBufferRef.current ?? fullBitmapBufferFromSource();
     if (base === null || image === null) return;
     if (bitmapEditorFullBufferRef.current === null) {
       setBitmapEditorRevertSource({ ...image, rgba: image.rgba.slice() });
@@ -5619,8 +5748,7 @@ export function App() {
     setBitmapEditorUndoFull((history) => [...history, cloneBitmapBuffer(base)]);
     setBitmapEditorRedoFull([]);
     setImage({ ...image, width: next.width, height: next.height, rgba: next.rgba.slice() });
-    skipNextDraftAfterBitmapEditRef.current = true;
-    updateResultPreviewFromBitmap(next);
+    skipNextDraftAfterBitmapEditRef.current = false;
     setImageStatus("Working source · manually edited. Convert will reprocess the edited source with current settings.");
     setDirty(true);
   }
@@ -6375,6 +6503,17 @@ export function App() {
   async function exportProject() {
     if (lastFinal === null || sourceArtifact === null || image === null) return;
     try {
+      if (bitmapEditorOriginalResult !== null) {
+        throw new Error(
+          "PROJECT_RESULT_EDIT_UNSUPPORTED: manually edited result cannot be saved as a reopenable project. Revert the result edit or edit the source image instead.",
+        );
+      }
+      if (bitmapEditorRevertSource !== null && originalImage !== null &&
+          (image.width !== originalImage.width || image.height !== originalImage.height)) {
+        throw new Error(
+          "PROJECT_WORKING_SOURCE_INVALID: result-sized bitmap edits cannot be saved as a working source. Edit the source image or revert the result edit first.",
+        );
+      }
       const metadataJson = await createCurrentMetadataJson();
       const spatialPreview = lastFinal.verticalSpatialDiagnostics;
       const previewPng = encodeRgbaPng(
@@ -6494,6 +6633,7 @@ export function App() {
       let decoded: WorkerDecodedImage;
       let workingDecoded: WorkerDecodedImage;
       let recomputed: WorkerConversionResult;
+      let recoveredWorkingSource = false;
       const projectPmdPalette = validated.settings.platformId === "pmd-85"
         ? profileModeScreens(
             projectProfile,
@@ -6531,16 +6671,47 @@ export function App() {
         workingDecoded = validated.workingSourcePng === undefined
           ? decoded
           : await verifier.decodeImage(Uint8Array.from(validated.workingSourcePng).buffer);
-        recomputed = await verifier.convertImage(
-          workingDecoded,
-          validated.settings,
-          "high",
-          projectPmdPalette === undefined
-            ? undefined
-            : { foregroundPalette: projectPmdPalette },
-        );
+        if (validated.workingSourcePng !== undefined &&
+            (workingDecoded.width !== decoded.width || workingDecoded.height !== decoded.height)) {
+          const fallback = await verifier.convertImage(
+            decoded,
+            validated.settings,
+            "high",
+            projectPmdPalette === undefined
+              ? undefined
+              : { foregroundPalette: projectPmdPalette },
+          );
+          const archivedPreview = await verifier.decodeImage(
+            Uint8Array.from(validated.previewPng).buffer,
+          );
+          const outputMatches = fallback.frames.length === validated.frames.length &&
+            fallback.frames.every((frame, index) =>
+              equalBytes(frame.encoded, validated.frames[index] ?? new Uint8Array())
+            ) &&
+            archivedPreview.width === fallback.width &&
+            archivedPreview.height === fallback.height &&
+            equalBytes(archivedPreview.rgba, fallback.mergedPreviewRgba);
+          if (!outputMatches) {
+            throw new Error(
+              "PROJECT_WORKING_SOURCE_INVALID: working source dimensions do not match the original source and the archived result cannot be recovered.",
+            );
+          }
+          workingDecoded = decoded;
+          recomputed = fallback;
+          recoveredWorkingSource = true;
+        } else {
+          recomputed = await verifier.convertImage(
+            workingDecoded,
+            validated.settings,
+            "high",
+            projectPmdPalette === undefined
+              ? undefined
+              : { foregroundPalette: projectPmdPalette },
+          );
+        }
       }
-      if (validated.workingSourcePng === undefined && (
+      const verifyArchivedResult = validated.workingSourcePng === undefined || recoveredWorkingSource;
+      if (verifyArchivedResult && (
         recomputed.frames.length !== validated.frames.length ||
         recomputed.frames.some((frame, index) =>
           !equalBytes(frame.encoded, validated.frames[index] ?? new Uint8Array())
@@ -6550,7 +6721,7 @@ export function App() {
       }
       const archivedPreview = await verifier.decodeImage(Uint8Array.from(validated.previewPng).buffer);
       const expectedArchivedPreview = recomputed.verticalSpatialDiagnostics;
-      if (validated.workingSourcePng === undefined && (
+      if (verifyArchivedResult && (
         archivedPreview.width !== (expectedArchivedPreview?.logicalWidth ?? recomputed.width) ||
         archivedPreview.height !== (expectedArchivedPreview?.logicalHeight ?? recomputed.height) ||
         !equalBytes(
@@ -6651,10 +6822,10 @@ export function App() {
       if (!Array.isArray(projection)) {
         throw new Error("PROJECT_REPRODUCTION_FAILED: deterministic metadata projection is invalid.");
       }
-      const differingMetadataKeys = validated.workingSourcePng === undefined
+      const differingMetadataKeys = verifyArchivedResult
         ? projection.filter((key) =>
         typeof key !== "string" ||
-        JSON.stringify(archivedMetadata[key]) !== JSON.stringify(rebuiltMetadata[key])
+        canonicalJsonStringify(archivedMetadata[key]) !== canonicalJsonStringify(rebuiltMetadata[key])
       )
         : [];
       if (differingMetadataKeys.length > 0) {
@@ -6722,7 +6893,7 @@ export function App() {
       }
       setImage(workingDecoded);
       setOriginalImage({ ...decoded, rgba: decoded.rgba.slice() });
-      if (validated.workingSourcePng !== undefined) {
+      if (validated.workingSourcePng !== undefined && !recoveredWorkingSource) {
         setBitmapEditorRevertSource({ ...decoded, rgba: decoded.rgba.slice() });
         bitmapEditorFullBufferRef.current = {
           width: workingDecoded.width,
@@ -6742,6 +6913,9 @@ export function App() {
         `reproduced ${recomputed.scr.length.toLocaleString()}-byte High result.` +
         (repairedLegacyCharsetSelection
           ? " Corrected legacy charset-selection mapping."
+          : "") +
+        (recoveredWorkingSource
+          ? " Recovered using the original source; the invalid working-source edit was not preserved."
           : ""),
       );
       setExportError(null);
@@ -6953,7 +7127,15 @@ export function App() {
       {bitmapEditorActions}
       <div className={`preview-frame preview-viewport zx-preview bitmap-editor-full-viewport ${draggingSide === side ? "dragging" : ""}`} ref={side === "source" ? sourceViewportRef : resultViewportRef} onScroll={(event) => handlePreviewScroll(side, event)} onPointerDown={(event) => beginPreviewDrag(side, event)} onPointerMove={movePreviewDrag} onPointerUp={endPreviewDrag} onPointerCancel={endPreviewDrag} onWheel={(event) => handlePreviewWheel(side, event)} onFocusCapture={() => markPanSource(side)}>
         {!compatible ? <p className="preview-placeholder">Run a bitmap conversion to edit its result.</p> : <div className="bitmap-editor-full-layout">
-          <div className={["preview-stage", "bitmap-editor-full-canvas", (side === "source" ? sourceZoom : resultZoom) === "fit" ? "fit-stage" : "", "show-pixel-grid", "show-attribute-grid"].filter(Boolean).join(" ")} style={{ width: (side === "source" ? sourceZoom : resultZoom) === "fit" ? undefined : `${width * Number(side === "source" ? sourceZoom : resultZoom)}px`, aspectRatio: `${width} / ${height}` }}>
+          <div className={["preview-stage", "bitmap-editor-full-canvas", (side === "source" ? sourceZoom : resultZoom) === "fit" ? "fit-stage" : "", "show-pixel-grid", "show-attribute-grid"].filter(Boolean).join(" ")} style={{
+            width: (side === "source" ? sourceFitStageSize : resultFitStageSize)?.width !== undefined
+              ? String((side === "source" ? sourceFitStageSize : resultFitStageSize)?.width) + "px"
+              : (side === "source" ? sourceZoom : resultZoom) === "fit" ? undefined : String(width * Number(side === "source" ? sourceZoom : resultZoom)) + "px",
+            height: (side === "source" ? sourceFitStageSize : resultFitStageSize)?.height !== undefined
+              ? String((side === "source" ? sourceFitStageSize : resultFitStageSize)?.height) + "px"
+              : undefined,
+            aspectRatio: String(width) + " / " + String(height),
+          }}>
             <canvas ref={canvasRefForSide} aria-label="Full bitmap editor" tabIndex={0} />
             <svg className="pixel-grid-overlay" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-hidden="true"><path d={gridPathForDimensions(width, height, 1, 1)} vectorEffect="non-scaling-stroke" /></svg>
             {attributeWidth !== null && attributeHeight !== null ? <svg className="attribute-grid-overlay" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-hidden="true"><path d={gridPathForDimensions(width, height, attributeWidth, attributeHeight)} vectorEffect="non-scaling-stroke" /></svg> : null}
@@ -7090,18 +7272,81 @@ export function App() {
   const previewAspectRatio = `${previewAspect.width} / ${previewAspect.height}`;
   const sourceZoom = sourcePreviewZoom;
   const resultZoom = resultPreviewZoom;
-  const sourceStageAspectRatio = sourcePreviewContent === "source-image" && image !== null
+  const sourceShowsImage = (sourcePreviewContent === "image" || sourcePreviewContent === "source-image") && image !== null;
+  const sourceStageAspectRatio = sourceShowsImage
     ? `${image.width} / ${image.height}`
     : previewAspectRatio;
-  const sourceStageWidth = sourcePreviewContent === "source-image" && image !== null && sourceZoom !== "fit"
+  const sourceStageWidth = sourceShowsImage && sourceZoom !== "fit"
     ? `${image.width * sourceZoom}px`
     : sourceZoom === "fit" ? undefined : `${previewAspect.width * Number(sourceZoom)}px`;
+  const sourceStageAspect = sourceShowsImage
+    ? { width: image.width, height: image.height }
+    : previewAspect;
+  const sourceFitStageSize: PreviewFitSize | null = sourceZoom === "fit"
+    ? fitPreviewToViewport(
+        previewViewportSizes.source.width,
+        previewViewportSizes.source.height,
+        sourceStageAspect.width,
+        sourceStageAspect.height,
+      )
+    : null;
   const resultStageAspectRatio = resultPreviewContent === "source-image" && image !== null
     ? `${image.width} / ${image.height}`
     : previewAspectRatio;
   const resultStageWidth = resultPreviewContent === "source-image" && image !== null && resultZoom !== "fit"
     ? `${image.width * resultZoom}px`
     : resultZoom === "fit" ? undefined : `${previewAspect.width * Number(resultZoom)}px`;
+  const resultStageAspect = resultPreviewContent === "source-image" && image !== null
+    ? { width: image.width, height: image.height }
+    : previewAspect;
+  const resultFitStageSize: PreviewFitSize | null = resultZoom === "fit"
+    ? fitPreviewToViewport(
+        previewViewportSizes.result.width,
+        previewViewportSizes.result.height,
+        resultStageAspect.width,
+        resultStageAspect.height,
+      )
+    : null;
+
+  useLayoutEffect(() => {
+    const measure = (viewport: HTMLDivElement | null): { readonly width: number; readonly height: number } => {
+      if (viewport === null) return { width: 0, height: 0 };
+      const bounds = viewport.getBoundingClientRect();
+      const styles = window.getComputedStyle(viewport);
+      const horizontalInset = [styles.paddingLeft, styles.paddingRight, styles.borderLeftWidth, styles.borderRightWidth]
+        .reduce((total, value) => total + (Number.parseFloat(value) || 0), 0);
+      const verticalInset = [styles.paddingTop, styles.paddingBottom, styles.borderTopWidth, styles.borderBottomWidth]
+        .reduce((total, value) => total + (Number.parseFloat(value) || 0), 0);
+      return {
+        width: Math.max(0, bounds.width - horizontalInset),
+        height: Math.max(0, bounds.height - verticalInset),
+      };
+    };
+    const update = (): void => {
+      const next = {
+        source: measure(sourceViewportRef.current),
+        result: measure(resultViewportRef.current),
+      };
+      setPreviewViewportSizes((current) => current.source.width === next.source.width &&
+          current.source.height === next.source.height &&
+          current.result.width === next.result.width &&
+          current.result.height === next.result.height
+        ? current
+        : next);
+    };
+    update();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    if (sourceViewportRef.current !== null) observer?.observe(sourceViewportRef.current);
+    if (resultViewportRef.current !== null && resultViewportRef.current !== sourceViewportRef.current) {
+      observer?.observe(resultViewportRef.current);
+    }
+    window.addEventListener("resize", update);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", update);
+    };
+  }, [sourcePreviewContent, resultPreviewContent, sourceZoom, resultZoom, sourceStageAspectRatio,
+    resultStageAspectRatio, workbenchSourceFloating, workbenchResultFloating, workbenchPreviewLayer]);
   const selectedModePalette =
     selectedProfile.palette.modes[targetModeId] ??
     selectedProfile.palette.modes[
@@ -7245,6 +7490,11 @@ export function App() {
         charsetState.kind === "ready" ? tileEditorEdited ? " · edited" : " · current" : ""
       }`
       : paletteResultLabel;
+  const comparisonKind = workspaceMode === "tilemap"
+    ? "tilemap"
+    : workspaceLayout === "dithering"
+      ? "dithering"
+      : "palette";
   const hasMixedScreenTarget = targetModeId === "zx48-mixed-256x192" ||
     targetModeId === "mode8-256x256" ||
     targetModeId === "mode4-512x256" ||
@@ -7336,6 +7586,10 @@ export function App() {
           "--workbench-dithering-floating-y": `${workbenchDitheringFloatingY}px`,
           "--workbench-dithering-floating-width": `${workbenchDitheringFloatingWidth}px`,
           "--workbench-dithering-floating-height": `${workbenchDitheringFloatingHeight}px`,
+          "--workbench-tilemap-floating-x": `${workbenchTilemapFloatingX}px`,
+          "--workbench-tilemap-floating-y": `${workbenchTilemapFloatingY}px`,
+          "--workbench-tilemap-floating-width": `${workbenchTilemapFloatingWidth}px`,
+          "--workbench-tilemap-floating-height": `${workbenchTilemapFloatingHeight}px`,
           "--workbench-source-floating-x": `${workbenchSourceFloatingX}px`,
           "--workbench-source-floating-y": `${workbenchSourceFloatingY}px`,
           "--workbench-source-floating-width": `${workbenchSourceFloatingWidth}px`,
@@ -8138,7 +8392,12 @@ export function App() {
               <p className="subcard-help">Select the colors available to each output screen.</p>
               <div className="palette-screen-grid">
                 {paletteSelections.map((selection) => (
-                  <section className="palette-screen" key={selection.screenIndex}>
+                  <section
+                    className="palette-screen"
+                    data-color-count={(paletteOptionsByScreen[selection.screenIndex] ??
+                      paletteOptionsByScreen[0] ?? []).length}
+                    key={selection.screenIndex}
+                  >
                     <div className="palette-screen-heading">
                       <strong>Screen {selection.screenIndex + 1}</strong>
                       <span>{selection.enabledColorIds.length} selected</span>
@@ -8860,8 +9119,63 @@ export function App() {
           </>
           ) : (
           <>
-          <details className="workbench-settings-section" hidden={workbenchSettingsMinimized} open={workbenchSectionsOpen.tilemap} onToggle={(event) => setWorkbenchSectionOpen("tilemap", event.currentTarget.open)}>
-            <summary>Tilemap</summary>
+          <details
+            className={`workbench-settings-section${workbenchTilemapFloating ? ` workbench-section-floating workbench-tilemap-floating${workbenchTilemapFloatingAutoHeight ? " workbench-floating-auto-height" : ""}` : ""}`}
+            hidden={workbenchSettingsMinimized && !workbenchTilemapFloating}
+            data-workbench-window="tilemap"
+            open={workbenchSectionsOpen.tilemap}
+            style={workbenchTilemapFloating ? { zIndex: workbenchWindowZIndex("tilemap") } : undefined}
+            onPointerDown={(event) => {
+              if (workbenchTilemapFloating) {
+                event.stopPropagation();
+                bringWorkbenchWindowToFront("tilemap");
+              }
+            }}
+            onFocusCapture={() => {
+              if (workbenchTilemapFloating) bringWorkbenchWindowToFront("tilemap");
+            }}
+            onToggle={(event) => setWorkbenchSectionOpen("tilemap", event.currentTarget.open)}
+          >
+            <summary
+              onPointerDown={(event) => {
+                if (workbenchTilemapFloating) startWorkbenchTitlebarDrag("tilemap", event);
+              }}
+              onClick={preventWorkbenchDragClick}
+            >
+              <span>Tilemap</span>
+              {workbenchTilemapFloating ? (
+                <span
+                  className="workbench-window-drag-handle"
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Move Tilemap window"
+                  title="Drag to move Tilemap"
+                  onPointerDown={(event) => startWorkbenchSectionDrag("tilemap", event)}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                  onKeyDown={(event) => {
+                    const step = event.shiftKey ? 32 : 8;
+                    if (event.key === "ArrowLeft") setWorkbenchTilemapFloatingX((x) => Math.max(8, x - step));
+                    if (event.key === "ArrowRight") setWorkbenchTilemapFloatingX((x) => x + step);
+                    if (event.key === "ArrowUp") setWorkbenchTilemapFloatingY((y) => Math.max(8, y - step));
+                    if (event.key === "ArrowDown") setWorkbenchTilemapFloatingY((y) => y + step);
+                  }}
+                >⠿</span>
+              ) : null}
+              <button
+                className="workbench-section-float-action"
+                type="button"
+                aria-label={workbenchTilemapFloating ? "Dock Tilemap into Conversion settings" : "Float Tilemap"}
+                title={workbenchTilemapFloating ? "Dock Tilemap into Conversion settings" : "Float Tilemap"}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  toggleWorkbenchSectionFloating("tilemap");
+                }}
+              >{workbenchTilemapFloating ? "▼" : "⤢"}</button>
+            </summary>
           <fieldset id="settings-tilemap" className={`control-group tilemap-settings-group${settingsSection === "tilemap" ? " settings-focused" : ""}`}>
             <legend>Tilemap conversion</legend>
             <div className="tilemap-source-inline">
@@ -9204,19 +9518,35 @@ export function App() {
               288-byte plane.
             </p>
           </fieldset>
+          {workbenchTilemapFloating ? (
+            <div
+              className="workbench-floating-resize-handle"
+              role="button"
+              tabIndex={0}
+              aria-label="Resize Tilemap window"
+              onPointerDown={(event) => startWorkbenchFloatingResize("tilemap", event)}
+              onKeyDown={(event) => {
+                const step = event.shiftKey ? 32 : 8;
+                if (event.key === "ArrowRight") adjustWorkbenchFloatingSize("tilemap", step, 0);
+                if (event.key === "ArrowLeft") adjustWorkbenchFloatingSize("tilemap", -step, 0);
+                if (event.key === "ArrowDown") adjustWorkbenchFloatingSize("tilemap", 0, step);
+                if (event.key === "ArrowUp") adjustWorkbenchFloatingSize("tilemap", 0, -step);
+              }}
+            />
+          ) : null}
           </details>
           </>
           )}
           </div>
 
-          {workspaceMode === "palette" && benchmarkOpen ? (
+          {benchmarkPanelHost === null ? null : createPortal((developmentMode && workspaceMode === "palette" && benchmarkOpen ? (
           <details
             className="benchmark-panel"
             open
             onToggle={(event) => setBenchmarkOpen(event.currentTarget.open)}
           >
             <summary>
-              <span>Conversion engine comparison</span>
+              <span>{comparisonKind === "dithering" ? "Dithering comparison" : "Conversion engine comparison"}</span>
               <span className="benchmark-summary">
                 {benchmarkRunning
                   ? "Benchmarking…"
@@ -9412,7 +9742,7 @@ export function App() {
               ) : null}
             </div>
           </details>
-          ) : workspaceMode === "tilemap" && tilemapBenchmarkOpen ? (
+          ) : developmentMode && workspaceMode === "tilemap" && tilemapBenchmarkOpen ? (
           <details
             className="benchmark-panel"
             open
@@ -9521,9 +9851,10 @@ export function App() {
               ) : null}
             </div>
           </details>
-          ) : null}
+          ) : null), benchmarkPanelHost)}
             </div>
           </div>
+          <div ref={setBenchmarkPanelHost} className="workbench-comparison-host" />
 
           <div className="form-footer">
             <div className="actions">
@@ -9563,6 +9894,44 @@ export function App() {
                     {isZx ? <button className="secondary" type="button" onClick={exportInspectionReport}>Inspection JSON</button> : null}
                   </> : null}
                 </>
+              ) : null}
+              {developmentMode && comparisonKind === "palette" ? (
+                <button
+                  className="secondary project-action comparison-project-action"
+                  type="button"
+                  disabled={image === null || !settingsValid || benchmarkRunning}
+                  onClick={() => setBenchmarkOpen((open) => !open)}
+                >
+                  {benchmarkOpen ? "Close comparison" : "Compare engines"}
+                </button>
+              ) : null}
+              {developmentMode && comparisonKind === "dithering" ? (
+                <button
+                  className="secondary project-action comparison-project-action"
+                  type="button"
+                  disabled={image === null || !settingsValid || benchmarkRunning}
+                  onClick={() => {
+                    setBenchmarkOpen(true);
+                    if (!benchmarkOpen) void runEngineBenchmark();
+                  }}
+                >
+                  {benchmarkRunning ? "Benchmarking…" : "Compare dithering"}
+                </button>
+              ) : null}
+              {developmentMode && comparisonKind === "tilemap" ? (
+                <button
+                  className="secondary project-action comparison-project-action"
+                  type="button"
+                  disabled={lastFinal === null || tilemapBenchmarkRunning ||
+                    (charsetSource === "existing" &&
+                      (existingCharset === null || !existingCharsetChoiceValid))}
+                  onClick={() => {
+                    setTilemapBenchmarkOpen(true);
+                    void runTilemapBenchmark();
+                  }}
+                >
+                  {tilemapBenchmarkRunning ? "Benchmarking…" : "Compare methods"}
+                </button>
               ) : null}
               <span className="action-spacer" aria-hidden="true" />
               <label className="file-picker secondary-picker project-action">
@@ -9893,35 +10262,6 @@ export function App() {
                   </select>
                 </label>
               ) : null}
-            {showCompareEngines && workspaceMode === "palette" ? (
-              <button
-                className="secondary compact inspector-toggle"
-                type="button"
-                disabled={image === null || !settingsValid || benchmarkRunning}
-                onClick={() => {
-                  setBenchmarkOpen((open) => !open);
-                }}
-              >
-                {benchmarkOpen ? "Close comparison" : "Compare engines"}
-              </button>
-            ) : null}
-            {workspaceMode === "tilemap" ? (
-              <button
-                className="secondary compact inspector-toggle"
-                type="button"
-                disabled={lastFinal === null || tilemapBenchmarkRunning ||
-                  (
-                    charsetSource === "existing" &&
-                    (existingCharset === null || !existingCharsetChoiceValid)
-                  )}
-                onClick={() => {
-                  setTilemapBenchmarkOpen(true);
-                  void runTilemapBenchmark();
-                }}
-              >
-                {tilemapBenchmarkRunning ? "Benchmarking…" : "Compare methods"}
-              </button>
-            ) : null}
             </div>
           </details>
 
@@ -10250,7 +10590,8 @@ export function App() {
                     <div
                       className={`preview-stage ${sourceZoom === "fit" ? "fit-stage" : ""}`}
                       style={{
-                        width: sourceStageWidth,
+                        width: sourceFitStageSize !== null ? `${sourceFitStageSize.width}px` : sourceStageWidth,
+                        height: sourceFitStageSize !== null ? `${sourceFitStageSize.height}px` : undefined,
                         aspectRatio: sourceStageAspectRatio,
                       }}
                     >
@@ -10513,7 +10854,8 @@ export function App() {
                         showAttributeGrid ? "show-attribute-grid" : "",
                       ].filter(Boolean).join(" ")}
                       style={{
-                        width: resultStageWidth,
+                        width: resultFitStageSize !== null ? `${resultFitStageSize.width}px` : resultStageWidth,
+                        height: resultFitStageSize !== null ? `${resultFitStageSize.height}px` : undefined,
                         aspectRatio: resultStageAspectRatio,
                       }}
                     >

@@ -37,7 +37,7 @@ describe("workbench preferences", () => {
       toolsFloatingY: 128,
       toolsFloatingWidth: 520,
       toolsFloatingHeight: 360,
-      windowOrder: ["tools", "dithering", "palette", "geometry", "adjustments", "settings", "result", "source"] as const,
+      windowOrder: ["tools", "dithering", "palette", "geometry", "adjustments", "settings", "tilemap", "result", "source"] as const,
       paletteFloating: true,
       paletteFloatingX: 220,
       paletteFloatingY: 80,
@@ -48,6 +48,12 @@ describe("workbench preferences", () => {
       ditheringFloatingY: 112,
       ditheringFloatingWidth: 580,
       ditheringFloatingHeight: 400,
+      tilemapFloating: true,
+      tilemapFloatingX: 520,
+      tilemapFloatingY: 96,
+      tilemapFloatingWidth: 720,
+      tilemapFloatingHeight: 420,
+      tilemapFloatingAutoHeight: false,
       sourceFloating: true,
       sourceFloatingX: 64,
       sourceFloatingY: 72,
@@ -122,7 +128,7 @@ describe("workbench preferences", () => {
     delete legacy.sourceDockedWidth;
     delete legacy.resultDockedWidth;
     expect(loadWorkbenchPreferences(memoryStorage(JSON.stringify(legacy))).windowOrder)
-      .toEqual(["dithering", "palette", "tools", "settings", "geometry", "adjustments", "source", "result"]);
+      .toEqual(["dithering", "palette", "tools", "settings", "geometry", "adjustments", "tilemap", "source", "result"]);
   });
 
   it("migrates the legacy four-window order when geometry and adjustments were not floatable", () => {
@@ -131,7 +137,7 @@ describe("workbench preferences", () => {
       windowOrder: ["dithering", "palette", "tools", "settings"],
     };
     expect(loadWorkbenchPreferences(memoryStorage(JSON.stringify(legacy))).windowOrder)
-      .toEqual(["settings", "tools", "geometry", "adjustments", "dithering", "palette", "source", "result"]);
+      .toEqual(["settings", "tools", "geometry", "adjustments", "dithering", "palette", "tilemap", "source", "result"]);
   });
 
   it("rejects duplicate floating window order entries", () => {
@@ -146,6 +152,36 @@ describe("workbench preferences", () => {
     const storage = memoryStorage(JSON.stringify({
       ...DEFAULT_WORKBENCH_PREFERENCES,
       sourceFloatingWidth: 200,
+    }));
+    expect(loadWorkbenchPreferences(storage)).toEqual(DEFAULT_WORKBENCH_PREFERENCES);
+  });
+
+  it("migrates the current eight-window order by inserting Tilemap before previews", () => {
+    const legacy = { ...DEFAULT_WORKBENCH_PREFERENCES } as Record<string, unknown>;
+    legacy.windowOrder = ["settings", "tools", "geometry", "adjustments", "palette", "dithering", "source", "result"];
+    delete legacy.tilemapFloating;
+    delete legacy.tilemapFloatingX;
+    delete legacy.tilemapFloatingY;
+    delete legacy.tilemapFloatingWidth;
+    delete legacy.tilemapFloatingHeight;
+    delete legacy.tilemapFloatingAutoHeight;
+    expect(loadWorkbenchPreferences(memoryStorage(JSON.stringify(legacy))).windowOrder)
+      .toEqual(["settings", "tools", "geometry", "adjustments", "palette", "dithering", "tilemap", "source", "result"]);
+    expect(loadWorkbenchPreferences(memoryStorage(JSON.stringify(legacy))).tilemapFloating).toBe(false);
+  });
+
+  it("rejects duplicate Tilemap window order entries", () => {
+    const storage = memoryStorage(JSON.stringify({
+      ...DEFAULT_WORKBENCH_PREFERENCES,
+      windowOrder: ["settings", "tools", "geometry", "adjustments", "palette", "dithering", "tilemap", "tilemap", "result"],
+    }));
+    expect(loadWorkbenchPreferences(storage)).toEqual(DEFAULT_WORKBENCH_PREFERENCES);
+  });
+
+  it("rejects invalid Tilemap floating dimensions", () => {
+    const storage = memoryStorage(JSON.stringify({
+      ...DEFAULT_WORKBENCH_PREFERENCES,
+      tilemapFloatingWidth: 240,
     }));
     expect(loadWorkbenchPreferences(storage)).toEqual(DEFAULT_WORKBENCH_PREFERENCES);
   });

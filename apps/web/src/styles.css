@@ -2,6 +2,7 @@
   --ui-control-height: 1.7rem;
   --ui-control-font-size: 0.74rem;
   --ui-label-font-size: 0.68rem;
+  --workbench-compact-control-height: 1.55rem;
   color: #e8edf5;
   background: #11151c;
   font-family:
@@ -524,7 +525,7 @@ h1 {
 
 .pan-pad button {
   width: 1.45rem;
-  height: 1.55rem;
+  height: var(--workbench-compact-control-height);
   min-width: 0;
   padding: 0;
   font-size: var(--ui-control-font-size);
@@ -532,10 +533,10 @@ h1 {
 }
 
 .pan-left { order: 1; }
-.pan-up { order: 2; }
-.pan-center { order: 3; }
+.pan-down { order: 2; }
+.pan-up { order: 3; }
 .pan-right { order: 4; }
-.pan-down { order: 5; }
+.pan-center { order: 5; }
 
 .pan-edge-control {
   display: grid;
@@ -1513,9 +1514,10 @@ input[type="range"] {
 }
 
 .preview-stage.fit-stage {
-  width: auto;
-  height: 100%;
-  aspect-ratio: 4 / 3;
+  /* The measured contained size is applied inline after the viewport mounts.
+     Keep a width fallback for the first paint before measurement. */
+  width: 100%;
+  height: auto;
 }
 
 .preview-stage canvas {
@@ -3002,7 +3004,7 @@ input[type="range"] {
 
 .palette-subcard .palette-option {
   min-width: 0;
-  min-height: 1.7rem;
+  min-height: var(--workbench-compact-control-height);
   gap: 0.18rem;
   padding: 0.12rem 0.18rem;
 }
@@ -3023,8 +3025,50 @@ input[type="range"] {
 }
 
 .palette-subcard .segmented-option {
-  min-height: 1.45rem;
+  min-height: var(--workbench-compact-control-height);
   font-size: 0.62rem;
+}
+
+.workbench-settings-window .palette-subcard .palette-options {
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 0.12rem;
+}
+
+.workbench-settings-window .palette-subcard .palette-screen[data-color-count="4"] .palette-options {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.workbench-settings-window .palette-subcard .palette-option {
+  min-width: 0;
+  min-height: var(--workbench-compact-control-height);
+  padding: 0.08rem;
+}
+
+.workbench-settings-window .palette-subcard .palette-swatch {
+  width: 0.72rem;
+  height: 0.72rem;
+}
+
+.workbench-settings-window .palette-subcard .segmented-option,
+.workbench-settings-window .attributes-subcard .segmented-option,
+.workbench-settings-window .dithering-group .segmented-option {
+  min-height: var(--workbench-compact-control-height);
+  padding-block: 0.08rem;
+}
+
+.workbench-settings-window .palette-subcard .control-help,
+.workbench-settings-window .attributes-subcard .control-help {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-settings-window .tilemap-settings-group select,
+.workbench-settings-window .tilemap-settings-group input[type="number"],
+.workbench-settings-window .tilemap-settings-group input[type="text"] {
+  min-height: var(--workbench-compact-control-height);
+  padding-block: 0.08rem;
 }
 
 .attributes-subcard > label,
@@ -3556,6 +3600,10 @@ input[type="range"] {
   background: #111a29;
 }
 
+.workbench-comparison-host {
+  display: contents;
+}
+
 .benchmark-panel > summary {
   display: flex;
   align-items: center;
@@ -3927,14 +3975,14 @@ input[type="range"] {
     position: relative;
     isolation: isolate;
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto auto minmax(28rem, 1fr) auto auto;
+    grid-template-rows: auto auto minmax(28rem, 1fr) auto auto auto auto;
     align-content: stretch;
     min-width: 0;
     min-height: 0;
   }
 
   .workbench-workspace.workbench-settings-bottom.workbench-settings-expanded {
-    grid-template-rows: auto auto minmax(12rem, 1fr) var(--workbench-bottom-height) auto;
+    grid-template-rows: auto auto minmax(12rem, 1fr) var(--workbench-bottom-height) auto auto auto;
   }
 
   .workbench-workspace .conversion-form,
@@ -4007,9 +4055,22 @@ input[type="range"] {
     background: #111824;
   }
 
-  .workbench-workspace .preview-palette-panel,
-  .workbench-workspace .tilemap-charset-panel {
+  .workbench-workspace .preview-palette-panel {
     display: none;
+  }
+
+  .workbench-workspace:has(.tilemap-charset-panel) .inspection-workspace {
+    grid-template-columns: minmax(0, 1fr) 3rem minmax(0, 1fr) 14rem;
+  }
+
+  .workbench-workspace .tilemap-charset-panel {
+    display: grid;
+    grid-column: 4;
+    grid-row: 2;
+    min-width: 0;
+    min-height: 0;
+    max-height: none;
+    overflow: hidden;
   }
 
   .workbench-workspace .inspection-drawer {
@@ -4099,6 +4160,13 @@ input[type="range"] {
     left: min(var(--workbench-palette-floating-x), calc(100% - 2rem));
     width: min(var(--workbench-palette-floating-width), calc(100% - 1rem));
     height: min(var(--workbench-palette-floating-height), calc(100% - 1rem));
+  }
+
+  .workbench-settings-window .workbench-settings-section.workbench-tilemap-floating {
+    top: min(var(--workbench-tilemap-floating-y), calc(100% - 2rem));
+    left: min(var(--workbench-tilemap-floating-x), calc(100% - 2rem));
+    width: min(var(--workbench-tilemap-floating-width), calc(100% - 1rem));
+    height: min(var(--workbench-tilemap-floating-height), calc(100% - 1rem));
   }
 
   .workbench-settings-window .workbench-settings-section.workbench-floating-auto-height {
@@ -4324,7 +4392,7 @@ input[type="range"] {
   }
 
   .workbench-settings-window[data-dock="floating"] .workbench-window-content {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   }
 
   /* Floating child windows are rendered inside the settings window for
@@ -4362,6 +4430,13 @@ input[type="range"] {
     left: calc(var(--workbench-dithering-floating-x) - var(--workbench-settings-origin-x));
     width: var(--workbench-dithering-floating-width);
     height: var(--workbench-dithering-floating-height);
+  }
+
+  .workbench-settings-window .workbench-settings-section.workbench-tilemap-floating {
+    top: calc(var(--workbench-tilemap-floating-y) - var(--workbench-settings-origin-y));
+    left: calc(var(--workbench-tilemap-floating-x) - var(--workbench-settings-origin-x));
+    width: var(--workbench-tilemap-floating-width);
+    height: var(--workbench-tilemap-floating-height);
   }
 
   .workbench-settings-window .workbench-settings-section.workbench-floating-auto-height {
@@ -4433,6 +4508,11 @@ input[type="range"] {
     left: var(--workbench-dithering-floating-x);
   }
 
+  .workbench-settings-window.workbench-settings-empty-dock > .workbench-window-content > .workbench-settings-section.workbench-tilemap-floating {
+    top: var(--workbench-tilemap-floating-y);
+    left: var(--workbench-tilemap-floating-x);
+  }
+
   .workbench-settings-window[data-dock="floating"] .geometry-primary-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -4444,13 +4524,30 @@ input[type="range"] {
 
   .workbench-workspace .form-footer {
     grid-column: 1 / -1;
-    grid-row: 5;
+    grid-row: 6;
     min-width: 0;
+  }
+
+  .workbench-workspace .benchmark-panel {
+    grid-column: 1 / -1;
+    grid-row: 5;
+    align-self: start;
+    min-height: 0;
+  }
+
+  .workbench-workspace .benchmark-panel[open] .benchmark-content {
+    position: static;
+    z-index: auto;
+    max-height: min(55vh, 30rem);
+    overflow: auto;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
   }
 
   .workbench-workspace .workbench-export-error {
     grid-column: 1 / -1;
-    grid-row: 6;
+    grid-row: 7;
   }
 
   .workbench-window {
@@ -5013,15 +5110,21 @@ input[type="range"] {
       minmax(240px, var(--workbench-result-docked-width));
   }
 
-  /* The narrow desktop tilemap layout above has a more specific
-     body:has(.tilemap-charset-panel) selector which reserves the old palette
-     columns after Result. The workbench owns preview sizing now, so those
-     columns must never reduce the available tiled preview width. */
+  /* Reserve a fourth column for the tile set panel in Tilemap mode. */
   body:has(.tilemap-charset-panel) .workbench-workspace[data-preview-layout="both-docked"] .inspection-workspace {
     grid-template-columns:
       minmax(240px, var(--workbench-source-docked-width))
       3rem
-      minmax(240px, var(--workbench-result-docked-width));
+      minmax(240px, var(--workbench-result-docked-width))
+      14rem;
+  }
+
+  .workbench-workspace:has(.tilemap-charset-panel) .inspection-workspace {
+    grid-template-columns:
+      minmax(240px, var(--workbench-source-docked-width))
+      3rem
+      minmax(240px, var(--workbench-result-docked-width))
+      14rem;
   }
 
   /* Floating previews are rendered into this root-level layer so side-docked

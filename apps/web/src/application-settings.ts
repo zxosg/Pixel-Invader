@@ -14,7 +14,7 @@ export interface ApplicationSettings {
   readonly mouseWheelZoom: boolean;
   readonly synchronizePan: boolean;
   readonly synchronizeZoom: boolean;
-  readonly showCompareEngines: boolean;
+  readonly developmentMode: boolean;
 }
 
 export interface ApplicationSettingsCatalog {
@@ -36,7 +36,7 @@ export const DEFAULT_APPLICATION_SETTINGS: ApplicationSettings = {
   mouseWheelZoom: true,
   synchronizePan: true,
   synchronizeZoom: true,
-  showCompareEngines: false,
+  developmentMode: false,
 };
 
 const FRAMINGS = new Set(["fill", "fit", "crop", "stretch"]);
@@ -59,6 +59,7 @@ export function validateApplicationSettings(value: unknown): ApplicationSettings
       typeof value.workspaceLayout !== "string" || !LAYOUTS.has(value.workspaceLayout) ||
       typeof value.mouseWheelZoom !== "boolean" || typeof value.synchronizePan !== "boolean" ||
       (value.synchronizeZoom !== undefined && typeof value.synchronizeZoom !== "boolean") ||
+      (value.developmentMode !== undefined && typeof value.developmentMode !== "boolean") ||
       (value.showCompareEngines !== undefined && typeof value.showCompareEngines !== "boolean")) {
     return null;
   }
@@ -77,9 +78,11 @@ export function validateApplicationSettings(value: unknown): ApplicationSettings
     synchronizeZoom: value.synchronizeZoom === undefined
       ? DEFAULT_APPLICATION_SETTINGS.synchronizeZoom
       : value.synchronizeZoom,
-    showCompareEngines: value.showCompareEngines === undefined
-      ? DEFAULT_APPLICATION_SETTINGS.showCompareEngines
-      : value.showCompareEngines,
+    developmentMode: value.developmentMode === undefined
+      ? value.showCompareEngines === undefined
+        ? DEFAULT_APPLICATION_SETTINGS.developmentMode
+        : value.showCompareEngines
+      : value.developmentMode,
   };
 }
 
@@ -94,7 +97,22 @@ export function loadApplicationSettings(storage: Storage): ApplicationSettings {
 
 export function saveApplicationSettings(storage: Storage, settings: ApplicationSettings): void {
   try {
-    storage.setItem(APPLICATION_SETTINGS_KEY, JSON.stringify(settings));
+    // Write only the canonical schema. This also prevents a legacy
+    // showCompareEngines property from being carried forward by callers that
+    // still hold an older object shape at runtime.
+    storage.setItem(APPLICATION_SETTINGS_KEY, JSON.stringify({
+      profileId: settings.profileId,
+      presetId: settings.presetId,
+      modeId: settings.modeId,
+      framing: settings.framing,
+      dithering: settings.dithering,
+      ditheringAmount: settings.ditheringAmount,
+      workspaceLayout: settings.workspaceLayout,
+      mouseWheelZoom: settings.mouseWheelZoom,
+      synchronizePan: settings.synchronizePan,
+      synchronizeZoom: settings.synchronizeZoom,
+      developmentMode: settings.developmentMode,
+    }));
   } catch {
     // Preferences are optional; the application remains usable without storage.
   }

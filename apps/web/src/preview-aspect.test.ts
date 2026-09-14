@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolvePreviewAspect } from "./preview-aspect.js";
+import { fitPreviewToViewport, resolvePreviewAspect } from "./preview-aspect.js";
 
 describe("preview aspect", () => {
   it("maps QL Mode 8 pixels to a 4/3 display", () => {
@@ -57,5 +57,20 @@ describe("preview aspect", () => {
   ])("uses Mode 4 geometry for %s", () => {
     expect(resolvePreviewAspect(512, 256, true, 2))
       .toEqual({ width: 512 * 4 / 3, height: 512 });
+  });
+
+  it("fits landscape content to the limiting viewport height", () => {
+    expect(fitPreviewToViewport(1000, 500, 4, 3))
+      .toEqual({ width: 666.6666666666666, height: 500 });
+  });
+
+  it("fits portrait content to the limiting viewport width", () => {
+    expect(fitPreviewToViewport(500, 1000, 3, 4))
+      .toEqual({ width: 500, height: 666.6666666666666 });
+  });
+
+  it("returns no size until both viewport and content dimensions exist", () => {
+    expect(fitPreviewToViewport(0, 500, 4, 3)).toBeNull();
+    expect(fitPreviewToViewport(1000, 500, 0, 3)).toBeNull();
   });
 });
