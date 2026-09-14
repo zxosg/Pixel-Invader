@@ -53,6 +53,7 @@ export interface ProjectCreateInput {
   readonly metadataJson: Uint8Array;
   readonly profile: unknown;
   readonly workingSourcePng?: Uint8Array;
+  readonly resultEdited?: boolean;
   readonly workspaceMode?: WorkspaceConversionMode;
   readonly tilemap?: {
     readonly settings: TilemapConversionSettings;
@@ -79,6 +80,9 @@ export interface ValidatedProject {
   readonly sourceFormat: "png" | "jpeg" | "pmd85-bin";
   readonly resultOrigin: "direct-import" | "converted";
   readonly workingSourcePng?: Uint8Array;
+  readonly resultEdited: boolean;
+  /** True when the project explicitly carries the result_edited field. */
+  readonly resultEditedFieldPresent: boolean;
   readonly tilemap?: {
     readonly settings: TilemapConversionSettings;
     readonly artifact: Uint8Array;
@@ -262,6 +266,7 @@ export async function createCompletedProject(input: ProjectCreateInput): Promise
       tilemap_settings: input.tilemap?.settings ?? null,
       working_source_path: input.workingSourcePng === undefined ? null : "source/working.png",
       working_source_edited: input.workingSourcePng !== undefined,
+      result_edited: input.resultEdited === true,
     }),
   };
   if (input.workingSourcePng !== undefined) {
@@ -406,6 +411,13 @@ export async function validateCompletedProject(bytes: Uint8Array): Promise<Valid
   }
   if (workingSourcePath === null && workingSourceEdited === true) {
     throw new Error("PROJECT_SCHEMA_INVALID: edited working source is missing.");
+  }
+  const resultEditedFieldPresent = workspaceDocument.result_edited !== undefined;
+  const resultEdited = workspaceDocument.result_edited === undefined
+    ? false
+    : workspaceDocument.result_edited;
+  if (typeof resultEdited !== "boolean") {
+    throw new Error("PROJECT_SCHEMA_INVALID: result edit state is invalid.");
   }
   const usesLegacyArtifactNames = schemaVersion === "10.0.0";
   const firstArtifactPath = usesLegacyArtifactNames ? "artifacts/result.scr" : "artifacts/screen-1.bin";
@@ -675,6 +687,8 @@ export async function validateCompletedProject(bytes: Uint8Array): Promise<Valid
     workspaceMode,
     sourceFormat,
     resultOrigin,
+    resultEdited,
+    resultEditedFieldPresent,
     ...(workingSourcePng === undefined ? {} : { workingSourcePng }),
     ...(tilemap === undefined ? {} : { tilemap }),
   };

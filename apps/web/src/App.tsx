@@ -19,7 +19,7 @@ import {
   zxSoftwareScrBytes,
 } from "@retro-converter/zx-spectrum";
 import { encodeRgbaPng } from "@retro-converter/image-codecs";
-import { assertValidQlScreen } from "@retro-converter/sinclair-ql";
+import { assertValidQlScreen, type QlMode } from "@retro-converter/sinclair-ql";
 import {
   PMD85_SCREEN_HEIGHT,
   PMD85_SCREEN_WIDTH,
@@ -267,6 +267,15 @@ import {
   defaultOutputPreviewStage,
   verticalSpatialPreviewForStage,
 } from "./vertical-spatial-preview.js";
+import {
+  applyNativeResultPixel,
+  cloneNativeResultBitmap,
+  createNativeResultBitmap,
+  nativePaletteForResult,
+  type NativeResultBitmap,
+  type NativeResultFrameInput,
+  type NativeResultPaintMode,
+} from "./result-bitmap-editor.js";
 
 const NEW_WORKSPACE_VALUE = "__new_workspace__";
 const NEW_WORKSPACE_LABEL = "<new name>";
@@ -286,6 +295,14 @@ type ConversionState =
   | { readonly kind: "error"; readonly message: string };
 
 type DraftState = RetainedDraftState<WorkerConversionResult>;
+
+type BitmapEditorTarget = "source" | "result";
+
+interface BitmapEditorResultHistoryEntry {
+  readonly result: WorkerConversionResult;
+  readonly bitmap: NativeResultBitmap;
+  readonly frameIndex: number;
+}
 
 type CharsetState =
   | { readonly kind: "idle" }
@@ -853,6 +870,7 @@ export function App() {
     readonly result: WorkerConversionResult;
     readonly completedAtUtc: string;
   } | null>(null);
+  const pendingOpenedResultEditedRef = useRef(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const convertedCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const bitmapEditorSourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -936,6 +954,18 @@ export function App() {
   const [bitmapEditorBrightPolicy, setBitmapEditorBrightPolicy] = useState<boolean | null>(null);
   const [bitmapEditorFlashPolicy, setBitmapEditorFlashPolicy] = useState<boolean | null>(null);
   const [bitmapEditorColorPickerActive, setBitmapEditorColorPickerActive] = useState(false);
+  const [bitmapEditorTarget, setBitmapEditorTarget] = useState<BitmapEditorTarget>("result");
+  const [bitmapEditorResultFrameIndex, setBitmapEditorResultFrameIndex] = useState(0);
+  const [bitmapEditorResultBuffer, setBitmapEditorResultBuffer] = useState<NativeResultBitmap | null>(null);
+  const bitmapEditorResultBufferRef = useRef<NativeResultBitmap | null>(null);
+  const bitmapEditorResultSourceRef = useRef<WorkerConversionResult | null>(null);
+  const [bitmapEditorResultUndo, setBitmapEditorResultUndo] = useState<readonly BitmapEditorResultHistoryEntry[]>([]);
+  const [bitmapEditorResultRedo, setBitmapEditorResultRedo] = useState<readonly BitmapEditorResultHistoryEntry[]>([]);
+  const [bitmapEditorResultOriginal, setBitmapEditorResultOriginal] = useState<NativeResultBitmap | null>(null);
+  const [bitmapEditorResultOriginalResult, setBitmapEditorResultOriginalResult] = useState<WorkerConversionResult | null>(null);
+  const [bitmapEditorResultEdited, setBitmapEditorResultEdited] = useState(false);
+  const [bitmapEditorResultPaletteIndex, setBitmapEditorResultPaletteIndex] = useState(1);
+  const [bitmapEditorSourceColor, setBitmapEditorSourceColor] = useState<readonly [number, number, number, number] | null>(null);
   const [workspaceMode, setWorkspaceMode] =
     useState<WorkspaceConversionMode>("palette");
   const [tilemapStale, setTilemapStale] = useState(false);
@@ -2377,11 +2407,20 @@ export function App() {
     setBitmapEditorUndoFull([]);
     setBitmapEditorRedoFull([]);
     setBitmapEditorRevertSource(null);
+    resetResultEditorState();
+    setBitmapEditorSourceColor(null);
     setTileEditorUndo([]);
     setTileEditorRedo([]);
     setTilemapEditorCell(null);
     setSelectedPaletteColor(null);
   }, [originalImage]);
+
+  useEffect(() => {
+    if (!pendingOpenedResultEditedRef.current || lastFinal === null) return;
+    pendingOpenedResultEditedRef.current = false;
+    const bitmap = initializeResultEditor(lastFinal, 0);
+    if (bitmap !== null) setBitmapEditorResultEdited(true);
+  }, [lastFinal]);
 
   useEffect(() => {
     if (bitmapEditorSelection === null || workspaceMode !== "palette") {
@@ -2786,6 +2825,8 @@ export function App() {
     setBitmapEditorUndoFull([]);
     setBitmapEditorRedoFull([]);
     setBitmapEditorRevertSource(null);
+    resetResultEditorState();
+    setBitmapEditorSourceColor(null);
     setState({ kind: "idle" });
     setDraftState({ kind: "idle" });
     setLastFinal(null);
@@ -3038,6 +3079,10 @@ export function App() {
   useEffect(() => {
     const revision = revisionRef.current + 1;
     revisionRef.current = revision;
+    // Any source/settings change starts a new conversion lifecycle. An edited
+    // native result belongs to the previous conversion and must not be carried
+    // into the new draft/final result.
+    if (bitmapEditorResultEdited) resetResultEditorState();
     setExportError(null);
     if (workspaceMode === "tilemap" && charsetState.kind === "ready") {
       setTilemapStale(true);
@@ -5254,6 +5299,8 @@ export function App() {
     setBitmapEditorUndoFull([]);
     setBitmapEditorRedoFull([]);
     setBitmapEditorRevertSource(null);
+    resetResultEditorState();
+    setBitmapEditorSourceColor(null);
     setTileEditorUndo([]);
     setTileEditorRedo([]);
     setState({ kind: "running" });
@@ -5604,11 +5651,186 @@ export function App() {
     return { width: image.width, height: image.height, rgba: image.rgba.slice() };
   }
 
+  function resultFrameInput(
+    result: WorkerConversionResult,
+    frameIndex: number,
+    overrides: {
+      readonly encoded?: Uint8Array;
+      readonly pmd85Palette?: readonly Pmd85RgbColor[];
+      readonly pmd85GapPolicy?: "zero" | "preserve-imported";
+      readonly importedGapBytes?: Uint8Array;
+    } = {},
+  ): NativeResultFrameInput | null {
+    const frame = result.frames[frameIndex];
+    if (frame === undefined) return null;
+    const importedGapBytes = overrides.importedGapBytes ?? (result.platformId === "pmd-85" &&
+        (overrides.pmd85GapPolicy ?? pmd85GapPolicy) === "preserve-imported" &&
+        sourceArtifact?.bytes.length === 16384
+      ? extractPmd85GapBytes(sourceArtifact.bytes)
+      : undefined);
+    return {
+      platformId: result.platformId,
+      modeId: result.modeId,
+      hardwareModeId: frame.hardwareModeId,
+      encoded: overrides.encoded ?? frame.encoded,
+      nativeWidth: frame.nativeWidth,
+      nativeHeight: frame.nativeHeight,
+      attributeHeight: result.attributeHeight,
+      ...(result.platformId === "pmd-85"
+        ? {
+            pmd85ForegroundPalette: overrides.pmd85Palette ?? pmd85ForegroundPalette,
+            pmd85GapPolicy: overrides.pmd85GapPolicy ?? pmd85GapPolicy,
+            ...(importedGapBytes === undefined ? {} : { pmd85ImportedGapBytes: importedGapBytes }),
+          }
+        : {}),
+    };
+  }
+
+  function setResultEditorBuffer(buffer: NativeResultBitmap | null): void {
+    bitmapEditorResultBufferRef.current = buffer === null ? null : cloneNativeResultBitmap(buffer);
+    setBitmapEditorResultBuffer(buffer === null ? null : cloneNativeResultBitmap(buffer));
+  }
+
+  function resetResultEditorState(): void {
+    bitmapEditorResultSourceRef.current = null;
+    setResultEditorBuffer(null);
+    setBitmapEditorResultUndo([]);
+    setBitmapEditorResultRedo([]);
+    setBitmapEditorResultOriginal(null);
+    setBitmapEditorResultOriginalResult(null);
+    setBitmapEditorResultEdited(false);
+    setBitmapEditorResultFrameIndex(0);
+    setBitmapEditorResultPaletteIndex(1);
+  }
+
+  function initializeResultEditor(result: WorkerConversionResult, frameIndex = 0): NativeResultBitmap | null {
+    const input = resultFrameInput(result, frameIndex);
+    if (input === null) return null;
+    const bitmap = createNativeResultBitmap(input);
+    bitmapEditorResultSourceRef.current = result;
+    setBitmapEditorResultFrameIndex(frameIndex);
+    setResultEditorBuffer(bitmap);
+    setBitmapEditorResultOriginal(cloneNativeResultBitmap(bitmap));
+    setBitmapEditorResultUndo([]);
+    setBitmapEditorResultRedo([]);
+    return bitmap;
+  }
+
+  function selectResultEditorFrame(result: WorkerConversionResult, frameIndex: number): void {
+    const safeFrameIndex = Math.min(frameIndex, Math.max(0, result.frames.length - 1));
+    const input = resultFrameInput(result, safeFrameIndex);
+    if (input === null) return;
+    const bitmap = createNativeResultBitmap(input);
+    setBitmapEditorResultFrameIndex(safeFrameIndex);
+    setResultEditorBuffer(bitmap);
+    if (!bitmapEditorResultEdited) {
+      setBitmapEditorResultOriginal(cloneNativeResultBitmap(bitmap));
+      setBitmapEditorResultUndo([]);
+      setBitmapEditorResultRedo([]);
+    }
+  }
+
+  function expandResultPreviewForFrame(
+    bitmap: NativeResultBitmap,
+    frame: WorkerConversionResult["frames"][number],
+  ): Uint8Array {
+    if (bitmap.rgba.length === frame.previewRgba.length) return bitmap.rgba.slice();
+    if (bitmap.platformId === "sinclair-ql" && bitmap.width * 2 === frame.nativeWidth * 2 &&
+        frame.previewRgba.length === bitmap.rgba.length * 2) {
+      const expanded = new Uint8Array(frame.previewRgba.length);
+      for (let y = 0; y < bitmap.height; y += 1) {
+        for (let x = 0; x < bitmap.width; x += 1) {
+          const source = (y * bitmap.width + x) * 4;
+          const target = (y * bitmap.width * 2 + x * 2) * 4;
+          expanded.set(bitmap.rgba.subarray(source, source + 4), target);
+          expanded.set(bitmap.rgba.subarray(source, source + 4), target + 4);
+        }
+      }
+      return expanded;
+    }
+    return bitmap.rgba.slice();
+  }
+
+  function mergedResultPreview(
+    result: WorkerConversionResult,
+    frames: readonly WorkerConversionResult["frames"][number][],
+  ): Uint8Array {
+    const first = frames[0];
+    if (first === undefined) return result.mergedPreviewRgba.slice();
+    if (frames.length === 1) return first.previewRgba.slice();
+    const second = frames[1];
+    if (second === undefined) return first.previewRgba.slice();
+    if (result.platformId === "sinclair-ql" &&
+        first.previewRgba.length === result.width * result.height * 4 &&
+        second.previewRgba.length === result.width * result.height * 4) {
+      return renderQlMixedDisplayPreview(
+        first.previewRgba,
+        second.previewRgba,
+        result.width,
+        qlMixedDisplayResolution,
+      );
+    }
+    if (result.platformId === "zx-spectrum") {
+      return mergeMonochromeRgba(first.previewRgba, second.previewRgba);
+    }
+    return first.previewRgba.slice();
+  }
+
+  function resultWithEditedFrame(
+    result: WorkerConversionResult,
+    frameIndex: number,
+    bitmap: NativeResultBitmap,
+  ): WorkerConversionResult {
+    const frames = result.frames.map((frame, index) => index === frameIndex
+      ? {
+          ...frame,
+          encoded: bitmap.encoded.slice(),
+          paletteIndices: bitmap.paletteIndices.slice(),
+          previewRgba: expandResultPreviewForFrame(bitmap, frame),
+        }
+      : frame);
+    const mergedPreviewRgba = mergedResultPreview(result, frames);
+    const verticalSpatialDiagnostics = result.verticalSpatialDiagnostics === undefined
+      ? undefined
+      : {
+          ...result.verticalSpatialDiagnostics,
+          analyticPreviewRgba: buildVerticalSpatialAnalyticPreview(
+            mergedPreviewRgba,
+            result.width,
+            result.height,
+          ),
+        };
+    return {
+      ...result,
+      artifact: frames[0]?.encoded.slice() ?? result.artifact.slice(),
+      scr: frames[0]?.encoded.slice() ?? result.scr.slice(),
+      frames,
+      previewRgba: mergedPreviewRgba.slice(),
+      mergedPreviewRgba,
+      ...(verticalSpatialDiagnostics === undefined ? {} : { verticalSpatialDiagnostics }),
+      ...(result.platformId === "zx-spectrum" && frames[0] !== undefined
+        ? {
+            pixels: unpackZxBitmap(frames[0].encoded),
+            attributes: frames[0].encoded.slice(6144),
+            screen: {
+              pixels: unpackZxBitmap(frames[0].encoded),
+              attributes: frames[0].encoded.slice(6144),
+            },
+          }
+        : {}),
+    };
+  }
+
   const bitmapEditorColorForState: BitmapPixelColor = (x, y, on) => {
+    if (bitmapEditorTarget === "source") return bitmapEditorSourceColor;
     const activeResult = draftPreviewResult(draftState) ?? lastFinal;
     if (activeResult?.platformId !== "zx-spectrum") return null;
-    const frameIndex = outputPreviewStage === "screen-2" ? 1 : 0;
-    const encoded = activeResult.frames[frameIndex]?.encoded ?? activeResult.frames[0]?.encoded;
+    const frameIndex = bitmapEditorTarget === "result"
+      ? bitmapEditorResultFrameIndex
+      : outputPreviewStage === "screen-2" ? 1 : 0;
+    const encoded = bitmapEditorTarget === "result"
+      ? bitmapEditorResultBufferRef.current?.encoded ?? activeResult.frames[frameIndex]?.encoded
+      : activeResult.frames[frameIndex]?.encoded ?? activeResult.frames[0]?.encoded;
     if (encoded === undefined || x >= 256 || y >= 192) return null;
     const activeAttributeHeight = activeResult.attributeHeight ?? attributeHeight;
     if (activeAttributeHeight === null || encoded.length < 6144 + 32 * (192 / activeAttributeHeight)) return null;
@@ -5628,9 +5850,47 @@ export function App() {
     return [rgb.r, rgb.g, rgb.b, 255];
   };
 
+  function captureBitmapEditorSourceColor(x: number, y: number): void {
+    const source = bitmapEditorFullBufferRef.current ?? fullBitmapBufferFromSource();
+    if (source === null || x >= source.width || y >= source.height) return;
+    const offset = (y * source.width + x) * 4;
+    setBitmapEditorSourceColor([
+      source.rgba[offset] ?? 0,
+      source.rgba[offset + 1] ?? 0,
+      source.rgba[offset + 2] ?? 0,
+      source.rgba[offset + 3] ?? 255,
+    ]);
+    setBitmapEditorColorPickerActive(false);
+  }
+
+  function captureBitmapEditorResultColor(x: number, y: number): void {
+    const result = draftPreviewResult(draftState) ?? lastFinal;
+    const buffer = bitmapEditorResultBufferRef.current ??
+      (result === null ? null : initializeResultEditor(result, bitmapEditorResultFrameIndex));
+    if (buffer === null || x >= buffer.width || y >= buffer.height) return;
+    const index = buffer.paletteIndices[y * buffer.width + x] ?? 0;
+    setBitmapEditorResultPaletteIndex(index === 0 ? 1 : index);
+    if (buffer.platformId === "zx-spectrum") captureBitmapEditorAttribute(x, y);
+    else setBitmapEditorColorPickerActive(false);
+  }
+
   function captureBitmapEditorAttribute(pixelX: number, pixelY: number): void {
-    const selected = inspectActivePixel(pixelX, pixelY);
-    if (selected === null) return;
+    const activeResult = draftPreviewResult(draftState) ?? lastFinal;
+    if (activeResult === null || activeResult.platformId !== "zx-spectrum") return;
+    const frameIndex = bitmapEditorTarget === "result"
+      ? bitmapEditorResultFrameIndex
+      : outputPreviewStage === "screen-2" ? 1 : 0;
+    const encoded = bitmapEditorTarget === "result"
+      ? bitmapEditorResultBufferRef.current?.encoded ?? activeResult.frames[frameIndex]?.encoded
+      : activeResult.frames[frameIndex]?.encoded ?? activeResult.frames[0]?.encoded;
+    if (encoded === undefined) return;
+    const selected = inspectSoftwareScr(
+      encoded,
+      activeResult.attributeHeight ?? attributeHeight,
+      Math.max(0, Math.min(255, pixelX)),
+      Math.max(0, Math.min(191, pixelY)),
+    );
+    setInspection(selected);
     setBitmapEditorSelection(selected);
     setBitmapEditorCell({
       rows: Uint8Array.from(selected.bitmapBytes.slice(0, 8)),
@@ -5648,10 +5908,10 @@ export function App() {
         bitmapEditorBrightPolicy === null && bitmapEditorFlashPolicy === null) return;
     const activeResult = draftPreviewResult(draftState) ?? lastFinal;
     if (activeResult?.platformId !== "zx-spectrum") return;
-    const frameIndex = outputPreviewStage === "screen-2" ? 1 : 0;
+    const frameIndex = Math.min(bitmapEditorResultFrameIndex, Math.max(0, activeResult.frames.length - 1));
     const frame = activeResult.frames[frameIndex] ?? activeResult.frames[0];
     if (frame === undefined || pixel.x >= 256 || pixel.y >= 192) return;
-    const sourceEncoded = bitmapEditorEncodedRef.current ?? frame.encoded;
+    const sourceEncoded = bitmapEditorResultBufferRef.current?.encoded ?? bitmapEditorEncodedRef.current ?? frame.encoded;
     const activeAttributeHeight = activeResult.attributeHeight ?? attributeHeight;
     if (activeAttributeHeight === null || sourceEncoded.length < 6144 + 32 * (192 / activeAttributeHeight)) return;
     let inspected: InspectedAttribute;
@@ -5668,49 +5928,27 @@ export function App() {
     if (bitmapEditorFlashPolicy !== null) nextAttribute = bitmapEditorFlashPolicy ? nextAttribute | 0x80 : nextAttribute & ~0x80;
     if (nextAttribute === inspected.attribute) return;
     const encoded = sourceEncoded.slice();
-    const currentBuffer = bitmapEditorFullBufferRef.current;
-    if (currentBuffer?.pixels !== undefined && currentBuffer.width === 256 && currentBuffer.height === 192) {
-      for (let y = 0; y < 192; y += 1) {
-        for (let xByte = 0; xByte < 32; xByte += 1) {
-          let packed = 0;
-          for (let bit = 0; bit < 8; bit += 1) {
-            packed |= (currentBuffer.pixels[y * 256 + xByte * 8 + bit] ?? 0) << (7 - bit);
-          }
-          encoded[zxBitmapOffset(xByte, y)] = packed;
-        }
-      }
-    }
     encoded[6144 + inspected.attributeOffset] = nextAttribute;
-    let previewRgba: Uint8Array;
     try {
-      previewRgba = renderAttributeFrameRgba(
-        unpackZxBitmap(encoded),
-        encoded.subarray(6144),
-        activeAttributeHeight,
-      );
+      const input = resultFrameInput(activeResult, frameIndex);
+      if (input === null) return;
+      const nextBitmap = createNativeResultBitmap({ ...input, encoded });
+      const nextResult = resultWithEditedFrame(activeResult, frameIndex, nextBitmap);
+      if (bitmapEditorResultOriginalResult === null) {
+        setBitmapEditorResultOriginalResult(activeResult);
+      }
+      bitmapEditorEncodedRef.current = encoded.slice();
+      setResultEditorBuffer(nextBitmap);
+      setLastFinal(nextResult);
+      setDraftState({ kind: "idle" });
+      setState({ kind: "ready", result: nextResult });
+      setBitmapEditorResultEdited(true);
+      draftWorkerRef.current?.dispose();
+      draftWorkerRef.current = null;
+      setImageStatus("Converted result · manually edited. Native artifact bytes updated.");
     } catch {
       setExportError("Bitmap editor could not render the edited attribute cell.");
       return;
-    }
-    const frames = activeResult.frames.map((candidate, index) =>
-      index === frameIndex ? { ...candidate, encoded, previewRgba } : candidate,
-    );
-    const nextResult: WorkerConversionResult = {
-      ...activeResult,
-      artifact: encoded,
-      scr: encoded,
-      frames,
-      previewRgba,
-      mergedPreviewRgba: previewRgba,
-    };
-    bitmapEditorEncodedRef.current = encoded.slice();
-    setLastFinal(nextResult);
-    setDraftState({ kind: "idle" });
-    setState({ kind: "ready", result: nextResult });
-    if (currentBuffer !== null && currentBuffer.rgba.length === previewRgba.length) {
-      const nextBuffer = { ...currentBuffer, rgba: previewRgba.slice() };
-      bitmapEditorFullBufferRef.current = nextBuffer;
-      setBitmapEditorBuffer(nextBuffer);
     }
     setDirty(true);
   }
@@ -5735,7 +5973,7 @@ export function App() {
     setState({ kind: "ready", result: nextResult });
   }
 
-  function promoteBitmapResult(pixel: { readonly x: number; readonly y: number }): void {
+  function promoteBitmapSource(pixel: { readonly x: number; readonly y: number }): void {
     if (bitmapEditorPaintMode === "none") return;
     const base = bitmapEditorFullBufferRef.current ?? fullBitmapBufferFromSource();
     if (base === null || image === null) return;
@@ -5745,7 +5983,9 @@ export function App() {
     const next = paintPixel(base, pixel.x, pixel.y, bitmapEditorPaintMode, bitmapEditorColorForState);
     bitmapEditorFullBufferRef.current = next;
     setBitmapEditorBuffer(next);
-    setBitmapEditorUndoFull((history) => [...history, cloneBitmapBuffer(base)]);
+    if (bitmapEditorFullPointerRef.current?.visited.size === 1) {
+      setBitmapEditorUndoFull((history) => [...history, cloneBitmapBuffer(base)]);
+    }
     setBitmapEditorRedoFull([]);
     setImage({ ...image, width: next.width, height: next.height, rgba: next.rgba.slice() });
     skipNextDraftAfterBitmapEditRef.current = false;
@@ -5753,10 +5993,57 @@ export function App() {
     setDirty(true);
   }
 
+  function promoteBitmapResult(pixel: { readonly x: number; readonly y: number }): void {
+    if (bitmapEditorPaintMode === "none") return;
+    const result = draftPreviewResult(draftState) ?? lastFinal;
+    if (result === null) return;
+    const frameIndex = Math.min(bitmapEditorResultFrameIndex, Math.max(0, result.frames.length - 1));
+    const input = resultFrameInput(result, frameIndex);
+    if (input === null) return;
+    const current = bitmapEditorResultBufferRef.current ?? initializeResultEditor(result, frameIndex);
+    if (current === null) return;
+    const next = applyNativeResultPixel(
+      current,
+      input,
+      pixel.x,
+      pixel.y,
+      bitmapEditorPaintMode as NativeResultPaintMode,
+      bitmapEditorResultPaletteIndex,
+    );
+    if (bitmapEditorResultOriginal === null) {
+      setBitmapEditorResultOriginal(cloneNativeResultBitmap(current));
+    }
+    if (bitmapEditorResultOriginalResult === null) {
+      setBitmapEditorResultOriginalResult(result);
+    }
+    if (bitmapEditorFullPointerRef.current?.visited.size === 1) {
+      setBitmapEditorResultUndo((history) => [...history, {
+        result,
+        bitmap: cloneNativeResultBitmap(current),
+        frameIndex,
+      }]);
+    }
+    setBitmapEditorResultRedo([]);
+    setBitmapEditorResultEdited(true);
+    setResultEditorBuffer(next);
+    draftWorkerRef.current?.dispose();
+    draftWorkerRef.current = null;
+    setDraftState({ kind: "idle" });
+    const nextResult = resultWithEditedFrame(result, frameIndex, next);
+    setLastFinal(nextResult);
+    setState({ kind: "ready", result: nextResult });
+    setImageStatus("Converted result · manually edited. Native artifact bytes updated.");
+    setDirty(true);
+  }
+
   function fullBitmapPixelFromEvent(event: ReactPointerEvent<HTMLDivElement>): { readonly x: number; readonly y: number } | null {
     const rect = event.currentTarget.getBoundingClientRect();
-    const width = bitmapEditorBuffer?.width ?? displayedWidth;
-    const height = bitmapEditorBuffer?.height ?? displayedHeight;
+    const activeBuffer = bitmapEditorTarget === "result"
+      ? bitmapEditorResultBuffer
+      : bitmapEditorBuffer;
+    const frame = displayedResult?.frames[bitmapEditorResultFrameIndex];
+    const width = activeBuffer?.width ?? (bitmapEditorTarget === "result" ? frame?.nativeWidth : undefined) ?? displayedWidth;
+    const height = activeBuffer?.height ?? (bitmapEditorTarget === "result" ? frame?.nativeHeight : undefined) ?? displayedHeight;
     const x = Math.floor((event.clientX - rect.left) / rect.width * width);
     const y = Math.floor((event.clientY - rect.top) / rect.height * height);
     return x >= 0 && x < width && y >= 0 && y < height ? { x, y } : null;
@@ -5771,7 +6058,8 @@ export function App() {
     const pan = event.button === 1 || event.button === 2 || bitmapEditorSpaceRef.current;
     const pixel = pan ? null : fullBitmapPixelFromEvent(event);
     if (pixel !== null && bitmapEditorColorPickerActive) {
-      captureBitmapEditorAttribute(pixel.x, pixel.y);
+      if (bitmapEditorTarget === "source") captureBitmapEditorSourceColor(pixel.x, pixel.y);
+      else captureBitmapEditorResultColor(pixel.x, pixel.y);
       return;
     }
     bitmapEditorFullPointerRef.current = {
@@ -5787,8 +6075,9 @@ export function App() {
     event.currentTarget.setPointerCapture(event.pointerId);
     if (pixel !== null) {
       bitmapEditorFullPointerRef.current.visited.add(`${pixel.x},${pixel.y}`);
-      promoteBitmapResult(pixel);
-      applyBitmapEditorAttributePolicy(pixel);
+      if (bitmapEditorTarget === "source") promoteBitmapSource(pixel);
+      else promoteBitmapResult(pixel);
+      if (bitmapEditorTarget === "result") applyBitmapEditorAttributePolicy(pixel);
     }
   }
 
@@ -5808,8 +6097,9 @@ export function App() {
     const key = `${pixel.x},${pixel.y}`;
     if (pointer.visited.has(key)) return;
     pointer.visited.add(key);
-    promoteBitmapResult(pixel);
-    applyBitmapEditorAttributePolicy(pixel);
+    if (bitmapEditorTarget === "source") promoteBitmapSource(pixel);
+    else promoteBitmapResult(pixel);
+    if (bitmapEditorTarget === "result") applyBitmapEditorAttributePolicy(pixel);
   }
 
   function endFullBitmapPointer(event: ReactPointerEvent<HTMLDivElement>): void {
@@ -5855,6 +6145,74 @@ export function App() {
     skipNextDraftAfterBitmapEditRef.current = true;
     setImage((currentImage) => currentImage === null ? null : { ...currentImage, width: restored.width, height: restored.height, rgba: restored.rgba.slice() });
     updateResultPreviewFromBitmap(restored);
+    setDirty(true);
+  }
+
+  function commitFullResultSnapshot(snapshot: BitmapEditorResultHistoryEntry): void {
+    draftWorkerRef.current?.dispose();
+    draftWorkerRef.current = null;
+    setDraftState({ kind: "idle" });
+    setBitmapEditorResultFrameIndex(snapshot.frameIndex);
+    setResultEditorBuffer(cloneNativeResultBitmap(snapshot.bitmap));
+    setLastFinal(snapshot.result);
+    setState({ kind: "ready", result: snapshot.result });
+    setDirty(true);
+  }
+
+  function undoFullResult(): void {
+    const previous = bitmapEditorResultUndo[bitmapEditorResultUndo.length - 1];
+    const current = bitmapEditorResultBufferRef.current;
+    const result = lastFinal;
+    if (previous === undefined || current === null || result === null) return;
+    setBitmapEditorResultRedo((history) => [...history, {
+      result,
+      bitmap: cloneNativeResultBitmap(current),
+      frameIndex: bitmapEditorResultFrameIndex,
+    }]);
+    setBitmapEditorResultUndo((history) => history.slice(0, -1));
+    commitFullResultSnapshot({
+      result: previous.result,
+      bitmap: cloneNativeResultBitmap(previous.bitmap),
+      frameIndex: previous.frameIndex,
+    });
+  }
+
+  function redoFullResult(): void {
+    const next = bitmapEditorResultRedo[bitmapEditorResultRedo.length - 1];
+    const current = bitmapEditorResultBufferRef.current;
+    const result = lastFinal;
+    if (next === undefined || current === null || result === null) return;
+    setBitmapEditorResultUndo((history) => [...history, {
+      result,
+      bitmap: cloneNativeResultBitmap(current),
+      frameIndex: bitmapEditorResultFrameIndex,
+    }]);
+    setBitmapEditorResultRedo((history) => history.slice(0, -1));
+    commitFullResultSnapshot({
+      result: next.result,
+      bitmap: cloneNativeResultBitmap(next.bitmap),
+      frameIndex: next.frameIndex,
+    });
+  }
+
+  function revertFullResult(): void {
+    const originalResult = bitmapEditorResultOriginalResult;
+    if (originalResult === null) return;
+    if (!window.confirm("Revert converted-result edits? This will restore the result from the last High conversion.")) return;
+    draftWorkerRef.current?.dispose();
+    draftWorkerRef.current = null;
+    setDraftState({ kind: "idle" });
+    setLastFinal(originalResult);
+    setState({ kind: "ready", result: originalResult });
+    const frameIndex = Math.min(bitmapEditorResultFrameIndex, Math.max(0, originalResult.frames.length - 1));
+    const bitmap = initializeResultEditor(originalResult, frameIndex);
+    if (bitmap !== null) setResultEditorBuffer(bitmap);
+    setBitmapEditorResultUndo([]);
+    setBitmapEditorResultRedo([]);
+    setBitmapEditorResultOriginal(null);
+    setBitmapEditorResultOriginalResult(null);
+    setBitmapEditorResultEdited(false);
+    setImageStatus("Converted result restored to the last High conversion.");
     setDirty(true);
   }
 
@@ -5952,14 +6310,19 @@ export function App() {
       previewRgba,
     };
     if (bitmapEditorOriginalResult === null) setBitmapEditorOriginalResult(activeResult);
-    setLastFinal(nextResult);
-    setDraftState({ kind: "idle" });
-    setState({ kind: "ready", result: nextResult });
+    if (bitmapEditorResultOriginalResult === null) setBitmapEditorResultOriginalResult(activeResult);
+      setLastFinal(nextResult);
+      setDraftState({ kind: "idle" });
+      setState({ kind: "ready", result: nextResult });
+      setBitmapEditorResultEdited(true);
+      setImageStatus("Converted result · manually edited. Native artifact bytes updated.");
     setDirty(true);
   }
 
   function revertBitmapEditorChanges(): void {
     if (bitmapEditorOriginalResult === null) return;
+    draftWorkerRef.current?.dispose();
+    draftWorkerRef.current = null;
     setLastFinal(bitmapEditorOriginalResult);
     setDraftState({ kind: "idle" });
     setState({ kind: "ready", result: bitmapEditorOriginalResult });
@@ -5974,6 +6337,10 @@ export function App() {
     setBitmapEditorUndo([]);
     setBitmapEditorRedo([]);
     setBitmapEditorOriginalResult(null);
+    setBitmapEditorResultOriginalResult(null);
+    setBitmapEditorResultEdited(false);
+    setImageStatus("Converted result restored to the last High conversion.");
+    setDirty(true);
   }
 
   function markCharsetSelectionChanged(indices: readonly number[]): void {
@@ -6503,11 +6870,6 @@ export function App() {
   async function exportProject() {
     if (lastFinal === null || sourceArtifact === null || image === null) return;
     try {
-      if (bitmapEditorOriginalResult !== null) {
-        throw new Error(
-          "PROJECT_RESULT_EDIT_UNSUPPORTED: manually edited result cannot be saved as a reopenable project. Revert the result edit or edit the source image instead.",
-        );
-      }
       if (bitmapEditorRevertSource !== null && originalImage !== null &&
           (image.width !== originalImage.width || image.height !== originalImage.height)) {
         throw new Error(
@@ -6531,6 +6893,7 @@ export function App() {
         previewPng,
         metadataJson,
         profile: selectedProfile,
+        resultEdited: bitmapEditorResultEdited,
         ...(bitmapEditorRevertSource === null || image === null
           ? {}
           : {
@@ -6630,6 +6993,21 @@ export function App() {
         new TextEncoder().encode(JSON.stringify(rawProfile)),
       );
       const sourceBytes = Uint8Array.from(validated.sourceBytes);
+      if (validated.resultEdited) {
+        for (const [index, frame] of validated.frames.entries()) {
+          if (validated.settings.platformId === "zx-spectrum") {
+            assertValidSoftwareScr(frame, validated.settings.attributeHeight);
+          } else if (validated.settings.platformId === "sinclair-ql") {
+            const hardwareMode = (index === 0
+              ? qlHardwareModesForTarget(validated.settings.modeId as QlTargetModeId)[0]
+              : qlHardwareModesForTarget(validated.settings.modeId as QlTargetModeId)[Math.min(index, 1)]) as QlMode | undefined;
+            if (hardwareMode === undefined) throw new Error("PROJECT_SCHEMA_INVALID: edited QL frame mode is missing.");
+            assertValidQlScreen(frame, hardwareMode);
+          } else {
+            assertValidPmd85Screen(frame);
+          }
+        }
+      }
       let decoded: WorkerDecodedImage;
       let workingDecoded: WorkerDecodedImage;
       let recomputed: WorkerConversionResult;
@@ -6710,13 +7088,20 @@ export function App() {
           );
         }
       }
-      const verifyArchivedResult = validated.workingSourcePng === undefined || recoveredWorkingSource;
-      if (verifyArchivedResult && (
-        recomputed.frames.length !== validated.frames.length ||
+      const archivedFramesDiffer = recomputed.frames.length !== validated.frames.length ||
         recomputed.frames.some((frame, index) =>
           !equalBytes(frame.encoded, validated.frames[index] ?? new Uint8Array())
-        )
-      )) {
+        );
+      // Projects written before result_edited was introduced could already
+      // contain a manually edited native screen. Preserve that archived
+      // screen instead of rejecting an otherwise valid project when the
+      // current converter produces a byte-level difference.
+      const legacyArchivedResultEdited = !validated.resultEdited &&
+        !validated.resultEditedFieldPresent && archivedFramesDiffer;
+      const archivedResultEdited = validated.resultEdited || legacyArchivedResultEdited;
+      const verifyArchivedResult = !archivedResultEdited &&
+        (validated.workingSourcePng === undefined || recoveredWorkingSource);
+      if (verifyArchivedResult && archivedFramesDiffer) {
         throw new Error("PROJECT_REPRODUCTION_FAILED: screen bytes differ.");
       }
       const archivedPreview = await verifier.decodeImage(Uint8Array.from(validated.previewPng).buffer);
@@ -6729,6 +7114,55 @@ export function App() {
           expectedArchivedPreview?.analyticPreviewRgba ?? recomputed.mergedPreviewRgba,
         )
       )) throw new Error("PROJECT_REPRODUCTION_FAILED: decoded preview pixels differ.");
+      if (archivedResultEdited) {
+        const editedFrames = recomputed.frames.map((frame, index) => {
+          const encoded = validated.frames[index];
+          if (encoded === undefined) throw new Error("PROJECT_SCHEMA_INVALID: edited result frame is missing.");
+          const input = resultFrameInput(recomputed, index, {
+            encoded,
+            pmd85GapPolicy: validated.settings.pmd85.gapPolicy,
+            ...(projectPmdPalette === undefined ? {} : { pmd85Palette: projectPmdPalette }),
+            ...(validated.sourceFormat === "pmd85-bin" && validated.settings.pmd85.gapPolicy === "preserve-imported"
+              ? { importedGapBytes: extractPmd85GapBytes(sourceBytes) }
+              : {}),
+          });
+          if (input === null) throw new Error("PROJECT_SCHEMA_INVALID: edited result frame is invalid.");
+          const bitmap = createNativeResultBitmap(input);
+          return {
+            ...frame,
+            encoded: bitmap.encoded,
+            paletteIndices: bitmap.paletteIndices,
+            previewRgba: expandResultPreviewForFrame(bitmap, frame),
+          };
+        });
+        const editedPreview = archivedPreview.rgba;
+        recomputed = {
+          ...recomputed,
+          artifact: editedFrames[0]?.encoded.slice() ?? recomputed.artifact.slice(),
+          scr: editedFrames[0]?.encoded.slice() ?? recomputed.scr.slice(),
+          frames: editedFrames,
+          previewRgba: editedPreview.slice(),
+          mergedPreviewRgba: editedPreview.slice(),
+          ...(recomputed.verticalSpatialDiagnostics === undefined
+            ? {}
+            : {
+                verticalSpatialDiagnostics: {
+                  ...recomputed.verticalSpatialDiagnostics,
+                  analyticPreviewRgba: editedPreview.slice(),
+                },
+              }),
+          ...(recomputed.platformId === "zx-spectrum" && editedFrames[0] !== undefined
+            ? {
+                pixels: unpackZxBitmap(editedFrames[0].encoded),
+                attributes: editedFrames[0].encoded.slice(6144),
+                screen: {
+                  pixels: unpackZxBitmap(editedFrames[0].encoded),
+                  attributes: editedFrames[0].encoded.slice(6144),
+                },
+              }
+            : {}),
+        };
+      }
       let verifiedTilemap: WorkerCharsetResult | null = null;
       let repairedLegacyCharsetSelection = false;
       if (validated.workspaceMode === "tilemap") {
@@ -6836,6 +7270,7 @@ export function App() {
 
       const next = validated.settings;
       pendingOpenedFinalRef.current = { result: recomputed, completedAtUtc };
+      pendingOpenedResultEditedRef.current = archivedResultEdited;
       applySettings(next, decoded);
       if (!profiles.some((profile) => profile.id === projectProfile.id)) {
         setProfiles((current) => [...current, projectProfile]);
@@ -6931,6 +7366,16 @@ export function App() {
       charsetState.kind === "ready" && !tilemapStale
     ? lastFinal
     : draftPreviewResult(draftState) ?? lastFinal;
+  useEffect(() => {
+    if (bitmapEditorTarget !== "result" || displayedResult === null || bitmapEditorResultEdited) return;
+    const frameIndex = Math.min(bitmapEditorResultFrameIndex, Math.max(0, displayedResult.frames.length - 1));
+    const frame = displayedResult.frames[frameIndex];
+    const current = bitmapEditorResultBufferRef.current;
+    if (frame !== undefined &&
+        (current === null || bitmapEditorResultSourceRef.current !== displayedResult || current.hardwareModeId !== frame.hardwareModeId)) {
+      initializeResultEditor(displayedResult, frameIndex);
+    }
+  }, [displayedResult, bitmapEditorTarget, bitmapEditorResultEdited, bitmapEditorResultFrameIndex]);
   const displayedAttributeHeight = displayedResult?.attributeHeight ?? attributeHeight;
   // Paint after the preview subtree has been committed to its current host.
   // This is important when a bitmap editor moves through a portal: a passive
@@ -6939,13 +7384,18 @@ export function App() {
   useLayoutEffect(() => {
     const sourceCanvas = bitmapEditorSourceCanvasRef.current;
     const resultCanvas = bitmapEditorResultCanvasRef.current;
-    const target = bitmapEditorBuffer ?? (() => {
+    const activeEditorBuffer = bitmapEditorTarget === "result"
+      ? bitmapEditorResultBuffer
+      : bitmapEditorBuffer;
+    const target = activeEditorBuffer ?? (bitmapEditorTarget === "source"
+      ? fullBitmapBufferFromSource()
+      : (() => {
       const frameIndex = outputPreviewStage === "screen-2" ? 1 : 0;
       const frame = displayedResult?.frames[frameIndex] ?? displayedResult?.frames[0];
       const rgba = frame?.previewRgba ?? displayedResult?.mergedPreviewRgba;
       if (rgba === undefined || displayedResult === null) return null;
       return { width: displayedResult.width, height: displayedResult.height, rgba };
-    })();
+    })());
     if (target === null || target === undefined) return;
     for (const canvas of [sourceCanvas, resultCanvas]) {
       if (canvas === null) continue;
@@ -6961,6 +7411,8 @@ export function App() {
     }
   }, [
     bitmapEditorBuffer,
+    bitmapEditorResultBuffer,
+    bitmapEditorTarget,
     displayedResult,
     outputPreviewStage,
     sourcePreviewContent,
@@ -7094,22 +7546,53 @@ export function App() {
     ? tileUsage.filter((tile) => tile.count > 0)
     : tileUsage;
   const fullBitmapEditorPreview = (side: PreviewSide) => {
-    const buffer = bitmapEditorBuffer;
-    const width = buffer?.width ?? displayedWidth;
-    const height = buffer?.height ?? displayedHeight;
+    const buffer = bitmapEditorTarget === "result"
+      ? bitmapEditorResultBuffer
+      : bitmapEditorBuffer;
+    const frameForEditor = displayedResult?.frames[bitmapEditorResultFrameIndex];
+    const sourceForEditor = bitmapEditorTarget === "source" ? (bitmapEditorFullBufferRef.current ?? fullBitmapBufferFromSource()) : null;
+    const width = buffer?.width ?? sourceForEditor?.width ?? (bitmapEditorTarget === "result" ? frameForEditor?.nativeWidth : undefined) ?? displayedWidth;
+    const height = buffer?.height ?? sourceForEditor?.height ?? (bitmapEditorTarget === "result" ? frameForEditor?.nativeHeight : undefined) ?? displayedHeight;
     const canvasRefForSide = side === "source" ? bitmapEditorSourceCanvasRef : bitmapEditorResultCanvasRef;
-    const compatible = workspaceMode === "palette" && displayedResult !== null;
-    const attributeWidth = displayedResult?.platformId === "pmd-85" ? 6 : displayedResult?.platformId === "zx-spectrum" ? 8 : null;
-    const attributeHeight = displayedResult?.platformId === "pmd-85" ? targetModeId === "pmd85-colorace" ? 2 : 1 : displayedResult?.attributeHeight ?? null;
+    const compatible = workspaceMode === "palette" && (bitmapEditorTarget === "source" ? image !== null : displayedResult !== null);
+    const resultFrame = displayedResult?.frames[Math.min(bitmapEditorResultFrameIndex, Math.max(0, (displayedResult?.frames.length ?? 1) - 1))];
+    const resultInput = displayedResult === null || resultFrame === undefined
+      ? null
+      : resultFrameInput(displayedResult, Math.min(bitmapEditorResultFrameIndex, displayedResult.frames.length - 1));
+    const nativePalette = bitmapEditorTarget === "result" && resultInput !== null
+      ? nativePaletteForResult(resultInput)
+      : [];
+    const attributeWidth = bitmapEditorTarget === "result" && displayedResult?.platformId === "pmd-85" ? 6 : bitmapEditorTarget === "result" && displayedResult?.platformId === "zx-spectrum" ? 8 : null;
+    const attributeHeight = bitmapEditorTarget === "result" && displayedResult?.platformId === "pmd-85" ? targetModeId === "pmd85-colorace" ? 2 : 1 : bitmapEditorTarget === "result" ? displayedResult?.attributeHeight ?? null : null;
     const bitmapEditorActions = <div className="bitmap-editor-full-toolbar" aria-label="Bitmap editor actions" onPointerDown={(event) => { bitmapEditorFullPointerRef.current = null; bitmapEditorPointerRef.current = null; panDragRef.current = null; event.stopPropagation(); }}>
+      <label className="bitmap-editor-target-control"><span>Editing</span><select value={bitmapEditorTarget} onChange={(event) => {
+        const target = event.target.value as BitmapEditorTarget;
+        if (target === bitmapEditorTarget) return;
+        if (target === "source" && bitmapEditorResultEdited) {
+          if (!window.confirm("Switch to source editing and discard unsaved converted-result edits?")) return;
+          if (bitmapEditorResultOriginalResult !== null) {
+            draftWorkerRef.current?.dispose();
+            draftWorkerRef.current = null;
+            setDraftState({ kind: "idle" });
+            setLastFinal(bitmapEditorResultOriginalResult);
+            setState({ kind: "ready", result: bitmapEditorResultOriginalResult });
+            setDirty(true);
+          }
+        }
+        if (target === "source") resetResultEditorState();
+        setBitmapEditorTarget(target);
+        if (target === "result" && displayedResult !== null) initializeResultEditor(displayedResult, bitmapEditorResultFrameIndex);
+      }} aria-label="Bitmap editor target"><option value="result">Converted result</option><option value="source">Source image</option></select></label>
+      {bitmapEditorTarget === "result" && displayedResult !== null && displayedResult.frames.length > 1 ? <label className="bitmap-editor-target-control"><span>Frame</span><select value={bitmapEditorResultFrameIndex} onChange={(event) => { const index = Number(event.target.value); selectResultEditorFrame(displayedResult, index); }} aria-label="Result frame">{displayedResult.frames.map((_, index) => <option value={index} key={index}>Screen {index + 1}</option>)}</select></label> : null}
       <button className="secondary compact bitmap-editor-full-action bitmap-editor-mode-button" type="button" onClick={() => setBitmapEditorPaintMode((mode) => mode === "set" ? "reset" : mode === "reset" ? "toggle" : mode === "toggle" ? "none" : "set")} title="Pixel mode" aria-label={`Pixel mode: ${bitmapEditorPaintMode}`}>
         {bitmapEditorPaintMode === "set" ? "＋" : bitmapEditorPaintMode === "reset" ? "−" : bitmapEditorPaintMode === "toggle" ? "↔" : "·"}
       </button>
-      <button className="secondary compact bitmap-editor-full-action" type="button" onClick={undoFullBitmap} disabled={bitmapEditorUndoFull.length === 0}>Undo</button>
-      <button className="secondary compact bitmap-editor-full-action" type="button" onClick={redoFullBitmap} disabled={bitmapEditorRedoFull.length === 0}>Redo</button>
-      <button className="secondary compact bitmap-editor-full-action" type="button" onClick={revertFullBitmap} disabled={bitmapEditorRevertSource === null}>Revert</button>
+      <button className="secondary compact bitmap-editor-full-action" type="button" onClick={bitmapEditorTarget === "result" ? undoFullResult : undoFullBitmap} disabled={bitmapEditorTarget === "result" ? bitmapEditorResultUndo.length === 0 : bitmapEditorUndoFull.length === 0}>Undo</button>
+      <button className="secondary compact bitmap-editor-full-action" type="button" onClick={bitmapEditorTarget === "result" ? redoFullResult : redoFullBitmap} disabled={bitmapEditorTarget === "result" ? bitmapEditorResultRedo.length === 0 : bitmapEditorRedoFull.length === 0}>Redo</button>
+      <button className="secondary compact bitmap-editor-full-action" type="button" onClick={bitmapEditorTarget === "result" ? revertFullResult : revertFullBitmap} disabled={bitmapEditorTarget === "result" ? !bitmapEditorResultEdited : bitmapEditorRevertSource === null}>Revert</button>
       <button className={`secondary compact bitmap-editor-full-action${bitmapEditorColorPickerActive ? " active" : ""}`} type="button" onClick={() => setBitmapEditorColorPickerActive((active) => !active)} title="Pick attribute colors from result or editor" aria-label="Pick attribute colors from result or editor" aria-pressed={bitmapEditorColorPickerActive}>⌕</button>
-      {displayedResult?.platformId === "zx-spectrum" ? <div className="bitmap-editor-attribute-policy" aria-label="Attribute paint policy">
+      {bitmapEditorTarget === "result" && displayedResult?.platformId !== "zx-spectrum" && nativePalette.length > 0 ? <div className="bitmap-editor-native-palette" aria-label="Native result palette">{nativePalette.map((color) => <button className={`bitmap-editor-attribute-color${bitmapEditorResultPaletteIndex === color.index ? " selected" : ""}`} type="button" key={color.index} title={`Use palette color ${color.index}`} aria-label={`Use palette color ${color.index}`} aria-pressed={bitmapEditorResultPaletteIndex === color.index} onClick={() => setBitmapEditorResultPaletteIndex(color.index)}><span style={{ background: `rgb(${color.r} ${color.g} ${color.b})` }} /></button>)}</div> : null}
+      {bitmapEditorTarget === "result" && displayedResult?.platformId === "zx-spectrum" ? <div className="bitmap-editor-attribute-policy" aria-label="Attribute paint policy">
         <div className="bitmap-editor-attribute-header"><span aria-hidden="true">I</span><span aria-hidden="true">P</span></div>
         <div className="bitmap-editor-attribute-transparent">
           <button className={`bitmap-editor-attribute-icon${bitmapEditorInkColor === null ? " selected" : ""}`} type="button" title="Preserve INK" aria-label="Preserve INK" aria-pressed={bitmapEditorInkColor === null} onClick={() => setBitmapEditorInkColor(null)}><span className="bitmap-editor-transparent-swatch" aria-hidden="true" /></button>
@@ -7473,7 +7956,7 @@ export function App() {
       : <p>This preview is not available for the selected target.</p>;
   };
   const retainedDraftVisible = draftPreviewResult(draftState) !== null;
-  const bitmapEditorEdited = bitmapEditorOriginalResult !== null || bitmapEditorRevertSource !== null;
+  const bitmapEditorEdited = bitmapEditorOriginalResult !== null || bitmapEditorRevertSource !== null || bitmapEditorResultEdited;
   const platformLabel = isQl ? "Sinclair QL" : isPmd ? "Tesla PMD 85" : "ZX Spectrum";
   const paletteResultLabel = draftState.kind === "ready"
     ? `${platformLabel} result · Draft preview`
@@ -7512,10 +7995,10 @@ export function App() {
       ? "Running High conversion… The current preview remains visible."
       : state.kind === "ready"
         ? state.result.frames.length > 1
-          ? `Completed final · ${state.result.frames.length} × ${state.result.scr.length.toLocaleString()} bytes · ${state.result.width}×${state.result.height} · score ${state.result.score.toLocaleString()}.`
+          ? `Completed final · ${state.result.frames.length} × ${state.result.scr.length.toLocaleString()} bytes · ${state.result.width}×${state.result.height} · score ${state.result.score.toLocaleString()}${bitmapEditorResultEdited ? " · metrics pre-edit" : ""}.`
           : state.result.platformId === "zx-spectrum"
-            ? `Completed final · ${state.result.artifact.length.toLocaleString()} / ${zxSoftwareScrBytes(attributeHeight).toLocaleString()} bytes · 8×${attributeHeight} attributes · score ${state.result.score.toLocaleString()}.`
-            : `Completed final · ${state.result.artifact.length.toLocaleString()} bytes · ${state.result.width}×${state.result.height} · score ${state.result.score.toLocaleString()}.`
+            ? `Completed final · ${state.result.artifact.length.toLocaleString()} / ${zxSoftwareScrBytes(attributeHeight).toLocaleString()} bytes · 8×${attributeHeight} attributes · score ${state.result.score.toLocaleString()}${bitmapEditorResultEdited ? " · metrics pre-edit" : ""}.`
+            : `Completed final · ${state.result.artifact.length.toLocaleString()} bytes · ${state.result.width}×${state.result.height} · score ${state.result.score.toLocaleString()}${bitmapEditorResultEdited ? " · metrics pre-edit" : ""}.`
         : state.kind === "stale"
           ? draftState.kind === "scheduled"
             ? "Draft preview scheduled · prior preview remains visible."

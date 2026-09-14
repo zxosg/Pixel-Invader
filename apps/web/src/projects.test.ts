@@ -127,6 +127,13 @@ describe("completed project containers", () => {
     expect(Object.keys(unzipSync(first))).toHaveLength(9);
   });
 
+  it("persists result editing state and defaults older projects to unedited", async () => {
+    const edited = await createCompletedProject({ ...projectInput(), resultEdited: true });
+    expect((await validateCompletedProject(edited)).resultEdited).toBe(true);
+    const legacyCompatible = await createCompletedProject(projectInput());
+    expect((await validateCompletedProject(legacyCompatible)).resultEdited).toBe(false);
+  });
+
   it("round-trips an optional edited working source", async () => {
     const workingSourcePng = encodeRgbaPng(
       Uint8Array.from([255, 0, 0, 255]),
