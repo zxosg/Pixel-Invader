@@ -15,6 +15,7 @@ import {
 import { ZX_BITMAP_BYTES, ZX_SCREEN_HEIGHT, ZX_SCREEN_WIDTH, zxBitmapOffset } from "@retro-converter/zx-spectrum";
 import {
   applyNativeResultPixel,
+  applyNativeResultPixels,
   createNativeResultBitmap,
   nativePaletteForResult,
   type NativeResultFrameInput,
@@ -123,5 +124,14 @@ describe("native result bitmap editor", () => {
     expect(edited.encoded[0]! >> 6).toBe(1);
     expect(edited.encoded[64]! >> 6).toBe(0);
     expect(nativePaletteForResult(input)).toHaveLength(7);
+  });
+
+  it("uses RES to clear pixels through the native pixel brush", () => {
+    const encoded = new Uint8Array(6912);
+    encoded[zxBitmapOffset(0, 0)] = 0x80;
+    const input = zxInput(encoded);
+    const bitmap = createNativeResultBitmap(input);
+    const cleared = applyNativeResultPixels(bitmap, input, [{ x: 0, y: 0 }], "and", 7);
+    expect(cleared.encoded[zxBitmapOffset(0, 0)]).toBe(0);
   });
 });

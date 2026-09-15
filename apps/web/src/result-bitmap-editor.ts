@@ -31,6 +31,11 @@ import {
   zxBitmapOffset,
 } from "@retro-converter/zx-spectrum";
 import type { PlatformId } from "@retro-converter/conversion-core";
+import {
+  bitmapEditorBrushPixels,
+  type BitmapEditorBrushSize,
+  type BitmapEditorOperation,
+} from "./bitmap-editor-tools.js";
 
 export type NativeResultPaintMode = "set" | "reset" | "toggle";
 
@@ -267,6 +272,43 @@ export function applyNativeResultPixel(
     encoded,
     rgba: renderPmd85Rgba(nextDecoded, palette),
   };
+}
+
+export function applyNativeResultBrush(
+  bitmap: NativeResultBitmap,
+  input: NativeResultFrameInput,
+  x: number,
+  y: number,
+  size: BitmapEditorBrushSize,
+  operation: BitmapEditorOperation,
+  selectedPaletteIndex = 1,
+): NativeResultBitmap {
+  // A point brush has no picked mask of its own: Copy/OR set the pixel, RES
+  // clears it, and XOR toggles it. Picked-cell composition uses the explicit
+  // mask path in the ZX attribute-cell editor.
+  if (operation === "none") return cloneNativeResultBitmap(bitmap);
+  const paintMode: NativeResultPaintMode = operation === "xor" ? "toggle" : operation === "and" ? "reset" : "set";
+  let next = bitmap;
+  for (const pixel of bitmapEditorBrushPixels(x, y, size, bitmap.width, bitmap.height)) {
+    next = applyNativeResultPixel(next, input, pixel.x, pixel.y, paintMode, selectedPaletteIndex);
+  }
+  return next;
+}
+
+export function applyNativeResultPixels(
+  bitmap: NativeResultBitmap,
+  input: NativeResultFrameInput,
+  pixels: readonly { readonly x: number; readonly y: number }[],
+  operation: BitmapEditorOperation,
+  selectedPaletteIndex = 1,
+): NativeResultBitmap {
+  if (operation === "none") return cloneNativeResultBitmap(bitmap);
+  const paintMode: NativeResultPaintMode = operation === "xor" ? "toggle" : operation === "and" ? "reset" : "set";
+  let next = bitmap;
+  for (const pixel of pixels) {
+    next = applyNativeResultPixel(next, input, pixel.x, pixel.y, paintMode, selectedPaletteIndex);
+  }
+  return next;
 }
 
 export function nativePaletteForResult(

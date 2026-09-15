@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   bitmapEditorCell,
   cloneBitmapBuffer,
+  paintBrush,
   paintPixel,
   paintPixels,
   type BitmapEditorBuffer,
@@ -75,5 +76,16 @@ describe("full bitmap editor model", () => {
     const unchanged = paintPixel(original, 0, 0, "none");
     expect([...unchanged.rgba]).toEqual([...original.rgba]);
     expect(unchanged.pixels?.[0]).toBe(1);
+  });
+
+  it("uses RES to clear pixels through the bitmap brush", () => {
+    const original: BitmapEditorBuffer = {
+      width: 2,
+      height: 2,
+      rgba: Uint8Array.from({ length: 16 }, (_, index) => index % 4 === 3 ? 255 : 255),
+      pixels: new Uint8Array([1, 1, 1, 1]),
+    };
+    const reset = paintBrush(original, 0, 0, "1x1", "and");
+    expect(reset.pixels).toEqual(new Uint8Array([0, 1, 1, 1]));
   });
 });

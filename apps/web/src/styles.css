@@ -1527,6 +1527,27 @@ input[type="range"] {
   image-rendering: pixelated;
 }
 
+/* Source images must retain their intrinsic bitmap ratio. The shared preview
+   canvas rule intentionally fills hardware previews, whose display aspect can
+   differ from their encoded pixel dimensions. */
+.preview-stage.source-image-stage canvas {
+  height: 100%;
+  aspect-ratio: auto;
+  object-fit: contain;
+}
+
+.preview-panel .source-preview-frame {
+  min-width: 0;
+  min-height: 0;
+  max-height: none;
+  height: 100%;
+}
+
+.preview-stage.source-image-stage {
+  max-width: 100%;
+  max-height: 100%;
+}
+
 .preview-stage canvas:focus-visible {
   outline: 3px solid #ffdc6a;
   outline-offset: -3px;
@@ -1635,7 +1656,7 @@ input[type="range"] {
 
 .bitmap-editor-pane-layout {
   display: grid;
-  grid-template-columns: 4.5rem minmax(0, 1fr);
+  grid-template-columns: minmax(11.2rem, 12.6rem) minmax(0, 1fr);
   gap: 0.35rem;
   min-width: 0;
   min-height: 0;
@@ -1677,12 +1698,108 @@ input[type="range"] {
 .bitmap-editor-full-toolbar {
   position: relative;
   z-index: 3;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-rows: minmax(0, 1fr) auto;
   gap: 0.2rem;
-  width: 4.5rem;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
   padding: 0.08rem 0;
   background: #0f1827;
+}
+
+.bitmap-editor-control-grid {
+  grid-column: 1 / 3;
+  grid-row: 1 / 3;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 0.2rem;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.bitmap-editor-control-grid > .bitmap-editor-action-grid,
+.bitmap-editor-control-grid > .bitmap-editor-native-palette,
+.bitmap-editor-control-grid > .bitmap-editor-attribute-policy {
+  grid-column: 1 / 3;
+}
+
+.bitmap-editor-control-grid > .bitmap-editor-action-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.bitmap-editor-action-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.2rem;
+  width: 100%;
+}
+
+.bitmap-editor-action-wide {
+  grid-column: 1 / 3;
+}
+
+.bitmap-editor-target-control {
+  grid-column: 1 / 3;
+}
+
+.bitmap-editor-history-grid > button {
+  grid-column: span 1;
+}
+
+.bitmap-editor-tools-grid > .bitmap-editor-split-button,
+.bitmap-editor-tools-grid > .bitmap-editor-operation-split {
+  grid-column: 1 / 3;
+}
+
+.bitmap-editor-operation-split {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1px;
+  width: 100%;
+  border-radius: 0.2rem;
+  overflow: hidden;
+  background: #52627d;
+}
+
+.bitmap-editor-operation-split .bitmap-editor-operation-action {
+  border-radius: 0;
+  border-color: #52627d;
+}
+
+.bitmap-editor-operation-split .bitmap-editor-operation-action:first-child {
+  border-radius: 0.2rem 0 0 0.2rem;
+}
+
+.bitmap-editor-operation-split .bitmap-editor-operation-action:last-child {
+  border-radius: 0 0.2rem 0.2rem 0;
+}
+
+.bitmap-editor-split-button {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  width: 100%;
+  border-radius: 0.2rem;
+  overflow: hidden;
+  background: #52627d;
+}
+
+.bitmap-editor-split-action {
+  border-radius: 0;
+  border-color: #52627d;
+}
+
+.bitmap-editor-split-action:first-child {
+  border-radius: 0.2rem 0 0 0.2rem;
+}
+
+.bitmap-editor-split-action:last-child {
+  border-radius: 0 0.2rem 0.2rem 0;
 }
 
 .bitmap-editor-target-control {
@@ -1706,8 +1823,8 @@ input[type="range"] {
 .bitmap-editor-full-action {
   min-width: 0;
   width: 100%;
-  height: 1rem;
-  min-height: 1rem;
+  height: 1.25rem;
+  min-height: 1.25rem;
   padding: 0 0.1rem;
   font-size: 0.58rem;
   line-height: 1;
@@ -1794,6 +1911,70 @@ input[type="range"] {
   gap: 0.12rem;
   align-items: center;
   margin-top: 0.08rem;
+}
+
+.bitmap-editor-picked-cell-preview {
+  display: grid;
+  gap: 0.12rem;
+  grid-column: 3 / 5;
+  grid-row: 1;
+  align-self: start;
+  min-width: 0;
+  margin: 0;
+  border-top: 1px solid #33425d;
+  padding-top: 0.2rem;
+  color: #b9c3d2;
+  font-size: 0.5rem;
+  line-height: 1.15;
+}
+
+.bitmap-editor-picked-cell-color-preview {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 2.4rem;
+  border: 1px solid #52627d;
+  border-radius: 0.2rem;
+  overflow: hidden;
+  background: #111824;
+}
+
+.bitmap-editor-picked-cell-color-preview.empty {
+  background-image: linear-gradient(135deg, rgb(125 135 151 / 18%) 25%, transparent 25%, transparent 50%, rgb(125 135 151 / 18%) 50%, rgb(125 135 151 / 18%) 75%, transparent 75%);
+  background-size: 0.45rem 0.45rem;
+}
+
+.bitmap-editor-picked-cell-title {
+  color: #eef6ff;
+  font-weight: 800;
+}
+
+.bitmap-editor-picked-cell-empty {
+  color: #8390a5;
+}
+
+.bitmap-editor-picked-cell-status {
+  color: #9dc7ff;
+  font-weight: 700;
+}
+
+.bitmap-editor-picked-cell-grid {
+  display: grid;
+  width: min(100%, 10rem);
+  max-width: 10rem;
+  aspect-ratio: 8 / 8;
+  border: 1px solid #52627d;
+  background: #0a101b;
+}
+
+.bitmap-editor-picked-cell-pixel {
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid rgb(15 24 39 / 35%);
+}
+
+.bitmap-editor-picked-cell-meta {
+  overflow-wrap: anywhere;
 }
 
 .bitmap-editor-policy-symbol {

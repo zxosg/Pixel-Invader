@@ -1,3 +1,9 @@
+import {
+  bitmapEditorBrushPixels,
+  type BitmapEditorBrushSize,
+  type BitmapEditorOperation,
+} from "./bitmap-editor-tools.js";
+
 export type BitmapPaintMode = "set" | "reset" | "toggle" | "none";
 
 export interface BitmapEditorBuffer {
@@ -101,6 +107,24 @@ export function paintPixels(
     next = paintPixel(next, pixel.x, pixel.y, mode, colorForState);
   }
   return next;
+}
+
+export function paintBrush(
+  buffer: BitmapEditorBuffer,
+  x: number,
+  y: number,
+  size: BitmapEditorBrushSize,
+  operation: BitmapEditorOperation,
+  colorForState?: BitmapPixelColor,
+): BitmapEditorBuffer {
+  const pixels = bitmapEditorBrushPixels(x, y, size, buffer.width, buffer.height);
+  // A point brush has no picked mask of its own: Copy and OR set the stamped
+  // pixels, RES clears them, and XOR toggles them. Picked-cell composition
+  // uses the explicit mask path in the ZX attribute-cell editor instead.
+  const mode: BitmapPaintMode = operation === "copy" || operation === "or"
+    ? "set"
+    : operation === "and" ? "reset" : operation === "xor" ? "toggle" : "none";
+  return paintPixels(buffer, pixels, mode, colorForState);
 }
 
 export function bitmapEditorCell(
