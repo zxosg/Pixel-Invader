@@ -757,6 +757,21 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
     ],
   },
   {
+    id: "dither-composer-v1",
+    name: "Dither composer v1 · experimental",
+    version: 1,
+    method: "error-diffusion",
+    platforms: ["zx-spectrum"],
+    lifecycle: "experimental",
+    targetModeIds: ["zx48-standard-256x192"],
+    effectiveParameterIds: [
+      "ordered-matrix",
+      "dithering-amount",
+      "error-randomization",
+      "error-line-suppression",
+    ],
+  },
+  {
     id: "error-diffusion-decorrelated-v3",
     name: "Decorrelated error diffusion v3",
     version: 3,

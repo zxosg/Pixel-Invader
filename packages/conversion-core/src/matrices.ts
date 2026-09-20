@@ -1,4 +1,8 @@
-import type { OrderedMatrixId } from "./types.js";
+import type {
+  CustomOrderedMatrixDefinition,
+  CustomOrderedMatrixId,
+  OrderedMatrixId,
+} from "./types.js";
 
 export interface OrderedMatrix {
   readonly width: number;
@@ -59,6 +63,85 @@ export const ORDERED_MATRICES: Readonly<Record<OrderedMatrixId, OrderedMatrix>> 
 
 export function orderedThreshold(matrix: OrderedMatrix, x: number, y: number): number {
   return matrix.values[(y % matrix.height) * matrix.width + (x % matrix.width)] ?? 0;
+}
+
+const CUSTOM_MATRIX_MAX_CELLS = 64;
+
+function stableNumberHash(values: readonly number[]): string {
+  let hash = 0x811c9dc5;
+  for (const value of values) {
+    const normalized = Number.isFinite(value) ? Math.floor(value * 1_000) : 0;
+    hash ^= normalized & 0xff;
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+    hash ^= (normalized >>> 8) & 0xff;
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+    hash ^= (normalized >>> 16) & 0xff;
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+    hash ^= (normalized >>> 24) & 0xff;
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
+}
+
+/** Rejects a user-supplied matrix atomically; never partially applies it. */
+export function validateCustomOrderedMatrix(matrix: {
+  readonly width: number;
+  readonly height: number;
+  readonly values: readonly number[];
+}): void {
+  const { width, height, values } = matrix;
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) {
+    throw new RangeError("Custom matrix dimensions must be positive integers.");
+  }
+  const cells = width * height;
+  if (cells > CUSTOM_MATRIX_MAX_CELLS) {
+    throw new RangeError(`Custom matrix must not exceed ${CUSTOM_MATRIX_MAX_CELLS} cells.`);
+  }
+  if (values.length !== cells) {
+    throw new RangeError("Custom matrix values must match width times height.");
+  }
+  const seenRanks = new Set<number>();
+  for (const value of values) {
+    if (!Number.isInteger(value) || value < 0 || value >= cells) {
+      throw new RangeError("Custom matrix values must be integer ranks within range.");
+    }
+    if (seenRanks.has(value)) {
+      throw new RangeError("Custom matrix values must use every rank exactly once.");
+    }
+    seenRanks.add(value);
+  }
+}
+
+export function customOrderedMatrix(matrix: {
+  readonly width: number;
+  readonly height: number;
+  readonly values: readonly number[];
+}): OrderedMatrix {
+  validateCustomOrderedMatrix(matrix);
+  return { width: matrix.width, height: matrix.height, levels: matrix.values.length, values: matrix.values };
+}
+
+export function customOrderedMatrixId(matrix: {
+  readonly width: number;
+  readonly height: number;
+  readonly values: readonly number[];
+}): CustomOrderedMatrixId {
+  validateCustomOrderedMatrix(matrix);
+  return `custom-ordered-${matrix.width}x${matrix.height}-${stableNumberHash(matrix.values)}`;
+}
+
+export function defineCustomOrderedMatrix(matrix: {
+  readonly width: number;
+  readonly height: number;
+  readonly values: readonly number[];
+}): CustomOrderedMatrixDefinition {
+  validateCustomOrderedMatrix(matrix);
+  return {
+    id: customOrderedMatrixId(matrix),
+    width: matrix.width,
+    height: matrix.height,
+    values: [...matrix.values],
+  };
 }
 
 /**

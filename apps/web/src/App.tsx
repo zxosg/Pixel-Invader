@@ -104,9 +104,15 @@ import {
 } from "./charset-selection.js";
 import {
   ATTRIBUTE_OPTIMIZERS,
+  atkinsonDiffusionKernel,
   buildVerticalSpatialAnalyticPreview,
+  checkerPhaseV43DiffusionKernel,
+  checkerPhaseV5DiffusionKernel,
   DEFAULT_CONVERSION_SETTINGS,
+  decorrelatedDiffusionKernel,
   DITHER_ENGINES,
+  defineCustomDiffusionKernel,
+  defineCustomOrderedMatrix,
   ORDERED_MATRICES,
   ditherMethodForEngine,
   isCompatibleEnginePair,
@@ -117,12 +123,15 @@ import {
   destinationGeometryFor,
   orderedPerturbationDiagnostics,
   paletteSelectionsMatch,
+  phaseBalancedDiffusionKernel,
   qlHardwareModesForTarget,
   type AttributeOptimizerId,
   type AttributeHaloRadius,
   type AttributeHeight,
   type BrightMode,
   type ConversionSettings,
+  type CustomDiffusionKernelDefinition,
+  type CustomOrderedMatrixDefinition,
   type CropAspectRatio,
   type DitheringMethod,
   type DitherEngineId,
@@ -379,6 +388,57 @@ function orderedMatrixLabel(matrixId: OrderedMatrixId): string {
     case "clustered-dot-8x8": return "Clustered dot 8×8";
     case "void-cluster-8x8": return "Void-and-cluster 8×8";
   }
+}
+
+const BUILT_IN_COMPOSER_PROPAGATION_IDS = [
+  "none",
+  "error-diffusion-unrestricted-v2",
+  "error-diffusion-phase-balanced-v3",
+  "error-diffusion-checker-phase-v4-3",
+  "error-diffusion-checker-phase-v5",
+  "error-diffusion-decorrelated-v3",
+  "error-diffusion-atkinson-v1",
+] as const;
+
+function composerPropagationLabel(id: ConversionSettings["composer"]["propagationId"]): string {
+  switch (id) {
+    case "none": return "Pattern only";
+    case "error-diffusion-unrestricted-v2": return "Projected unrestricted v2";
+    case "error-diffusion-phase-balanced-v3": return "Phase balanced v3";
+    case "error-diffusion-checker-phase-v4-3": return "Checker phase v4.3";
+    case "error-diffusion-checker-phase-v5": return "Checker phase v5";
+    case "error-diffusion-decorrelated-v3": return "Decorrelated v3";
+    case "error-diffusion-atkinson-v1": return "Atkinson v1";
+    default: return id;
+  }
+}
+
+function parseMatrixValues(text: string): number[] {
+  return text
+    .split(/[^0-9-]+/)
+    .filter((token) => token.length > 0)
+    .map((token) => Number.parseInt(token, 10));
+}
+
+function formatMatrixValues(values: readonly number[]): string {
+  return values.join(" ");
+}
+
+function parseKernelEntries(text: string): readonly (readonly [number, number, number])[] {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const [dx, dy, weight] = line.split(/[^0-9.-]+/).filter((token) => token.length > 0).map(Number);
+      return [dx ?? Number.NaN, dy ?? Number.NaN, weight ?? Number.NaN] as const;
+    });
+}
+
+function formatKernelEntries(
+  entries: readonly (readonly [number, number, number])[],
+): string {
+  return entries.map(([dx, dy, weight]) => `${dx} ${dy} ${weight}`).join("\n");
 }
 
 function hexToRgb(hex: string): Pmd85RgbColor {
@@ -1161,6 +1221,18 @@ export function App() {
     useState<TargetModeId>(startupApplicationSettings.modeId);
   const [artisticPattern, setArtisticPattern] = useState<NonNullable<ConversionSettings["artisticPattern"]>>("auto");
   const [orderedMatrix, setOrderedMatrix] = useState<OrderedMatrixId>(DEFAULT_CONVERSION_SETTINGS.orderedMatrix);
+  const [customOrderedMatrices, setCustomOrderedMatrices] = useState<readonly CustomOrderedMatrixDefinition[]>(
+    DEFAULT_CONVERSION_SETTINGS.customOrderedMatrices,
+  );
+  const [customDiffusionKernels, setCustomDiffusionKernels] = useState<readonly CustomDiffusionKernelDefinition[]>(
+    DEFAULT_CONVERSION_SETTINGS.customDiffusionKernels,
+  );
+  const [composer, setComposer] = useState<ConversionSettings["composer"]>(DEFAULT_CONVERSION_SETTINGS.composer);
+  const [customMatrixWidthEntry, setCustomMatrixWidthEntry] = useState("4");
+  const [customMatrixHeightEntry, setCustomMatrixHeightEntry] = useState("4");
+  const [customMatrixValuesEntry, setCustomMatrixValuesEntry] = useState("0 8 2 10 12 4 14 6 3 11 1 9 15 7 13 5");
+  const [customKernelEntryText, setCustomKernelEntryText] = useState("1 0 7\n-1 1 3\n0 1 5\n1 1 1");
+  const [customPatternError, setCustomPatternError] = useState<string | null>(null);
   const [amountEntry, setAmountEntry] = useState(String(startupApplicationSettings.ditheringAmount));
   const [errorDiffusionRandomization, setErrorDiffusionRandomization] = useState(
     DEFAULT_CONVERSION_SETTINGS.errorDiffusionRandomization,
@@ -3039,6 +3111,9 @@ export function App() {
     errorDiffusionLineSuppression,
     orderedMatrix,
     artisticPattern,
+    customOrderedMatrices,
+    customDiffusionKernels,
+    composer,
     structured: {
       ...structuredSettings,
       ditherAmountPermille: dithering === "none" ? 0 : amount * 10,
@@ -3225,6 +3300,7 @@ export function App() {
     errorDiffusionLineSuppression,
     orderedMatrix, artisticPattern, selectedProfileId, targetModeId, attributeOptimizerId,
     ditherEngineId, qlMixedOptimizerId, structuredSettings,
+    composer, customOrderedMatrices, customDiffusionKernels,
     pmd85PaletteCalibrationId, pmd85GapPolicy,
     workspaceMode,
   ]);
@@ -4528,6 +4604,60 @@ export function App() {
     inspectActivePixel(next[0] ?? currentX, next[1] ?? currentY);
   }
 
+  function syncMatrixEditorFromSelection(
+    patternId: ConversionSettings["composer"]["patternId"] | OrderedMatrixId,
+  ) {
+    if (patternId in ORDERED_MATRICES) {
+      const matrix = ORDERED_MATRICES[patternId as OrderedMatrixId];
+      setCustomMatrixWidthEntry(String(matrix.width));
+      setCustomMatrixHeightEntry(String(matrix.height));
+      setCustomMatrixValuesEntry(formatMatrixValues(matrix.values));
+      setCustomPatternError(null);
+      return;
+    }
+    const customMatrix = customOrderedMatrices.find((candidate) => candidate.id === patternId);
+    if (customMatrix === undefined) return;
+    setCustomMatrixWidthEntry(String(customMatrix.width));
+    setCustomMatrixHeightEntry(String(customMatrix.height));
+    setCustomMatrixValuesEntry(formatMatrixValues(customMatrix.values));
+    setCustomPatternError(null);
+  }
+
+  function syncKernelEditorFromSelection(
+    propagationId: ConversionSettings["composer"]["propagationId"],
+  ) {
+    if (propagationId === "none") {
+      setCustomKernelEntryText("");
+      setCustomPatternError(null);
+      return;
+    }
+    if (propagationId.startsWith("custom-diffusion-")) {
+      const customKernel = customDiffusionKernels.find((candidate) => candidate.id === propagationId);
+      if (customKernel === undefined) return;
+      setCustomKernelEntryText(formatKernelEntries(customKernel.entries));
+      setCustomPatternError(null);
+      return;
+    }
+    const entries = propagationId === "error-diffusion-unrestricted-v2"
+      ? [
+          [1, 0, 7],
+          [-1, 1, 3],
+          [0, 1, 5],
+          [1, 1, 1],
+        ] as const
+      : propagationId === "error-diffusion-decorrelated-v3"
+        ? decorrelatedDiffusionKernel(1)
+        : propagationId === "error-diffusion-atkinson-v1"
+          ? atkinsonDiffusionKernel(1)
+          : propagationId === "error-diffusion-checker-phase-v4-3"
+            ? checkerPhaseV43DiffusionKernel(1, 0, 0, errorDiffusionLineSuppression, 0)
+            : propagationId === "error-diffusion-checker-phase-v5"
+              ? checkerPhaseV5DiffusionKernel(1, 0, 0, errorDiffusionLineSuppression, 0, 2)
+              : phaseBalancedDiffusionKernel(1, 0, 0, errorDiffusionLineSuppression, 0);
+    setCustomKernelEntryText(formatKernelEntries(entries));
+    setCustomPatternError(null);
+  }
+
   function switchDithering(method: DitheringMethod) {
     if (targetModeId.includes("vertical-spatial")) {
       setDithering(method);
@@ -4603,7 +4733,9 @@ export function App() {
     const selectedEngine = DITHER_ENGINES.find((engine) => engine.id === id);
     const supportedMatrices = selectedEngine?.orderedMatrixIds ?? ORDERED_MATRIX_IDS.slice(0, 4);
     if (!supportedMatrices.includes(orderedMatrix)) {
-      setOrderedMatrix(supportedMatrices[0] ?? "checkerboard-2x1");
+      const nextMatrix = supportedMatrices[0] ?? "checkerboard-2x1";
+      setOrderedMatrix(nextMatrix);
+      syncMatrixEditorFromSelection(nextMatrix);
     }
     if (id === "pattern-legal-mask-dbs-v1") {
       setAttributeOptimizerId("zx-block-dbs-global-v1");
@@ -4777,6 +4909,9 @@ export function App() {
     );
     setOrderedMatrix(next.orderedMatrix);
     setArtisticPattern(next.artisticPattern ?? "auto");
+    setCustomOrderedMatrices(next.customOrderedMatrices ?? DEFAULT_CONVERSION_SETTINGS.customOrderedMatrices);
+    setCustomDiffusionKernels(next.customDiffusionKernels ?? DEFAULT_CONVERSION_SETTINGS.customDiffusionKernels);
+    setComposer(next.composer ?? DEFAULT_CONVERSION_SETTINGS.composer);
     setStructuredSettings(next.structured);
     setPmd85PaletteCalibrationId(next.pmd85.paletteCalibrationId);
     setPmd85GapPolicy(next.pmd85.gapPolicy);
@@ -4823,6 +4958,9 @@ export function App() {
     const draft = createSettingsDraft({
       ...conversionSettings,
       orderedMatrix,
+      customOrderedMatrices,
+      customDiffusionKernels,
+      composer,
       cropX,
       cropY,
       cropWidth,
@@ -5223,6 +5361,7 @@ export function App() {
     setDitherEngineId(row.ditherEngineId);
     setDithering(ditherMethodForEngine(row.ditherEngineId));
     setOrderedMatrix(row.matrix);
+    syncMatrixEditorFromSelection(row.matrix);
     setStructuredSettings((current) =>
       structuredSettingsForOptimizer(row.optimizerId, current)
     );
@@ -8599,9 +8738,16 @@ export function App() {
             }
           }}
           onKeyDown={(event) => {
+            const target = event.target;
+            const editingControl =
+              target instanceof HTMLTextAreaElement ||
+              target instanceof HTMLInputElement ||
+              target instanceof HTMLSelectElement ||
+              (target instanceof HTMLElement && target.isContentEditable);
             if (
               event.key === "Enter" &&
-              !(event.target instanceof HTMLButtonElement) &&
+              !editingControl &&
+              !(target instanceof HTMLButtonElement) &&
               image !== null &&
               settingsValid &&
               state.kind !== "running"
@@ -9794,13 +9940,181 @@ export function App() {
             ditherEngineId !== "artistic-ordered-tone-safe-v2" ? (
             <label>
               <span>Ordered matrix</span>
-              <select value={orderedMatrix} onChange={(event) => { setOrderedMatrix(event.target.value as OrderedMatrixId); setState({ kind: "idle" }); }}>
+              <select value={orderedMatrix} onChange={(event) => {
+                const nextMatrix = event.target.value as OrderedMatrixId;
+                setOrderedMatrix(nextMatrix);
+                syncMatrixEditorFromSelection(nextMatrix);
+                setState({ kind: "idle" });
+              }}>
                 {(DITHER_ENGINES.find((engine) => engine.id === ditherEngineId)?.orderedMatrixIds ??
                   ORDERED_MATRIX_IDS.slice(0, 4)).map((matrixId) => (
                   <option key={matrixId} value={matrixId}>{orderedMatrixLabel(matrixId)}</option>
                 ))}
               </select>
             </label>
+          ) : null}
+          {ditherEngineId === "dither-composer-v1" ? (
+            <>
+              <div className="dithering-row dithering-row-paired">
+                <label>
+                  <span>Composer pattern</span>
+                  <select
+                    value={composer.patternId}
+                    onChange={(event) => {
+                      const nextPatternId = event.target.value as ConversionSettings["composer"]["patternId"];
+                      setComposer((current) => ({ ...current, patternId: nextPatternId }));
+                      syncMatrixEditorFromSelection(nextPatternId);
+                      setState({ kind: "idle" });
+                    }}
+                  >
+                    <optgroup label="Built-in matrices">
+                      {ORDERED_MATRIX_IDS.map((matrixId) => (
+                        <option key={matrixId} value={matrixId}>{orderedMatrixLabel(matrixId)}</option>
+                      ))}
+                    </optgroup>
+                    {customOrderedMatrices.length > 0 ? (
+                      <optgroup label="Custom matrices">
+                        {customOrderedMatrices.map((matrix) => (
+                          <option key={matrix.id} value={matrix.id}>{matrix.id}</option>
+                        ))}
+                      </optgroup>
+                    ) : null}
+                  </select>
+                </label>
+                <label>
+                  <span>Composer propagation</span>
+                  <select
+                    value={composer.propagationId}
+                    onChange={(event) => {
+                      const nextPropagationId = event.target.value as ConversionSettings["composer"]["propagationId"];
+                      setComposer((current) => ({ ...current, propagationId: nextPropagationId }));
+                      syncKernelEditorFromSelection(nextPropagationId);
+                      setState({ kind: "idle" });
+                    }}
+                  >
+                    <optgroup label="Built-in propagation">
+                      {BUILT_IN_COMPOSER_PROPAGATION_IDS.map((id) => (
+                        <option key={id} value={id}>{composerPropagationLabel(id)}</option>
+                      ))}
+                    </optgroup>
+                    {customDiffusionKernels.length > 0 ? (
+                      <optgroup label="Custom kernels">
+                        {customDiffusionKernels.map((kernel) => (
+                          <option key={kernel.id} value={kernel.id}>{kernel.id}</option>
+                        ))}
+                      </optgroup>
+                    ) : null}
+                  </select>
+                </label>
+              </div>
+              <div className="dithering-row dithering-row-paired">
+                <div className="dithering-parameter">
+                  <RangeNumberControl
+                    id="composer-mix-weight"
+                    label="Composer diffusion mix"
+                    value={composer.mixWeight}
+                    min={0}
+                    max={100}
+                    unit="%"
+                    onChange={(value) => {
+                      setComposer((current) => ({ ...current, mixWeight: value }));
+                      setState({ kind: "idle" });
+                    }}
+                    onValidityChange={setSliderValidity}
+                  />
+                  <span className="control-help">0% uses the pattern guide only, 100% uses diffusion only.</span>
+                </div>
+                <label>
+                  <span>Carrier mode</span>
+                  <select
+                    value={composer.carrierMode}
+                    onChange={(event) => {
+                      setComposer((current) => ({ ...current, carrierMode: event.target.value as ConversionSettings["composer"]["carrierMode"] }));
+                      setState({ kind: "idle" });
+                    }}
+                  >
+                    <option value="off">Off</option>
+                    <option value="protected-checker">Protected checker</option>
+                    <option value="adaptive">Adaptive</option>
+                  </select>
+                </label>
+              </div>
+              <div className="dithering-wide dithering-row dithering-row-action">
+                <label>
+                  <span>Custom matrix dimensions</span>
+                  <div className="dithering-pair-fields">
+                    <input type="number" min="1" max="8" step="1" value={customMatrixWidthEntry} onChange={(event) => setCustomMatrixWidthEntry(event.target.value)} />
+                    <input type="number" min="1" max="8" step="1" value={customMatrixHeightEntry} onChange={(event) => setCustomMatrixHeightEntry(event.target.value)} />
+                  </div>
+                </label>
+                <div className="dithering-action-slot">
+                  <button
+                    className="secondary compact"
+                    type="button"
+                    aria-label="Save custom matrix"
+                    onClick={() => {
+                      try {
+                        const width = Number.parseInt(customMatrixWidthEntry, 10);
+                        const height = Number.parseInt(customMatrixHeightEntry, 10);
+                        const values = parseMatrixValues(customMatrixValuesEntry);
+                        const definition = defineCustomOrderedMatrix({ width, height, values });
+                        setCustomOrderedMatrices((current) => {
+                          const next = current.filter((matrix) => matrix.id !== definition.id);
+                          return [...next, definition];
+                        });
+                        setComposer((current) => ({ ...current, patternId: definition.id }));
+                        setCustomPatternError(null);
+                        setState({ kind: "idle" });
+                      } catch (error: unknown) {
+                        setCustomPatternError(error instanceof Error ? error.message : "Invalid custom matrix.");
+                      }
+                    }}
+                  >Save matrix</button>
+                </div>
+              </div>
+              <label className="dithering-wide">
+                <span>Custom matrix ranks</span>
+                <textarea
+                  rows={3}
+                  value={customMatrixValuesEntry}
+                  onChange={(event) => setCustomMatrixValuesEntry(event.target.value)}
+                />
+              </label>
+              <div className="dithering-wide dithering-row dithering-row-action dithering-row-textarea-action">
+                <label>
+                  <span>Custom kernel entries</span>
+                  <textarea
+                    rows={4}
+                    value={customKernelEntryText}
+                    onChange={(event) => setCustomKernelEntryText(event.target.value)}
+                  />
+                </label>
+                <div className="dithering-action-slot">
+                  <button
+                    className="secondary compact"
+                    type="button"
+                    aria-label="Save custom kernel"
+                    onClick={() => {
+                      try {
+                        const entries = parseKernelEntries(customKernelEntryText);
+                        const definition = defineCustomDiffusionKernel(entries);
+                        setCustomDiffusionKernels((current) => {
+                          const next = current.filter((kernel) => kernel.id !== definition.id);
+                          return [...next, definition];
+                        });
+                        setComposer((current) => ({ ...current, propagationId: definition.id }));
+                        setCustomPatternError(null);
+                        setState({ kind: "idle" });
+                      } catch (error: unknown) {
+                        setCustomPatternError(error instanceof Error ? error.message : "Invalid custom kernel.");
+                      }
+                    }}
+                  >Save kernel</button>
+                </div>
+                <span className="control-help">One row per entry: dx dy weight</span>
+              </div>
+              {customPatternError === null ? null : <span className="field-error">{customPatternError}</span>}
+            </>
           ) : null}
           {dithering === "error-diffusion" ? (
             <label className="dithering-wide">
@@ -9846,7 +10160,61 @@ export function App() {
               </select>
             </label>
           ) : null}
-          {dithering !== "none" ? (
+          {dithering === "error-diffusion" ? (
+            <div className="dithering-wide dithering-row dithering-row-paired">
+              <fieldset className="amount-control dithering-inline-fieldset">
+                <legend>Dithering amount</legend>
+                <div className="amount-inputs">
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={amountValid ? amount : 0}
+                    aria-label="Dithering amount slider"
+                    onInput={(event) => { setAmountEntry(event.currentTarget.value); setState({ kind: "idle" }); }}
+                  />
+                  <label className="percentage-entry">
+                    <span className="visually-hidden">Dithering amount percentage</span>
+                    <input
+                      className={amountValid ? undefined : "invalid"}
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value={amountEntry}
+                      aria-invalid={!amountValid}
+                      aria-describedby={amountValid ? undefined : "amount-error"}
+                      onChange={(event) => { setAmountEntry(event.target.value); setState({ kind: "idle" }); }}
+                    />
+                    <span aria-hidden="true">%</span>
+                  </label>
+                </div>
+                {amountValid ? null : <span className="field-error" id="amount-error">Invalid value</span>}
+              </fieldset>
+              <div
+                className="dithering-parameter"
+                title="Deterministically breaks repeating Error-diffusion patterns."
+              >
+                <RangeNumberControl
+                  id="error-randomization"
+                  label="Error randomization"
+                  value={errorDiffusionRandomization}
+                  min={0}
+                  max={100}
+                  unit="%"
+                  onChange={(value) => {
+                    setErrorDiffusionRandomization(value);
+                    setState({ kind: "idle" });
+                  }}
+                  onValidityChange={setSliderValidity}
+                />
+                <span className="control-help">
+                  Deterministically breaks repeating Error-diffusion patterns.
+                </span>
+              </div>
+            </div>
+          ) : dithering !== "none" ? (
             <fieldset className="amount-control dithering-wide">
               <legend>Dithering amount</legend>
               <div className="amount-inputs">
@@ -9878,50 +10246,42 @@ export function App() {
               {amountValid ? null : <span className="field-error" id="amount-error">Invalid value</span>}
             </fieldset>
           ) : null}
-          {dithering === "error-diffusion" || (
+          {(ditherEngineId === "error-diffusion-phase-balanced-v3" ||
+            ditherEngineId === "error-diffusion-phase-balanced-checker-v3-1" ||
+            ditherEngineId === "error-diffusion-phase-balanced-checker-v3-2" ||
+            ditherEngineId === "error-diffusion-phase-balanced-checker-v3-3" ||
+            ditherEngineId === "error-diffusion-checker-phase-v4" ||
+            ditherEngineId === "error-diffusion-checker-phase-v4-4" ||
+            ditherEngineId === "error-diffusion-checker-artistic-v1" ||
+            ditherEngineId === "error-diffusion-checker-phase-v4-5" ||
+            ditherEngineId === "error-diffusion-checker-phase-v4-5-1" ||
+            ditherEngineId === "error-diffusion-checker-phase-v4-1" ||
+            ditherEngineId === "error-diffusion-checker-phase-v4-2" ||
+            ditherEngineId === "error-diffusion-checker-phase-v4-3" ||
+            ditherEngineId === "error-diffusion-checker-phase-v5" ||
+            ditherEngineId === "error-diffusion-matrix-guided-v1") || (
             isQl &&
             targetModeId === "mode8-mode4-mixed-512x256" &&
             ditherEngineId === "artistic-ordered-hybrid-v1"
           ) ? (
-            <>
-              {dithering === "error-diffusion" ? <div
-                  className="dithering-parameter"
-                  title="Deterministically breaks repeating Error-diffusion patterns."
-                >
-                  <RangeNumberControl
-                    id="error-randomization"
-                    label="Error randomization"
-                    value={errorDiffusionRandomization}
-                    min={0}
-                    max={100}
-                    unit="%"
-                    onChange={(value) => {
-                      setErrorDiffusionRandomization(value);
-                      setState({ kind: "idle" });
-                    }}
-                    onValidityChange={setSliderValidity}
-                  />
-                  <span className="control-help">
-                    Deterministically breaks repeating Error-diffusion patterns.
-                  </span>
-                </div> : null}
-              {ditherEngineId === "error-diffusion-phase-balanced-v3" ||
-              ditherEngineId === "error-diffusion-phase-balanced-checker-v3-1" ||
-              ditherEngineId === "error-diffusion-phase-balanced-checker-v3-2" ||
-              ditherEngineId === "error-diffusion-phase-balanced-checker-v3-3" ||
-              ditherEngineId === "error-diffusion-checker-phase-v4" ||
-              ditherEngineId === "error-diffusion-checker-phase-v4-4" ||
-              ditherEngineId === "error-diffusion-checker-artistic-v1" ||
-              ditherEngineId === "error-diffusion-checker-phase-v4-5" ||
-              ditherEngineId === "error-diffusion-checker-phase-v4-5-1" ||
-              ditherEngineId === "error-diffusion-checker-phase-v4-1" ||
-              ditherEngineId === "error-diffusion-checker-phase-v4-2" ||
-              ditherEngineId === "error-diffusion-checker-phase-v4-3" ||
-              ditherEngineId === "error-diffusion-checker-phase-v5" ||
-              ditherEngineId === "error-diffusion-matrix-guided-v1" ||
-              (isQl &&
-                targetModeId === "mode8-mode4-mixed-512x256" &&
-                ditherEngineId === "artistic-ordered-hybrid-v1") ? (
+            <div className="dithering-row">
+              {(ditherEngineId === "error-diffusion-phase-balanced-v3" ||
+                ditherEngineId === "error-diffusion-phase-balanced-checker-v3-1" ||
+                ditherEngineId === "error-diffusion-phase-balanced-checker-v3-2" ||
+                ditherEngineId === "error-diffusion-phase-balanced-checker-v3-3" ||
+                ditherEngineId === "error-diffusion-checker-phase-v4" ||
+                ditherEngineId === "error-diffusion-checker-phase-v4-4" ||
+                ditherEngineId === "error-diffusion-checker-artistic-v1" ||
+                ditherEngineId === "error-diffusion-checker-phase-v4-5" ||
+                ditherEngineId === "error-diffusion-checker-phase-v4-5-1" ||
+                ditherEngineId === "error-diffusion-checker-phase-v4-1" ||
+                ditherEngineId === "error-diffusion-checker-phase-v4-2" ||
+                ditherEngineId === "error-diffusion-checker-phase-v4-3" ||
+                ditherEngineId === "error-diffusion-checker-phase-v5" ||
+                ditherEngineId === "error-diffusion-matrix-guided-v1" ||
+                (isQl &&
+                  targetModeId === "mode8-mode4-mixed-512x256" &&
+                  ditherEngineId === "artistic-ordered-hybrid-v1")) ? (
                 <div
                   className="dithering-parameter"
                     title="Reduces vertical diffusion runs and favors balanced alternating 2×2 placement; v3.1 adds local placement, v3.2 integrates checker decisions into v3 propagation, v3.3 reorients only true 50% checker blocks, v4.4 adds a checker carrier, v4.5 adaptively selects checker or dispersed 4×4 carriers, and v4.5.1 uses coverage-preserving atomic 2×2 color-pair correction to reduce spikes without isolated pixel flips. At 0%, output matches Projected unrestricted v2."
@@ -9944,7 +10304,7 @@ export function App() {
                   </span>
                 </div>
               ) : null}
-            </>
+            </div>
           ) : null}
           </fieldset>
           </details>

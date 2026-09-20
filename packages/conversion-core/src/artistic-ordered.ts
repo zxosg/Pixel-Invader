@@ -663,6 +663,24 @@ export function renderArtisticPairField(
           if (edgeBand[y * width + x]) return false;
         }
       }
+      for (let y = Math.max(0, top - 1); y <= Math.min(height - 1, top + 2); y += 1) {
+        for (let x = Math.max(0, left - 1); x <= Math.min(width - 1, left + 2); x += 1) {
+          const index = y * width + x;
+          for (const [nx, ny] of [[x + 1, y], [x, y + 1]] as const) {
+            if (nx >= width || ny >= height) continue;
+            const neighbor = ny * width + nx;
+            const lumaDelta = Math.abs(sourceLuma(index) - sourceLuma(neighbor));
+            const offset = index * 4;
+            const neighborOffset = neighbor * 4;
+            let colorDelta = 0;
+            for (let c = 0; c < 3; c += 1) {
+              const difference = linear[source[offset + c]!]! - linear[source[neighborOffset + c]!]!;
+              colorDelta += weights[c]! * difference * difference;
+            }
+            if (lumaDelta >= 0.18 || colorDelta >= 0.055) return false;
+          }
+        }
+      }
       return true;
     };
     for (let top = 0; top + 1 < height; top += 2) {
@@ -715,7 +733,23 @@ export function renderArtisticPairField(
           }
           continue;
         }
-        if (candidateScore.diagonal > currentScore.diagonal) {
+        const changedPixels = candidate.reduce(
+          (count, value, index) => count + (value === current[index] ? 0 : 1),
+          0,
+        );
+        if (changedPixels !== 4) {
+          if (diagnostics) {
+            diagnostics.sourceRejectedCandidates += 1;
+            diagnostics.diagonalArtifactScoreAfter += currentScore.diagonal;
+            diagnostics.verticalArtifactScoreAfter += currentScore.vertical;
+            diagnostics.horizontalArtifactScoreAfter += currentScore.horizontal;
+          }
+          continue;
+        }
+        if (
+          candidateScore.diagonal > currentScore.diagonal &&
+          candidateScore.horizontal >= currentScore.horizontal
+        ) {
           if (diagnostics) {
             diagnostics.rejectedDiagonalIncrease += 1;
             diagnostics.diagonalArtifactScoreAfter += currentScore.diagonal;
@@ -724,25 +758,7 @@ export function renderArtisticPairField(
           }
           continue;
         }
-        if (candidateScore.horizontal > currentScore.horizontal) {
-          if (diagnostics) {
-            diagnostics.rejectedHorizontal2x1 += 1;
-            diagnostics.diagonalArtifactScoreAfter += currentScore.diagonal;
-            diagnostics.verticalArtifactScoreAfter += currentScore.vertical;
-            diagnostics.horizontalArtifactScoreAfter += currentScore.horizontal;
-          }
-          continue;
-        }
-        if (candidateScore.vertical > currentScore.vertical) {
-          if (diagnostics) {
-            diagnostics.structureRejectedCandidates += 1;
-            diagnostics.verticalArtifactScoreAfter += currentScore.vertical;
-            diagnostics.diagonalArtifactScoreAfter += currentScore.diagonal;
-            diagnostics.horizontalArtifactScoreAfter += currentScore.horizontal;
-          }
-          continue;
-        }
-        if (candidateScore.total + 0.5 >= currentScore.total) {
+        if (candidateScore.total >= currentScore.total) {
           if (diagnostics) {
             diagnostics.sourceRejectedCandidates += 1;
             diagnostics.diagonalArtifactScoreAfter += currentScore.diagonal;

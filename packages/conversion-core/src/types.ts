@@ -53,6 +53,34 @@ export type AttributeOptimizerId =
   | "zx-vertical-spatial-detail-v1"
   | "ql-vertical-spatial-uniform-v1";
 export type ArtisticPatternPreference = "auto" | "checkerboard" | "horizontal" | "vertical";
+export type CustomOrderedMatrixId = `custom-ordered-${string}`;
+export type CustomDiffusionKernelId = `custom-diffusion-${string}`;
+export type ComposerPatternId = OrderedMatrixId | CustomOrderedMatrixId;
+export type ComposerPropagationId =
+  | "none"
+  | "error-diffusion-unrestricted-v2"
+  | "error-diffusion-phase-balanced-v3"
+  | "error-diffusion-checker-phase-v4-3"
+  | "error-diffusion-checker-phase-v5"
+  | "error-diffusion-decorrelated-v3"
+  | "error-diffusion-atkinson-v1"
+  | CustomDiffusionKernelId;
+export interface CustomOrderedMatrixDefinition {
+  readonly id: CustomOrderedMatrixId;
+  readonly width: number;
+  readonly height: number;
+  readonly values: readonly number[];
+}
+export interface CustomDiffusionKernelDefinition {
+  readonly id: CustomDiffusionKernelId;
+  readonly entries: readonly (readonly [dx: number, dy: number, weight: number])[];
+}
+export interface DitherComposerSettings {
+  readonly patternId: ComposerPatternId;
+  readonly propagationId: ComposerPropagationId;
+  readonly mixWeight: number;
+  readonly carrierMode: "off" | "protected-checker" | "adaptive";
+}
 export type DitherEngineId =
   | "artistic-ordered-hybrid-v1"
   | "artistic-ordered-tone-safe-v2"
@@ -78,6 +106,7 @@ export type DitherEngineId =
   | "ordered-cell-pattern-v3"
   | "ordered-cell-pattern-v4"
   | "pattern-legal-mask-dbs-v1"
+  | "dither-composer-v1"
   | "error-diffusion-projected-v1"
   | "error-diffusion-unrestricted-v2"
   | "error-diffusion-phase-balanced-v3"
@@ -211,6 +240,9 @@ export interface ConversionSettings {
   readonly errorDiffusionLineSuppression: number;
   readonly orderedMatrix: OrderedMatrixId;
   readonly artisticPattern?: ArtisticPatternPreference;
+  readonly customOrderedMatrices: readonly CustomOrderedMatrixDefinition[];
+  readonly customDiffusionKernels: readonly CustomDiffusionKernelDefinition[];
+  readonly composer: DitherComposerSettings;
   readonly structured: StructuredConversionSettings;
   readonly pmd85: Pmd85ConversionSettings;
   readonly verticalSpatialMix?: VerticalSpatialMixSettings;
@@ -453,6 +485,14 @@ export const DEFAULT_CONVERSION_SETTINGS: ConversionSettings = {
   errorDiffusionRandomization: 0,
   errorDiffusionLineSuppression: 50,
   orderedMatrix: "bayer-4x4",
+  customOrderedMatrices: [],
+  customDiffusionKernels: [],
+  composer: {
+    patternId: "bayer-4x4",
+    propagationId: "error-diffusion-phase-balanced-v3",
+    mixWeight: 100,
+    carrierMode: "off",
+  },
   structured: {
     schemaVersion: 1,
     ditherAmountPermille: 0,

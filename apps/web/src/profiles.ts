@@ -794,6 +794,13 @@ function validateSettings(value: unknown): value is ConversionSettings {
       value.platformId === "pmd-85") &&
     (value.artisticPattern === undefined || ["auto", "checkerboard", "horizontal", "vertical"].includes(String(value.artisticPattern))) &&
     ["checkerboard-2x1", "bayer-2x2", "bayer-4x4", "bayer-8x8", "clustered-dot-4x4", "clustered-dot-8x8", "void-cluster-8x8"].includes(String(value.orderedMatrix)) &&
+    Array.isArray(value.customOrderedMatrices) &&
+    Array.isArray(value.customDiffusionKernels) &&
+    isObject(value.composer) &&
+    typeof value.composer.patternId === "string" &&
+    typeof value.composer.propagationId === "string" &&
+    integerRange(value.composer.mixWeight, 0, 100) &&
+    ["off", "protected-checker", "adaptive"].includes(String(value.composer.carrierMode)) &&
     value.structured.schemaVersion === 1 &&
     integerRange(value.structured.ditherAmountPermille, 0, 1000) &&
     ["linear-light-average-v1", "gamma-average-v1"].includes(String(value.structured.mixtureModelId)) &&

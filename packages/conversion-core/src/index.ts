@@ -27,9 +27,27 @@ export {
   orderedPerturbationDiagnostics,
   ORDERED_MATRICES,
   orderedThreshold,
+  customOrderedMatrix,
+  customOrderedMatrixId,
+  defineCustomOrderedMatrix,
+  validateCustomOrderedMatrix,
   type OrderedMatrix,
   type OrderedPerturbationDiagnostics,
 } from "./matrices.js";
+export {
+  atkinsonDiffusionKernel,
+  checkerPhaseDiffusionKernel,
+  checkerPhaseV42DiffusionKernel,
+  checkerPhaseV43DiffusionKernel,
+  checkerPhaseV5DiffusionKernel,
+  customDiffusionKernelId,
+  decorrelatedDiffusionKernel,
+  defineCustomDiffusionKernel,
+  diffusionNoiseOffset,
+  phaseBalancedDiffusionKernel,
+  validateCustomDiffusionKernel,
+  type CustomDiffusionKernelEntry,
+} from "./diffusion.js";
 export { decodeAttribute, zxColor } from "./palette.js";
 export {
   outputScreenCount,

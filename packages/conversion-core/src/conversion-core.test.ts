@@ -11,6 +11,8 @@ import {
   ORDERED_MATRICES,
   adjustRgba,
   convertToZx,
+  defineCustomDiffusionKernel,
+  defineCustomOrderedMatrix,
   filterRgba,
   fillGeometryForDimensions,
   frameRgba,
@@ -24,6 +26,20 @@ import {
 function solid(width: number, height: number, rgba: readonly number[]): Uint8Array {
   const output = new Uint8Array(width * height * 4);
   for (let offset = 0; offset < output.length; offset += 4) output.set(rgba, offset);
+  return output;
+}
+
+function gradientSource(width: number, height: number): Uint8Array {
+  const output = new Uint8Array(width * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const offset = (y * width + x) * 4;
+      output[offset] = Math.round(x * 255 / Math.max(1, width - 1));
+      output[offset + 1] = Math.round(y * 255 / Math.max(1, height - 1));
+      output[offset + 2] = Math.round((x + y) * 255 / Math.max(1, width + height - 2));
+      output[offset + 3] = 255;
+    }
+  }
   return output;
 }
 
@@ -1223,6 +1239,92 @@ describe("ZX conversion", () => {
         orderedMatrix: "checkerboard-2x1",
       }).previewRgba,
     );
+  });
+
+  it("keeps the composer deterministic and exact at zero amount", () => {
+    const source = gradientSource(256, 192);
+    const base = settings({
+      framing: "stretch",
+      resampling: "nearest",
+      dithering: "error-diffusion",
+      ditherEngineId: "dither-composer-v1",
+      ditheringAmount: 42,
+      errorDiffusionRandomization: 0,
+      errorDiffusionLineSuppression: 64,
+      composer: {
+        patternId: "bayer-4x4",
+        propagationId: "error-diffusion-phase-balanced-v3",
+        mixWeight: 65,
+        carrierMode: "adaptive",
+      },
+    });
+    const first = convertToZx(source, 256, 192, base, "draft");
+    const second = convertToZx(source, 256, 192, base, "draft");
+    expect(first.previewRgba).toEqual(second.previewRgba);
+    expect(first.screen.pixels).toEqual(second.screen.pixels);
+    expect(validateScreen(first.screen)).toEqual([]);
+
+    const zero = convertToZx(source, 256, 192, {
+      ...base,
+      ditheringAmount: 0,
+    }, "draft");
+    const none = convertToZx(source, 256, 192, {
+      ...base,
+      dithering: "none",
+      ditherEngineId: "none-discrete-v2",
+      ditheringAmount: 0,
+    }, "draft");
+    expect(zero.screen.pixels).toEqual(none.screen.pixels);
+    expect(zero.attributes).toEqual(none.attributes);
+  });
+
+  it("resolves custom composer matrices and kernels from settings", () => {
+    const source = gradientSource(256, 192);
+    const customMatrix = defineCustomOrderedMatrix({
+      width: 4,
+      height: 4,
+      values: [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5],
+    });
+    const customKernel = defineCustomDiffusionKernel([
+      [1, 0, 5],
+      [-1, 1, 2],
+      [0, 1, 6],
+      [1, 1, 3],
+    ]);
+    const custom = convertToZx(source, 256, 192, settings({
+      framing: "stretch",
+      resampling: "nearest",
+      dithering: "error-diffusion",
+      ditherEngineId: "dither-composer-v1",
+      ditheringAmount: 55,
+      errorDiffusionRandomization: 0,
+      errorDiffusionLineSuppression: 40,
+      customOrderedMatrices: [customMatrix],
+      customDiffusionKernels: [customKernel],
+      composer: {
+        patternId: customMatrix.id,
+        propagationId: customKernel.id,
+        mixWeight: 50,
+        carrierMode: "protected-checker",
+      },
+    }), "draft");
+    const builtin = convertToZx(source, 256, 192, settings({
+      framing: "stretch",
+      resampling: "nearest",
+      dithering: "error-diffusion",
+      ditherEngineId: "dither-composer-v1",
+      ditheringAmount: 55,
+      errorDiffusionRandomization: 0,
+      errorDiffusionLineSuppression: 40,
+      composer: {
+        patternId: "bayer-4x4",
+        propagationId: "error-diffusion-phase-balanced-v3",
+        mixWeight: 50,
+        carrierMode: "protected-checker",
+      },
+    }), "draft");
+    expect(validateScreen(custom.screen)).toEqual([]);
+    expect(custom.previewRgba).not.toEqual(builtin.previewRgba);
   });
 
   it("keeps checker-phase v4.1 deterministic and preserves horizontal gradients", () => {

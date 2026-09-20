@@ -22,9 +22,11 @@ import { frameRgba } from "./geometry.js";
 import { adjustRgba, validateAdjustments } from "./adjustments.js";
 import { adaptiveDitherPrefilter, filterRgba, validateImageFilters } from "./filters.js";
 import {
+  customOrderedMatrix,
   normalizedOrderedOffset,
   ORDERED_MATRICES,
   orderedThreshold,
+  type OrderedMatrix,
 } from "./matrices.js";
 import { decodeAttribute, zxColor } from "./palette.js";
 import {
@@ -64,6 +66,7 @@ import {
   diffusionNoiseOffset,
   hilbertTraversal,
   phaseBalancedDiffusionKernel,
+  type CustomDiffusionKernelEntry,
 } from "./diffusion.js";
 import {
   buildTemporalCrossPalette,
@@ -405,6 +408,7 @@ function renderLocalErrorDiffusion(
   brightMode: BrightMode,
   engineId: ConversionSettings["ditherEngineId"],
   lineSuppression: number,
+  customKernelEntries?: readonly CustomDiffusionKernelEntry[],
 ): Uint8Array {
   const colorKeys = new Uint8Array(ZX_SCREEN_WIDTH * ZX_SCREEN_HEIGHT);
   const decorrelated = engineId === "error-diffusion-decorrelated-v3";
@@ -570,7 +574,9 @@ function renderLocalErrorDiffusion(
         Math.fround(diffusionScale * (adjustedG - output.g)),
         Math.fround(diffusionScale * (adjustedB - output.b)),
       ] as const;
-      const neighbors = decorrelated
+      const neighbors = customKernelEntries !== undefined
+        ? customKernelEntries.map(([dx, dy, weight]) => [x + dx * direction, y + dy, weight] as const)
+        : decorrelated
         ? decorrelatedDiffusionKernel(direction).map(
             ([dx, dy, weight]) => [x + dx, y + dy, weight] as const,
           )
@@ -1015,7 +1021,7 @@ function renderLocalOrderedDither(
 
 function renderCoverageNormalizedOrderedDither(
   source: Uint8Array,
-  matrix: (typeof ORDERED_MATRICES)[keyof typeof ORDERED_MATRICES],
+  matrix: OrderedMatrix,
   amount: number,
   enabledColors: ReadonlySet<number>,
   brightMode: BrightMode,
@@ -1104,6 +1110,84 @@ function nearestGuideKeys(
     keys[pixel] = bestKey;
   }
   return keys;
+}
+
+function resolveComposerMatrix(settings: ConversionSettings): OrderedMatrix {
+  const { patternId } = settings.composer;
+  if (patternId in ORDERED_MATRICES) {
+    return ORDERED_MATRICES[patternId as keyof typeof ORDERED_MATRICES];
+  }
+  const customMatrix = settings.customOrderedMatrices.find((candidate) => candidate.id === patternId);
+  if (customMatrix === undefined) {
+    throw new RangeError(`Unknown composer pattern: ${patternId}.`);
+  }
+  return customOrderedMatrix(customMatrix);
+}
+
+function resolveComposerKernelEntries(
+  settings: ConversionSettings,
+): readonly CustomDiffusionKernelEntry[] | undefined {
+  const { propagationId } = settings.composer;
+  if (propagationId === "none") return undefined;
+  if (!propagationId.startsWith("custom-diffusion-")) return undefined;
+  const customKernel = settings.customDiffusionKernels.find((candidate) => candidate.id === propagationId);
+  if (customKernel === undefined) {
+    throw new RangeError(`Unknown composer diffusion kernel: ${propagationId}.`);
+  }
+  return customKernel.entries;
+}
+
+function composerDiffusionEngineId(settings: ConversionSettings): ConversionSettings["ditherEngineId"] {
+  const { propagationId } = settings.composer;
+  if (propagationId === "none" || propagationId.startsWith("custom-diffusion-")) {
+    return "error-diffusion-unrestricted-v2";
+  }
+  return propagationId as ConversionSettings["ditherEngineId"];
+}
+
+function renderComposerGuide(
+  source: Uint8Array,
+  localAttributes: Uint8Array | null,
+  settings: ConversionSettings,
+  enabledColors: ReadonlySet<number>,
+): Uint8Array {
+  if (settings.ditheringAmount <= 0) return nearestGuideKeys(source, settings);
+  const matrix = resolveComposerMatrix(settings);
+  const orderedGuide = renderCoverageNormalizedOrderedDither(
+    source,
+    matrix,
+    settings.ditheringAmount,
+    enabledColors,
+    zxBrightMode(settings),
+  );
+  if (settings.composer.propagationId === "none") return orderedGuide;
+  const customKernelEntries = resolveComposerKernelEntries(settings);
+  const diffusionGuide = renderLocalErrorDiffusion(
+    source,
+    localAttributes,
+    settings.ditheringAmount,
+    settings.errorDiffusionRandomization,
+    enabledColors,
+    zxBrightMode(settings),
+    composerDiffusionEngineId(settings),
+    settings.errorDiffusionLineSuppression,
+    customKernelEntries,
+  );
+  const mixWeight = Math.max(0, Math.min(100, settings.composer.mixWeight));
+  if (mixWeight >= 100) return diffusionGuide;
+  if (mixWeight <= 0) return orderedGuide;
+  const mixed = diffusionGuide.slice();
+  const thresholdScale = matrix.levels * mixWeight;
+  for (let y = 0; y < ZX_SCREEN_HEIGHT; y += 1) {
+    for (let x = 0; x < ZX_SCREEN_WIDTH; x += 1) {
+      const index = y * ZX_SCREEN_WIDTH + x;
+      const threshold = orderedThreshold(matrix, x, y) * 100;
+      mixed[index] = threshold < thresholdScale
+        ? diffusionGuide[index] ?? 0
+        : orderedGuide[index] ?? 0;
+    }
+  }
+  return mixed;
 }
 
 interface WeightedGuideSample {
@@ -3255,6 +3339,7 @@ export function convertToZx(
   if (usesTwoPassDither) {
     const draftBrightCells = calculateDraftBrightCells(normalized, cellHeight);
     const usesUnrestrictedGuide =
+      settings.ditherEngineId === "dither-composer-v1" ||
       settings.ditherEngineId === "ordered-unrestricted-v2" ||
       settings.ditherEngineId === "ordered-local-tone-v3" ||
       settings.ditherEngineId === "ordered-palette-pairs-v4" ||
@@ -3304,18 +3389,25 @@ export function convertToZx(
       ? "bayer-4x4"
       : settings.orderedMatrix];
     guideKeys = settings.dithering === "error-diffusion"
-      ? renderLocalErrorDiffusion(
-          normalized,
-          localAttributes,
-          settings.ditheringAmount,
-          settings.errorDiffusionRandomization,
-          enabledColors,
-          zxBrightMode(settings),
-          settings.ditherEngineId === "error-diffusion-checker-phase-v4-5"
-            ? "error-diffusion-checker-phase-v4-4"
-            : settings.ditherEngineId,
-          settings.errorDiffusionLineSuppression,
-        )
+      ? settings.ditherEngineId === "dither-composer-v1"
+        ? renderComposerGuide(
+            normalized,
+            localAttributes,
+            settings,
+            enabledColors,
+          )
+        : renderLocalErrorDiffusion(
+            normalized,
+            localAttributes,
+            settings.ditheringAmount,
+            settings.errorDiffusionRandomization,
+            enabledColors,
+            zxBrightMode(settings),
+            settings.ditherEngineId === "error-diffusion-checker-phase-v4-5"
+              ? "error-diffusion-checker-phase-v4-4"
+              : settings.ditherEngineId,
+            settings.errorDiffusionLineSuppression,
+          )
       : (settings.ditherEngineId === "ordered-coverage-normalized-v7" ||
         settings.ditherEngineId === "ordered-threshold-identity-v1")
       ? renderCoverageNormalizedOrderedDither(
@@ -3594,6 +3686,24 @@ export function convertToZx(
         stableCheckerCarrierV451 ? "b" : "a",
         stableCheckerCarrierV451,
         colorCarrierDiagnostics,
+      );
+    }
+  }
+  if (settings.ditherEngineId === "dither-composer-v1" && settings.ditheringAmount > 0) {
+    const strength = settings.composer.carrierMode === "off"
+      ? 0
+      : settings.composer.carrierMode === "protected-checker"
+        ? checkerCarrierStrengthV44(100, settings.errorDiffusionLineSuppression)
+        : checkerArtisticCarrierStrength(settings.errorDiffusionLineSuppression);
+    if (strength > 0) {
+      pixels = renderArtisticOrdered(
+        normalized,
+        attributes,
+        cellHeight,
+        settings.ditheringAmount * strength,
+        "checkerboard",
+        pixels,
+        cellHeight === 1 ? 2 : 4,
       );
     }
   }

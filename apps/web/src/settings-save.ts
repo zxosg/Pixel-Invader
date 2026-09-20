@@ -223,6 +223,15 @@ export function canonicalizeSettingsForSave({ draft, current, profiles }: Settin
     errorDiffusionLineSuppression: numberValue(draft, "errorDiffusionLineSuppression", base.errorDiffusionLineSuppression),
     orderedMatrix: stringValue(draft, "orderedMatrix", base.orderedMatrix) as ConversionSettings["orderedMatrix"],
     artisticPattern: stringValue(draft, "artisticPattern", base.artisticPattern ?? "auto") as NonNullable<ConversionSettings["artisticPattern"]>,
+    customOrderedMatrices: Array.isArray(draft.customOrderedMatrices)
+      ? draft.customOrderedMatrices as ConversionSettings["customOrderedMatrices"]
+      : base.customOrderedMatrices,
+    customDiffusionKernels: Array.isArray(draft.customDiffusionKernels)
+      ? draft.customDiffusionKernels as ConversionSettings["customDiffusionKernels"]
+      : base.customDiffusionKernels,
+    composer: typeof draft.composer === "object" && draft.composer !== null
+      ? draft.composer as ConversionSettings["composer"]
+      : base.composer,
     structured: {
       ...base.structured,
       ditherAmountPermille: dithering === "none" ? 0 : ditheringAmount * 10,

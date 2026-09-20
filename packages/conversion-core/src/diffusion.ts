@@ -1,7 +1,77 @@
+import type {
+  CustomDiffusionKernelDefinition,
+  CustomDiffusionKernelId,
+} from "./types.js";
+
 function signedRoundDiv(numerator: number, denominator: number): number {
   return numerator < 0
     ? -Math.floor((-numerator + Math.floor(denominator / 2)) / denominator)
     : Math.floor((numerator + Math.floor(denominator / 2)) / denominator);
+}
+
+export type CustomDiffusionKernelEntry = readonly [dx: number, dy: number, weight: number];
+
+const CUSTOM_KERNEL_MAX_ENTRIES = 16;
+const CUSTOM_KERNEL_MAX_OFFSET = 4;
+
+function stableKernelHash(entries: readonly CustomDiffusionKernelEntry[]): string {
+  let hash = 0x811c9dc5;
+  for (const [dx, dy, weight] of entries) {
+    const components = [dx, dy, Math.floor(weight * 1_000)];
+    for (const component of components) {
+      hash ^= component & 0xff;
+      hash = Math.imul(hash, 0x01000193) >>> 0;
+      hash ^= (component >>> 8) & 0xff;
+      hash = Math.imul(hash, 0x01000193) >>> 0;
+      hash ^= (component >>> 16) & 0xff;
+      hash = Math.imul(hash, 0x01000193) >>> 0;
+      hash ^= (component >>> 24) & 0xff;
+      hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+  }
+  return hash.toString(16).padStart(8, "0");
+}
+
+/** Rejects a user-supplied kernel atomically; never partially applies it. */
+export function validateCustomDiffusionKernel(
+  entries: readonly CustomDiffusionKernelEntry[],
+): void {
+  if (entries.length === 0 || entries.length > CUSTOM_KERNEL_MAX_ENTRIES) {
+    throw new RangeError(`Custom diffusion kernel must have 1 through ${CUSTOM_KERNEL_MAX_ENTRIES} entries.`);
+  }
+  let totalWeight = 0;
+  for (const [dx, dy, weight] of entries) {
+    if (
+      !Number.isInteger(dx) || !Number.isInteger(dy) ||
+      Math.abs(dx) > CUSTOM_KERNEL_MAX_OFFSET || dy < 0 || dy > CUSTOM_KERNEL_MAX_OFFSET
+    ) {
+      throw new RangeError("Custom diffusion kernel offsets are out of the supported range.");
+    }
+    if (!Number.isFinite(weight) || weight < 0) {
+      throw new RangeError("Custom diffusion kernel weights must be non-negative finite numbers.");
+    }
+    totalWeight += weight;
+  }
+  if (totalWeight <= 0) {
+    throw new RangeError("Custom diffusion kernel must propagate a positive total weight.");
+  }
+}
+
+export function customDiffusionKernelId(
+  entries: readonly CustomDiffusionKernelEntry[],
+): CustomDiffusionKernelId {
+  validateCustomDiffusionKernel(entries);
+  return `custom-diffusion-${stableKernelHash(entries)}`;
+}
+
+export function defineCustomDiffusionKernel(
+  entries: readonly CustomDiffusionKernelEntry[],
+): CustomDiffusionKernelDefinition {
+  validateCustomDiffusionKernel(entries);
+  return {
+    id: customDiffusionKernelId(entries),
+    entries: entries.map(([dx, dy, weight]) => [dx, dy, weight] as const),
+  };
 }
 
 export function diffusionHash(
