@@ -110,9 +110,11 @@ import {
   ORDERED_MATRICES,
   ditherMethodForEngine,
   isCompatibleEnginePair,
+  isDitherEngineAvailableForSelection,
   latestDitherEngineForMethod,
   fillGeometryForDimensions,
   outputScreenCount,
+  destinationGeometryFor,
   orderedPerturbationDiagnostics,
   paletteSelectionsMatch,
   qlHardwareModesForTarget,
@@ -182,13 +184,14 @@ function unpackZxBitmap(encoded: Uint8Array): Uint8Array {
 }
 import {
   clampPixelCrop,
-  fitCropPreviewFrame,
+  cropResizeHandleAtPoint,
   moveCropFromDrag,
   orientedSourceSize,
   pointIsInsideCrop,
-  previewPointToSource,
+  resizeCropFromDrag,
   resizeCropToAspect,
   selectionFromDrag,
+  type CropResizeHandle,
   type PixelPoint,
 } from "./crop.js";
 import {
@@ -239,6 +242,7 @@ import {
   SETTING_CATEGORIES,
   SETTING_FILTER_PRESETS,
   SETTINGS_REGISTRY,
+  resetSettingsCategory,
   createSettingsDraft,
   filterSettings,
   validateSettingsDraft,
@@ -364,6 +368,18 @@ const ORDERED_MATRIX_IDS: readonly OrderedMatrixId[] = [
   "clustered-dot-8x8",
   "void-cluster-8x8",
 ];
+
+function orderedMatrixLabel(matrixId: OrderedMatrixId): string {
+  switch (matrixId) {
+    case "checkerboard-2x1": return "2×1 Checkerboard";
+    case "bayer-2x2": return "2×2";
+    case "bayer-4x4": return "4×4";
+    case "bayer-8x8": return "8×8";
+    case "clustered-dot-4x4": return "Clustered dot 4×4";
+    case "clustered-dot-8x8": return "Clustered dot 8×8";
+    case "void-cluster-8x8": return "Void-and-cluster 8×8";
+  }
+}
 
 function hexToRgb(hex: string): Pmd85RgbColor {
   return {
@@ -751,16 +767,13 @@ function drawOrientedCropSource(
   }
   rotatedContext.drawImage(sourceCanvas, 0, 0);
 
-  const frame = fitCropPreviewFrame(oriented);
-  context.fillStyle = "#ffffff";
-  context.fillRect(0, 0, 256, 192);
   context.save();
   context.translate(
-    frame.x + (mirrorHorizontal ? frame.width : 0),
-    frame.y + (mirrorVertical ? frame.height : 0),
+    mirrorHorizontal ? oriented.width : 0,
+    mirrorVertical ? oriented.height : 0,
   );
   context.scale(mirrorHorizontal ? -1 : 1, mirrorVertical ? -1 : 1);
-  context.drawImage(rotatedCanvas, 0, 0, frame.width, frame.height);
+  context.drawImage(rotatedCanvas, 0, 0);
   context.restore();
 }
 
@@ -913,7 +926,7 @@ export function App() {
   const cropDragRef = useRef<{
     readonly pointerId: number;
     readonly start: PixelPoint;
-    readonly mode: "create" | "move";
+    readonly mode: "create" | "move" | CropResizeHandle;
     readonly originalCrop: {
       readonly x: number;
       readonly y: number;
@@ -1200,6 +1213,7 @@ export function App() {
   const [layoutNameEntry, setLayoutNameEntry] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsDraft, setSettingsDraft] = useState<(ApplicationSettings & Record<string, unknown>) | null>(null);
+  const [settingsBaseline, setSettingsBaseline] = useState<Record<string, unknown> | null>(null);
   const startupWorkspaceAppliedRef = useRef(false);
   const [settingsSection, setSettingsSection] = useState<WorkbenchFocusTarget>("all");
   const [workbenchSettingsDock, setWorkbenchSettingsDock] = useState<WorkbenchDock>(
@@ -1415,7 +1429,7 @@ export function App() {
   const [settingsSearch, setSettingsSearch] = useState("");
   const [settingsCategory, setSettingsCategory] = useState<SettingCategory | "all">("all");
   const [settingsPreset, setSettingsPreset] = useState<SettingPresetId>("all");
-  const [cropPointerMode, setCropPointerMode] = useState<"create" | "move">("create");
+  const [cropPointerMode, setCropPointerMode] = useState<"create" | "move" | CropResizeHandle>("create");
   const [cropSelectionActive, setCropSelectionActive] = useState(true);
   const [inputPreviewStage, setInputPreviewStage] =
     useState<"source" | "pre-constraint">("source");
@@ -1445,6 +1459,10 @@ export function App() {
     profile.id === selectedProfileId
   ) ?? BUILT_IN_PROFILE;
   const selectedPlatformId = selectedProfile.platform_id;
+  const destinationGeometry = destinationGeometryFor(
+    selectedPlatformId,
+    targetModeId,
+  );
   const isQl = selectedPlatformId === "sinclair-ql";
   const isPmd = selectedPlatformId === "pmd-85";
   const isZx = selectedPlatformId === "zx-spectrum";
@@ -2537,15 +2555,17 @@ export function App() {
           },
         )
       : null;
-    canvas.width = framing === "crop"
-      ? 256
-      : displayResult?.width ?? fallbackPreview?.width ?? 256;
-    canvas.height = framing === "crop"
-      ? 192
-      : displayResult?.height ?? fallbackPreview?.height ?? 192;
+    const cropCanvasSize = framing === "crop"
+      ? orientedSourceSize(image.width, image.height, rotation)
+      : null;
+    canvas.width = cropCanvasSize?.width ??
+      (displayResult?.width ?? fallbackPreview?.width ?? destinationGeometry.width);
+    canvas.height = cropCanvasSize?.height ??
+      (displayResult?.height ?? fallbackPreview?.height ?? destinationGeometry.height);
     const context = canvas.getContext("2d");
     if (context === null) return;
-    const showingOriginalSource = sourcePreviewContent === "source-image" ||
+    const showingOriginalSource = sourcePreviewContent === "image" ||
+      sourcePreviewContent === "source-image" ||
       resultPreviewContent === "source-image";
     if (showingOriginalSource && framing !== "crop") {
       canvas.width = image.width;
@@ -2609,6 +2629,7 @@ export function App() {
     inputPreviewStage, workspaceMode, charsetState, sourcePreviewContent, background,
     resultPreviewContent,
     tilemapStale, hideAttributes, selectedPlatformId, targetModeId,
+    destinationGeometry.width, destinationGeometry.height,
     isPmd, brightness, contrast, saturation, gamma, smoothing, sharpening,
     workbenchSourceFloating, workbenchResultFloating, workbenchPreviewLayer,
   ]);
@@ -2949,21 +2970,15 @@ export function App() {
     : fillGeometryForDimensions(
         image.width,
         image.height,
-        isPmd ? PMD85_SCREEN_WIDTH : 256,
-        isPmd || isQl ? 256 : 192,
+        destinationGeometry.width,
+        destinationGeometry.height,
         rotation,
-        isQl
-          ? { width: 4, height: 3 }
-          : { width: 1, height: 1 },
+        destinationGeometry.pixelAspect,
         fillOffsetX,
         fillOffsetY,
       );
-  const panMaximumX = isPmd
-    ? PMD85_SCREEN_WIDTH
-    : isQl && ["mode4-512x256", "mode4-plain-512x256", "mode4-vertical-spatial-512x256", "mode8-mode4-mixed-512x256"].includes(targetModeId)
-      ? 512
-      : 256;
-  const panMaximumY = isPmd || isQl ? 256 : 192;
+  const panMaximumX = destinationGeometry.width;
+  const panMaximumY = destinationGeometry.height;
   useEffect(() => {
     if (fillGeometry === null) return;
     if (
@@ -3259,6 +3274,7 @@ export function App() {
       source,
       cropAspectRatio,
       "width",
+      destinationGeometry,
     ));
   }
 
@@ -3288,6 +3304,7 @@ export function App() {
         cropSourceSize,
         cropAspectRatio,
         field,
+        destinationGeometry,
       ));
     }
   }
@@ -3300,6 +3317,7 @@ export function App() {
         cropSourceSize,
         next,
         "width",
+        destinationGeometry,
       ));
     }
     setState({ kind: "idle" });
@@ -3310,14 +3328,20 @@ export function App() {
   ): PixelPoint | null {
     if (cropSourceSize === null) return null;
     const bounds = event.currentTarget.getBoundingClientRect();
-    const previewPoint = {
-      x: (event.clientX - bounds.left) / bounds.width * 256,
-      y: (event.clientY - bounds.top) / bounds.height * 192,
+    return {
+      x: (event.clientX - bounds.left) / bounds.width * cropSourceSize.width,
+      y: (event.clientY - bounds.top) / bounds.height * cropSourceSize.height,
     };
-    return previewPointToSource(
-      previewPoint,
-      fitCropPreviewFrame(cropSourceSize),
-      cropSourceSize,
+  }
+
+  function cropResizeTolerance(
+    event: ReactPointerEvent<HTMLCanvasElement> | ReactMouseEvent<HTMLCanvasElement>,
+  ): number {
+    if (cropSourceSize === null) return 0;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    return 12 * Math.max(
+      cropSourceSize.width / Math.max(1, bounds.width),
+      cropSourceSize.height / Math.max(1, bounds.height),
     );
   }
 
@@ -3332,16 +3356,19 @@ export function App() {
       width: cropWidth,
       height: cropHeight,
     };
+    const resizeHandle = cropSelectionActive && cropValid
+      ? cropResizeHandleAtPoint(start, originalCrop, cropResizeTolerance(event))
+      : null;
     const insideSelection = cropSelectionActive && cropValid &&
       pointIsInsideCrop(start, originalCrop);
     cropDragRef.current = {
       pointerId: event.pointerId,
       start,
-      mode: insideSelection ? "move" : "create",
+      mode: resizeHandle ?? (insideSelection ? "move" : "create"),
       originalCrop,
     };
     setCropSelectionActive(true);
-    setCropPointerMode(insideSelection ? "move" : "create");
+    setCropPointerMode(resizeHandle ?? (insideSelection ? "move" : "create"));
     event.currentTarget.focus();
     event.currentTarget.setPointerCapture(event.pointerId);
     event.stopPropagation();
@@ -3354,16 +3381,13 @@ export function App() {
     if (drag !== null) {
       setCropPointerMode(drag.mode);
     } else if (current !== null && cropSelectionActive && cropValid) {
-      setCropPointerMode(
-        pointIsInsideCrop(current, {
-          x: cropX,
-          y: cropY,
-          width: cropWidth,
-          height: cropHeight,
-        })
-          ? "move"
-          : "create",
+      const currentCrop = { x: cropX, y: cropY, width: cropWidth, height: cropHeight };
+      const resizeHandle = cropResizeHandleAtPoint(
+        current,
+        currentCrop,
+        cropResizeTolerance(event),
       );
+      setCropPointerMode(resizeHandle ?? (pointIsInsideCrop(current, currentCrop) ? "move" : "create"));
     }
     if (
       drag === null || drag.pointerId !== event.pointerId ||
@@ -3377,11 +3401,21 @@ export function App() {
           current,
           cropSourceSize,
         )
-      : selectionFromDrag(
+      : drag.mode === "create"
+        ? selectionFromDrag(
           drag.start,
           current,
           cropSourceSize,
           cropAspectRatio,
+          destinationGeometry,
+        )
+        : resizeCropFromDrag(
+          drag.originalCrop,
+          current,
+          cropSourceSize,
+          cropAspectRatio,
+          drag.mode,
+          destinationGeometry,
         ));
     event.stopPropagation();
     event.preventDefault();
@@ -4566,6 +4600,11 @@ export function App() {
   function selectDitherEngine(id: DitherEngineId) {
     setDitherEngineId(id);
     setDithering(ditherMethodForEngine(id));
+    const selectedEngine = DITHER_ENGINES.find((engine) => engine.id === id);
+    const supportedMatrices = selectedEngine?.orderedMatrixIds ?? ORDERED_MATRIX_IDS.slice(0, 4);
+    if (!supportedMatrices.includes(orderedMatrix)) {
+      setOrderedMatrix(supportedMatrices[0] ?? "checkerboard-2x1");
+    }
     if (id === "pattern-legal-mask-dbs-v1") {
       setAttributeOptimizerId("zx-block-dbs-global-v1");
     } else if (
@@ -4781,7 +4820,7 @@ export function App() {
   }
 
   function openApplicationSettings(): void {
-    setSettingsDraft(createSettingsDraft({
+    const draft = createSettingsDraft({
       ...conversionSettings,
       orderedMatrix,
       cropX,
@@ -4802,7 +4841,9 @@ export function App() {
       synchronizePan,
       synchronizeZoom,
       developmentMode,
-    }) as ApplicationSettings & Record<string, unknown>);
+    });
+    setSettingsDraft(draft as ApplicationSettings & Record<string, unknown>);
+    setSettingsBaseline(draft);
     setSettingsSearch("");
     setSettingsCategory("all");
     setSettingsPreset("all");
@@ -4841,6 +4882,7 @@ export function App() {
     applyWorkspaceLayout(nextStartupLayout);
     setSettingsOpen(false);
     setSettingsDraft(null);
+    setSettingsBaseline(null);
     saveApplicationSettings(localStorage, canonical.application);
     return;
   }
@@ -4951,7 +4993,8 @@ export function App() {
           ) continue;
           const matrixEffective =
             engine.method === "ordered" && engine.family === undefined &&
-            engine.id !== "artistic-ordered-hybrid-v1";
+            engine.id !== "artistic-ordered-hybrid-v1" &&
+            engine.id !== "artistic-ordered-tone-safe-v2";
           const matrices = matrixEffective
             ? engine.orderedMatrixIds ?? ORDERED_MATRIX_IDS.slice(0, 4)
             : [orderedMatrix];
@@ -7678,14 +7721,14 @@ export function App() {
     workbenchPreviewLayer,
   ]);
   const displayedWidth = displayedResult?.verticalSpatialDiagnostics === undefined
-    ? displayedResult?.width ?? 256
+    ? displayedResult?.width ?? destinationGeometry.width
     : outputPreviewStage === "merged" || outputPreviewStage === "screen-2"
       ? displayedResult.verticalSpatialDiagnostics.logicalWidth
       : displayedResult.width;
   const displayedHeight = displayedResult?.verticalSpatialDiagnostics !== undefined &&
       (outputPreviewStage === "merged" || outputPreviewStage === "screen-2")
     ? displayedResult.verticalSpatialDiagnostics.logicalHeight
-    : displayedResult?.height ?? 192;
+    : displayedResult?.height ?? destinationGeometry.height;
   const benchmarkComparisonPreviews = useMemo(() => {
     if (benchmarkCompareDigests.length !== 2) return null;
     const first = benchmarkRows.find((row) => row.digest === benchmarkCompareDigests[0]);
@@ -7731,17 +7774,14 @@ export function App() {
     : ZX_BASE_COLORS.filter((color) =>
         (paletteUsage.normalColorCounts[color.code] ?? 0) > 0 ||
         (paletteUsage.brightColorCounts[color.code] ?? 0) > 0);
-  const cropEditorFrame = cropSourceSize === null
-    ? null
-    : fitCropPreviewFrame(cropSourceSize);
-  const cropOverlay = cropEditorFrame === null || cropSourceSize === null ||
+  const cropOverlay = cropSourceSize === null ||
     !cropValid || !cropSelectionActive
     ? null
     : {
-        x: cropEditorFrame.x + cropX / cropSourceSize.width * cropEditorFrame.width,
-        y: cropEditorFrame.y + cropY / cropSourceSize.height * cropEditorFrame.height,
-        width: cropWidth / cropSourceSize.width * cropEditorFrame.width,
-        height: cropHeight / cropSourceSize.height * cropEditorFrame.height,
+        x: cropX,
+        y: cropY,
+        width: cropWidth,
+        height: cropHeight,
       };
   const borderHex = ZX_BASE_COLORS[borderColor]?.normal ?? "#000000";
   const paletteArtifactsReady = state.kind === "ready" && lastFinal !== null &&
@@ -8061,16 +8101,18 @@ export function App() {
   const previewAspectRatio = `${previewAspect.width} / ${previewAspect.height}`;
   const sourceZoom = sourcePreviewZoom;
   const resultZoom = resultPreviewZoom;
-  const sourceShowsImage = (sourcePreviewContent === "image" || sourcePreviewContent === "source-image") && image !== null;
-  const sourceStageAspectRatio = sourceShowsImage
-    ? `${image.width} / ${image.height}`
-    : previewAspectRatio;
-  const sourceStageWidth = sourceShowsImage && sourceZoom !== "fit"
-    ? `${image.width * sourceZoom}px`
-    : sourceZoom === "fit" ? undefined : `${previewAspect.width * Number(sourceZoom)}px`;
-  const sourceStageAspect = sourceShowsImage
-    ? { width: image.width, height: image.height }
-    : previewAspect;
+  const sourceShowsImage = framing !== "crop" &&
+    (sourcePreviewContent === "image" || sourcePreviewContent === "source-image") &&
+    image !== null;
+  const sourceStageAspect = framing === "crop"
+    ? cropSourceSize ?? destinationGeometry
+    : sourceShowsImage
+      ? { width: image.width, height: image.height }
+      : previewAspect;
+  const sourceStageAspectRatio = `${sourceStageAspect.width} / ${sourceStageAspect.height}`;
+  const sourceStageWidth = sourceZoom !== "fit"
+    ? `${sourceStageAspect.width * Number(sourceZoom)}px`
+    : undefined;
   const sourceFitStageSize: PreviewFitSize | null = sourceZoom === "fit"
     ? fitPreviewToViewport(
         previewViewportSizes.source.width,
@@ -9733,7 +9775,9 @@ export function App() {
               </select>
             </label>
           ) : null}
-          {ditherEngineId === "artistic-ordered-hybrid-v1" ? (
+          {(ditherEngineId === "artistic-ordered-hybrid-v1" ||
+            ditherEngineId === "artistic-ordered-tone-safe-v2" ||
+            ditherEngineId === "artistic-chessboard-smooth-v1") ? (
             <label>
               <span>Pattern preference</span>
               <select value={artisticPattern} onChange={(event) => { setArtisticPattern(event.target.value as NonNullable<ConversionSettings["artisticPattern"]>); setState({ kind: "idle" }); }}>
@@ -9745,23 +9789,16 @@ export function App() {
               {attributeHeight === 1 ? <small>8×1 cells use row-local alternating motifs.</small> : null}
             </label>
           ) : null}
-          {dithering === "ordered" && ditherEngineId !== "artistic-ordered-hybrid-v1" ? (
+          {dithering === "ordered" &&
+            ditherEngineId !== "artistic-ordered-hybrid-v1" &&
+            ditherEngineId !== "artistic-ordered-tone-safe-v2" ? (
             <label>
               <span>Ordered matrix</span>
               <select value={orderedMatrix} onChange={(event) => { setOrderedMatrix(event.target.value as OrderedMatrixId); setState({ kind: "idle" }); }}>
-                <option value="checkerboard-2x1">2×1 Checkerboard</option>
-                <option value="bayer-2x2">2×2</option>
-                <option value="bayer-4x4">4×4</option>
-                <option value="bayer-8x8">8×8</option>
-                {ditherEngineId === "ordered-clustered-dot-v1" ? (
-                  <>
-                    <option value="clustered-dot-4x4">Clustered dot 4×4</option>
-                    <option value="clustered-dot-8x8">Clustered dot 8×8</option>
-                  </>
-                ) : null}
-                {ditherEngineId === "ordered-void-cluster-v1" ? (
-                  <option value="void-cluster-8x8">Void-and-cluster 8×8</option>
-                ) : null}
+                {(DITHER_ENGINES.find((engine) => engine.id === ditherEngineId)?.orderedMatrixIds ??
+                  ORDERED_MATRIX_IDS.slice(0, 4)).map((matrixId) => (
+                  <option key={matrixId} value={matrixId}>{orderedMatrixLabel(matrixId)}</option>
+                ))}
               </select>
             </label>
           ) : null}
@@ -9775,14 +9812,17 @@ export function App() {
                 {(() => {
                   const compatible = DITHER_ENGINES.filter((engine) =>
                     engine.method === "error-diffusion" &&
-                    engine.platforms.includes(selectedPlatformId as never) &&
-                    (selectedPlatformId === "sinclair-ql" ||
-                      isCompatibleEnginePair(attributeOptimizerId, engine.id)) &&
-                    (engine.targetModeIds === undefined || engine.targetModeIds.includes(targetModeId))
+                    isDitherEngineAvailableForSelection(
+                      selectedPlatformId,
+                      targetModeId,
+                      attributeOptimizerId,
+                      engine.id,
+                    )
                   );
                   const recommended = new Set<DitherEngineId>([
                     "error-diffusion-decorrelated-v3",
                     "error-diffusion-atkinson-v1",
+                    "error-diffusion-checker-artistic-v1",
                   ]);
                   return <>
                     <optgroup label="Recommended">
@@ -9871,6 +9911,9 @@ export function App() {
               ditherEngineId === "error-diffusion-phase-balanced-checker-v3-3" ||
               ditherEngineId === "error-diffusion-checker-phase-v4" ||
               ditherEngineId === "error-diffusion-checker-phase-v4-4" ||
+              ditherEngineId === "error-diffusion-checker-artistic-v1" ||
+              ditherEngineId === "error-diffusion-checker-phase-v4-5" ||
+              ditherEngineId === "error-diffusion-checker-phase-v4-5-1" ||
               ditherEngineId === "error-diffusion-checker-phase-v4-1" ||
               ditherEngineId === "error-diffusion-checker-phase-v4-2" ||
               ditherEngineId === "error-diffusion-checker-phase-v4-3" ||
@@ -9881,7 +9924,7 @@ export function App() {
                 ditherEngineId === "artistic-ordered-hybrid-v1") ? (
                 <div
                   className="dithering-parameter"
-                    title="Reduces vertical diffusion runs and favors balanced alternating 2×2 placement; v3.1 adds local placement, v3.2 integrates checker decisions into v3 propagation, v3.3 reorients only true 50% checker blocks, and v4.4 adds a checker carrier whose strength follows line suppression from 0% to 100%. At 0%, output matches Projected unrestricted v2."
+                    title="Reduces vertical diffusion runs and favors balanced alternating 2×2 placement; v3.1 adds local placement, v3.2 integrates checker decisions into v3 propagation, v3.3 reorients only true 50% checker blocks, v4.4 adds a checker carrier, v4.5 adaptively selects checker or dispersed 4×4 carriers, and v4.5.1 uses coverage-preserving atomic 2×2 color-pair correction to reduce spikes without isolated pixel flips. At 0%, output matches Projected unrestricted v2."
                 >
                   <RangeNumberControl
                     id="error-line-suppression"
@@ -9897,7 +9940,7 @@ export function App() {
                     onValidityChange={setSliderValidity}
                   />
                   <span className="control-help">
-                    Reduces vertical diffusion runs while retaining short 2×1 transitions. v3.1 applies local placement after v3; v3.2 integrates coverage-preserving 2×2 checker decisions into v3 propagation; v3.3 only reorients existing 50% checker blocks; v4.4 uses an artistic checker carrier as a conservative v3 tie-breaker. In QL Mode 8/4 mixed Artistic checker mode, line suppression scales the mixed-resolution checker carrier from 0% to 100%. For v4.4, line suppression directly controls carrier strength from 0% to 100%; it does not change the underlying tone diffusion. At 0%, output matches Projected unrestricted v2.
+                    Reduces vertical diffusion runs while retaining short 2×1 transitions. v3.1 applies local placement after v3; v3.2 integrates coverage-preserving 2×2 checker decisions into v3 propagation; v3.3 only reorients existing 50% checker blocks; v4.4 uses an artistic checker carrier as a conservative v3 tie-breaker; v4.5 adaptively selects stable checker or dispersed 4×4 carrier regions, while v4.5.1 prefers a stable complementary checker phase and applies only atomic, coverage-preserving 2×2 color-pair corrections in smooth regions. In QL Mode 8/4 mixed Artistic checker mode, line suppression scales the mixed-resolution checker carrier from 0% to 100%. For v4.4, v4.5, and v4.5.1, line suppression controls carrier strength from 0% to 100%; it does not change the underlying tone diffusion. At 0%, output matches Projected unrestricted v2.
                   </span>
                 </div>
               ) : null}
@@ -10743,7 +10786,7 @@ export function App() {
         {settingsOpen && settingsDraft !== null ? (() => {
           const draftProfile = profiles.find(({ id }) => id === settingsDraft.profileId) ?? BUILT_IN_PROFILE;
           const draftModes = Object.keys(draftProfile.palette.modes) as TargetModeId[];
-          const visibleSettings = filterSettings(SETTINGS_REGISTRY, settingsSearch, settingsCategory, settingsPreset, settingsDraft);
+          const visibleSettings = filterSettings(SETTINGS_REGISTRY, settingsSearch, settingsCategory, settingsPreset, settingsDraft, settingsBaseline ?? settingsDraft);
           const updateSetting = (definition: SettingDefinition, value: unknown) => {
             const next = { ...settingsDraft, [definition.id]: value };
             if (definition.id === "dithering") {
@@ -10805,10 +10848,11 @@ export function App() {
               if (event.target === event.currentTarget) {
                 setSettingsOpen(false);
                 setSettingsDraft(null);
+                setSettingsBaseline(null);
               }
             }}>
               <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="application-settings-title" onKeyDown={(event) => {
-                if (event.key === "Escape") { setSettingsOpen(false); setSettingsDraft(null); }
+                if (event.key === "Escape") { setSettingsOpen(false); setSettingsDraft(null); setSettingsBaseline(null); }
               }}>
                 <div className="settings-modal-header">
                   <div>
@@ -10835,7 +10879,7 @@ export function App() {
                       const definitionAvailable = definition.isAvailable?.(definitionContext) ?? true;
                       const definitionEnabled = definition.isEnabled?.(settingsDraft, definitionContext) ?? true;
                       return <div className="setting-row" key={definition.id}>
-                      <div><label htmlFor={`setting-${definition.id}`}><span>{definition.label}</span>{Object.is(settingsDraft[definition.id], definition.defaultValue) ? null : <span className="setting-modified" title="Modified">●</span>}</label><p id={`setting-help-${definition.id}`}>{definition.description}{definition.disabledReason && (!definitionAvailable || !definitionEnabled) ? ` ${definition.disabledReason}` : ""}</p></div>
+                      <div><label htmlFor={`setting-${definition.id}`}><span>{definition.label}</span>{Object.is(settingsDraft[definition.id], settingsBaseline?.[definition.id]) ? null : <span className="setting-modified" title="Modified">●</span>}</label><p id={`setting-help-${definition.id}`}>{definition.description}{definition.disabledReason && (!definitionAvailable || !definitionEnabled) ? ` ${definition.disabledReason}` : ""}</p></div>
                       <div className="setting-control">{renderSettingControl(definition)}</div>
                     </div>;
                     })}</fieldset>;
@@ -10843,12 +10887,14 @@ export function App() {
                 </div>
                 <div className="settings-modal-actions">
                   <button className="secondary" type="button" onClick={() => {
-                    if (window.confirm("Reset application settings to defaults?")) {
-                      setSettingsDraft(createSettingsDraft(DEFAULT_APPLICATION_SETTINGS) as ApplicationSettings & Record<string, unknown>);
+                    const category = settingsCategory === "all" ? "all" : settingsCategory;
+                    const label = category === "all" ? "all settings" : SETTING_CATEGORIES[category];
+                    if (window.confirm(`Reset ${label} to defaults?`)) {
+                      setSettingsDraft(resetSettingsCategory(settingsDraft, category) as ApplicationSettings & Record<string, unknown>);
                     }
-                  }}>Reset to defaults</button>
+                  }}>{settingsCategory === "all" ? "Reset all" : `Reset ${SETTING_CATEGORIES[settingsCategory]}`}</button>
                   <span className="action-spacer" aria-hidden="true" />
-                  <button className="secondary" type="button" onClick={() => { setSettingsOpen(false); setSettingsDraft(null); }}>Cancel</button>
+                  <button className="secondary" type="button" onClick={() => { setSettingsOpen(false); setSettingsDraft(null); setSettingsBaseline(null); }}>Cancel</button>
                   <button className="primary" type="button" onClick={saveApplicationSettingsDraft} disabled={Object.keys(validateSettingsDraft(settingsDraft).errors).length > 0}>Save</button>
                 </div>
               </section>
@@ -11412,13 +11458,13 @@ export function App() {
                       {sourcePreviewContent !== "result-image" && framing === "crop" && cropOverlay !== null ? (
                         <svg
                           className="crop-selection-overlay"
-                          viewBox="0 0 256 192"
+                          viewBox={`0 0 ${cropSourceSize?.width ?? 1} ${cropSourceSize?.height ?? 1}`}
                           preserveAspectRatio="none"
                           aria-hidden="true"
                         >
                           <path
                             className="crop-selection-shade"
-                            d={`M0 0H256V192H0Z M${cropOverlay.x} ${cropOverlay.y}h${cropOverlay.width}v${cropOverlay.height}h-${cropOverlay.width}Z`}
+                            d={`M0 0H${cropSourceSize?.width ?? 1}V${cropSourceSize?.height ?? 1}H0Z M${cropOverlay.x} ${cropOverlay.y}h${cropOverlay.width}v${cropOverlay.height}h-${cropOverlay.width}Z`}
                             fillRule="evenodd"
                           />
                           <rect
@@ -11428,6 +11474,33 @@ export function App() {
                             width={cropOverlay.width}
                             height={cropOverlay.height}
                           />
+                          {(() => {
+                            const size = Math.max(
+                              8,
+                              Math.round(Math.min(cropSourceSize?.width ?? 8, cropSourceSize?.height ?? 8) * 0.02),
+                            );
+                            const half = size / 2;
+                            const points: readonly (readonly [number, number])[] = [
+                              [cropOverlay.x, cropOverlay.y],
+                              [cropOverlay.x + cropOverlay.width / 2, cropOverlay.y],
+                              [cropOverlay.x + cropOverlay.width, cropOverlay.y],
+                              [cropOverlay.x + cropOverlay.width, cropOverlay.y + cropOverlay.height / 2],
+                              [cropOverlay.x + cropOverlay.width, cropOverlay.y + cropOverlay.height],
+                              [cropOverlay.x + cropOverlay.width / 2, cropOverlay.y + cropOverlay.height],
+                              [cropOverlay.x, cropOverlay.y + cropOverlay.height],
+                              [cropOverlay.x, cropOverlay.y + cropOverlay.height / 2],
+                            ];
+                            return points.map(([x, y], index) => (
+                              <rect
+                                className="crop-resize-handle"
+                                key={index}
+                                x={x - half}
+                                y={y - half}
+                                width={size}
+                                height={size}
+                              />
+                            ));
+                          })()}
                         </svg>
                       ) : null}
                       {sourcePreviewContent === "result-image" && inspectionCellOverlay !== null ? (

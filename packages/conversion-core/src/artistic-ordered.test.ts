@@ -3,6 +3,7 @@ import {
   artisticThreshold,
   renderArtisticOrdered,
   renderArtisticPairField,
+  renderToneSafeCandidateField,
 } from "./artistic-ordered.js";
 import { DEFAULT_CONVERSION_SETTINGS, convertToZx } from "./index.js";
 import { DITHER_ENGINES, assertCompatibleEngines, isCompatibleEnginePair } from "./engines.js";
@@ -256,6 +257,70 @@ describe("Artistic ordered hybrid v1", () => {
       }
     }
   });
+  it("applies v4.5.1 artifact balancing only as atomic 2x2 same-pair replacements", () => {
+    const width = 16, height = 16;
+    const gray = new Uint8Array(width * height * 4);
+    for (let pixel = 0; pixel < width * height; pixel += 1) gray.set([128, 128, 128, 255], pixel * 4);
+    const pairAt = (x: number, y: number) => ({
+      first: black,
+      second: white,
+      firstValue: 0,
+      secondValue: 1,
+      // Deliberately create a smooth 2/2 non-checker block so the correction
+      // path has a real candidate to evaluate.
+      coverage: x >= 2 && x <= 3 && y <= 1 ? (y === 0 ? 0.85 : 0.15) : 0.5,
+    });
+    const baseline = renderArtisticPairField(
+      gray, width, height, 100, "checkerboard", pairAt, false, undefined, 4, "a",
+    );
+    const diagnostics = {
+      eligibleBlocks: 0, intermediateCoverageBlocks: 0, checkerCandidateCount: 0,
+      corrected2x2Blocks: 0, correctedPixels: 0, rejectedDiagonalIncrease: 0,
+      rejectedHorizontal2x1: 0, sourceRejectedCandidates: 0, structureRejectedCandidates: 0,
+      coveragePreservationFailures: 0, pairBoundaryRejections: 0, edgeRejectedBlocks: 0,
+      verticalArtifactScoreBefore: 0, verticalArtifactScoreAfter: 0,
+      diagonalArtifactScoreBefore: 0, diagonalArtifactScoreAfter: 0,
+      horizontalArtifactScoreBefore: 0, horizontalArtifactScoreAfter: 0,
+    };
+    const corrected = renderArtisticPairField(
+      gray, width, height, 100, "checkerboard", pairAt, false, undefined, 4, "a", true, diagnostics,
+    );
+    expect(diagnostics.corrected2x2Blocks).toBeGreaterThan(0);
+    expect(diagnostics.correctedPixels).toBe(diagnostics.corrected2x2Blocks * 4);
+    expect(diagnostics.coveragePreservationFailures).toBe(0);
+    for (let top = 0; top + 1 < height; top += 2) for (let left = 0; left + 1 < width; left += 2) {
+      let changed = 0;
+      for (let dy = 0; dy < 2; dy += 1) for (let dx = 0; dx < 2; dx += 1) {
+        if (baseline[(top + dy) * width + left + dx] !== corrected[(top + dy) * width + left + dx]) changed += 1;
+      }
+      expect([0, 4]).toContain(changed);
+    }
+  });
+  it("keeps hard color edges out of the atomic correction layer", () => {
+    const width = 16, height = 16;
+    const edge = new Uint8Array(width * height * 4);
+    for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) {
+      const value = x < width / 2 ? 0 : 255;
+      edge.set([value, value, value, 255], (y * width + x) * 4);
+    }
+    const pairAt = () => ({ first: black, second: white, firstValue: 0, secondValue: 1, coverage: 0.5 });
+    const baseline = renderArtisticPairField(edge, width, height, 100, "checkerboard", pairAt, false, undefined, 4, "b");
+    const diagnostics = {
+      eligibleBlocks: 0, intermediateCoverageBlocks: 0, checkerCandidateCount: 0,
+      corrected2x2Blocks: 0, correctedPixels: 0, rejectedDiagonalIncrease: 0,
+      rejectedHorizontal2x1: 0, sourceRejectedCandidates: 0, structureRejectedCandidates: 0,
+      coveragePreservationFailures: 0, pairBoundaryRejections: 0, edgeRejectedBlocks: 0,
+      verticalArtifactScoreBefore: 0, verticalArtifactScoreAfter: 0,
+      diagonalArtifactScoreBefore: 0, diagonalArtifactScoreAfter: 0,
+      horizontalArtifactScoreBefore: 0, horizontalArtifactScoreAfter: 0,
+    };
+    const protectedOutput = renderArtisticPairField(
+      edge, width, height, 100, "checkerboard", pairAt, false, undefined, 4, "b", true, diagnostics,
+    );
+    expect(protectedOutput).toEqual(baseline);
+    expect(diagnostics.edgeRejectedBlocks).toBeGreaterThan(0);
+    expect(diagnostics.corrected2x2Blocks).toBe(0);
+  });
   it("rejects unsupported engines/targets and leaves production defaults alone",()=>{
     expect(isCompatibleEnginePair("zx-guide-reference-halo-v1",base.ditherEngineId)).toBe(true);
     expect(isCompatibleEnginePair("zx-block-dbs-global-v1",base.ditherEngineId)).toBe(false);
@@ -266,4 +331,60 @@ describe("Artistic ordered hybrid v1", () => {
     expect(DITHER_ENGINES.find(e=>e.id===base.ditherEngineId)?.lifecycle).toBe("experimental");
     expect(DEFAULT_CONVERSION_SETTINGS.ditherEngineId).not.toBe(base.ditherEngineId);
   });
+});
+
+describe("Artistic ordered tone-safe v2", () => {
+  it("is exactly solid at zero amount and gains ordered coverage monotonically", () => {
+    const width = 16;
+    const height = 16;
+    const red = new Uint8Array(width * height * 4);
+    for (let pixel = 0; pixel < width * height; pixel += 1) red.set([96, 0, 0, 255], pixel * 4);
+    const candidates = [
+      { color: black, value: 0 },
+      { color: { r: 255, g: 0, b: 0 }, value: 1 },
+      { color: { r: 0, g: 255, b: 255 }, value: 2 },
+    ];
+    const render = (amount: number) => renderToneSafeCandidateField(
+      red, width, height, amount, "checkerboard", () => candidates,
+    );
+    const zero = render(0);
+    const half = render(50);
+    const full = render(100);
+    expect(zero.every((value) => value === 0)).toBe(true);
+    expect(half.filter((value) => value === 1).length)
+      .toBeLessThanOrEqual(full.filter((value) => value === 1).length);
+    expect(full.every((value) => value !== 2)).toBe(true);
+  });
+
+  it.each([1, 2, 4, 8] as const)("keeps ZX 8×%i output legal and deterministic", (attributeHeight) => {
+    const settings: ConversionSettings = {
+      ...base,
+      ditherEngineId: "artistic-ordered-tone-safe-v2",
+      attributeHeight,
+      paletteSelections: [{ screenIndex: 0, enabledColorIds: [0, 2, 4, 7], brightMode: "off" }],
+    };
+    const first = convertToZx(source, 256, 192, settings, "draft");
+    const second = convertToZx(source, 256, 192, settings, "draft");
+    expect(first.frames[0]!.encoded).toEqual(second.frames[0]!.encoded);
+    expect(first.artisticToneSafetyDiagnostics?.candidateCount).toBeGreaterThan(0);
+    expect(first.frames[0]!.paletteIndices.every((value) => value === 0 || value === 1)).toBe(true);
+  });
+
+  it("dithers complete ZX mixed candidates without changing the merge during flicker suppression", () => {
+    const redGradient = fixture((x) => [Math.floor(x * 160 / 255), 0, 0]);
+    const settings: ConversionSettings = {
+      ...base,
+      modeId: "zx48-mixed-256x192",
+      ditherEngineId: "artistic-ordered-tone-safe-v2",
+      ditheringAmount: 100,
+      paletteSelections: [
+        { screenIndex: 0, enabledColorIds: [0, 2, 7], brightMode: "off" },
+        { screenIndex: 1, enabledColorIds: [0, 2, 7], brightMode: "off" },
+      ],
+    };
+    const fixed = convertToZx(redGradient, 256, 192, { ...settings, screenFlickerSuppression: false }, "draft");
+    const swapped = convertToZx(redGradient, 256, 192, { ...settings, screenFlickerSuppression: true }, "draft");
+    expect(swapped.mergedPreviewRgba).toEqual(fixed.mergedPreviewRgba);
+    expect(swapped.artisticToneSafetyDiagnostics?.candidateCount).toBeGreaterThan(0);
+  }, 20_000);
 });

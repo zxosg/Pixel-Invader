@@ -10,6 +10,38 @@ function solid(width: number, height: number): Uint8Array {
 }
 
 describe("source preview framing fallback", () => {
+  it.each([
+    ["zx-spectrum", "zx48-standard-256x192", 256, 192],
+    ["sinclair-ql", "mode8-256x256", 256, 256],
+    ["sinclair-ql", "mode4-512x256", 512, 256],
+    ["sinclair-ql", "mode8-mode4-mixed-512x256", 512, 256],
+    ["pmd-85", "pmd85-3-rgb", 288, 256],
+  ] as const)("uses destination geometry for %s/%s", (platformId, modeId, width, height) => {
+    const preview = frameFallbackSourcePreview(
+      solid(1, 1),
+      1,
+      1,
+      platformId,
+      modeId,
+      {
+        framing: "stretch",
+        resampling: "nearest",
+        rotation: 0,
+        mirrorHorizontal: false,
+        mirrorVertical: false,
+        fillOffsetX: null,
+        fillOffsetY: null,
+        panOffsetX: 0,
+        panOffsetY: 0,
+        panEdgeMode: "background",
+        crop: { x: 0, y: 0, width: 1, height: 1 },
+        background: { r: 0, g: 0, b: 0 },
+      },
+    );
+    expect(preview.width).toBe(width);
+    expect(preview.height).toBe(height);
+  });
+
   it("letterboxes Fit instead of stretching it across the preview", () => {
     const common = {
       background: { r: 1, g: 2, b: 3 },

@@ -112,6 +112,28 @@ describe("PMD 85 hardware-aware conversion", () => {
     },
   );
 
+  it("falls back from v4.5 to byte-identical v4.4 behavior on PMD", () => {
+    const input = source();
+    const v44 = convertToPmd85(
+      input,
+      PMD85_SCREEN_WIDTH,
+      PMD85_SCREEN_HEIGHT,
+      settings("pmd85-2-tv", "error-diffusion-checker-phase-v4-4", 35),
+      PALETTES["pmd85-2-tv"],
+    );
+    const v45 = convertToPmd85(
+      input,
+      PMD85_SCREEN_WIDTH,
+      PMD85_SCREEN_HEIGHT,
+      settings("pmd85-2-tv", "error-diffusion-checker-phase-v4-5", 35),
+      PALETTES["pmd85-2-tv"],
+    );
+    expect(v45.encoded).toEqual(v44.encoded);
+    expect(v45.pixelMasks).toEqual(v44.pixelMasks);
+    expect(v45.engineFallback?.requestedEngineId)
+      .toBe("error-diffusion-checker-phase-v4-5");
+  });
+
   it("keeps saturated green black in TV/CV white-only conversion", () => {
     const rgba = new Uint8Array(PMD85_SCREEN_WIDTH * PMD85_SCREEN_HEIGHT * 4);
     for (let offset = 0; offset < rgba.length; offset += 4) {

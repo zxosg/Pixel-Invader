@@ -55,6 +55,8 @@ export type AttributeOptimizerId =
 export type ArtisticPatternPreference = "auto" | "checkerboard" | "horizontal" | "vertical";
 export type DitherEngineId =
   | "artistic-ordered-hybrid-v1"
+  | "artistic-ordered-tone-safe-v2"
+  | "artistic-chessboard-smooth-v1"
   | "vertical-spatial-none-v1"
   | "vertical-spatial-ordered-v1"
   | "vertical-spatial-error-diffusion-v1"
@@ -68,6 +70,7 @@ export type DitherEngineId =
   | "ordered-strict-matrix-v6"
   | "ordered-coverage-normalized-v7"
   | "ordered-mixed-phase-stable-v8"
+  | "ordered-threshold-identity-v1"
   | "ordered-clustered-dot-v1"
   | "ordered-void-cluster-v1"
   | "ordered-cell-pattern-v1"
@@ -82,7 +85,10 @@ export type DitherEngineId =
   | "error-diffusion-phase-balanced-checker-v3-2"
   | "error-diffusion-phase-balanced-checker-v3-3"
   | "error-diffusion-checker-phase-v4"
+  | "error-diffusion-checker-phase-v4-5"
+  | "error-diffusion-checker-phase-v4-5-1"
   | "error-diffusion-checker-phase-v4-4"
+  | "error-diffusion-checker-artistic-v1"
   | "error-diffusion-checker-phase-v4-1"
   | "error-diffusion-checker-phase-v4-2"
   | "error-diffusion-checker-phase-v4-3"
@@ -91,6 +97,47 @@ export type DitherEngineId =
   | "error-diffusion-decorrelated-v3"
   | "error-diffusion-atkinson-v1"
   | "error-diffusion-riemersma-v1";
+
+export interface EngineFallbackDiagnostic {
+  readonly requestedEngineId: DitherEngineId;
+  readonly effectiveEngineId: DitherEngineId;
+  readonly reason: "grayscale-only-prototype";
+}
+
+export interface ColorCarrierDiagnostics {
+  eligibleBlocks: number;
+  intermediateCoverageBlocks: number;
+  checkerCandidateCount: number;
+  corrected2x2Blocks: number;
+  correctedPixels: number;
+  rejectedDiagonalIncrease: number;
+  rejectedHorizontal2x1: number;
+  sourceRejectedCandidates: number;
+  structureRejectedCandidates: number;
+  coveragePreservationFailures: number;
+  pairBoundaryRejections: number;
+  edgeRejectedBlocks: number;
+  verticalArtifactScoreBefore: number;
+  verticalArtifactScoreAfter: number;
+  diagonalArtifactScoreBefore: number;
+  diagonalArtifactScoreAfter: number;
+  horizontalArtifactScoreBefore: number;
+  horizontalArtifactScoreAfter: number;
+}
+
+export interface ArtisticToneSafetyDiagnostics {
+  candidateCount: number;
+  alternateCount: number;
+  acceptedGroups: number;
+  rejectedGroups: number;
+  baselineExactRgbError: number;
+  proposalExactRgbError: number;
+  finalExactRgbError: number;
+  baselineLowPassRgbError: number;
+  proposalLowPassRgbError: number;
+  finalLowPassRgbError: number;
+  unexpectedChromaEnergy: number;
+}
 export type AttributeHeight = 1 | 2 | 4 | 8;
 export type AttributeHaloRadius = 0 | 1 | 2;
 export type BrightMode = "auto" | "on" | "off";
@@ -284,6 +331,9 @@ export interface BaseConversionResult {
   readonly sourcePreviewRgba: Uint8Array;
   readonly previewRgba: Uint8Array;
   readonly score: number;
+  readonly engineFallback?: EngineFallbackDiagnostic;
+  readonly colorCarrierDiagnostics?: ColorCarrierDiagnostics;
+  readonly artisticToneSafetyDiagnostics?: ArtisticToneSafetyDiagnostics;
   readonly structuredDiagnostics?: StructuredDiagnostics;
   readonly verticalSpatialDiagnostics?: VerticalSpatialDiagnostics;
 }

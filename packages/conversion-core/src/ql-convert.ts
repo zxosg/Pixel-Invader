@@ -11,11 +11,16 @@ import { adjustRgba } from "./adjustments.js";
 import {
   artisticCoverage,
   artisticThreshold,
+  createArtisticToneSafetyDiagnostics,
+  createColorCarrierDiagnostics,
   renderArtisticPaletteOrdered,
   renderArtisticPairField,
+  renderToneSafeCandidateField,
+  renderToneSafePaletteOrdered,
 } from "./artistic-ordered.js";
 import { checkerCarrierStrengthV44 } from "./grayscale-checker-v44.js";
-import { assertCompatibleEngines, ditherMethodForEngine } from "./engines.js";
+import { destinationGeometryFor } from "./destination-geometry.js";
+import { assertCompatibleEngines, ditherMethodForEngine, engineFallbackFor } from "./engines.js";
 import {
   applyCheckerPlacement,
   checkerPlacementStrengthV33,
@@ -171,6 +176,7 @@ function applyArtisticCheckerCandidateField<T>(
   candidates: readonly T[],
   colorAt: (candidate: T) => ArtisticCandidateColor,
   strength: number,
+  checkerPhase: "a" | "b" = "a",
 ): Uint8Array {
   if (strength <= 0) return baseIndices;
   const output = baseIndices.slice();
@@ -223,7 +229,9 @@ function applyArtisticCheckerCandidateField<T>(
       if (
         effectiveCoverage <= 0.05 ||
         effectiveCoverage >= 0.95 ||
-        artisticThreshold(x, y, "checkerboard") >= effectiveCoverage
+        (checkerPhase === "b"
+          ? 1 - artisticThreshold(x, y, "checkerboard")
+          : artisticThreshold(x, y, "checkerboard")) >= effectiveCoverage
       ) continue;
       output[pixel] = alternateIndex;
     }
@@ -874,7 +882,8 @@ export function quantizeTemporalVirtual(
       settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-2" ||
       settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-3";
     const checkerPhase =
-      settings.ditherEngineId === "error-diffusion-checker-phase-v4";
+      settings.ditherEngineId === "error-diffusion-checker-phase-v4" ||
+      settings.ditherEngineId === "error-diffusion-checker-artistic-v1";
     const checkerPhaseV43 =
       settings.ditherEngineId === "error-diffusion-checker-phase-v4-3";
     const checkerPhaseV5 =
@@ -1054,7 +1063,10 @@ export function quantizeTemporalVirtual(
             matrix,
             settings.ditheringAmount,
           );
-        } else if (settings.ditherEngineId === "ordered-coverage-normalized-v7") {
+        } else if (
+          settings.ditherEngineId === "ordered-coverage-normalized-v7" ||
+          settings.ditherEngineId === "ordered-threshold-identity-v1"
+        ) {
           const perturbation = normalizedOrderedOffset(matrix, x, y) *
             128 * settings.ditheringAmount / 100;
           output[pixel] = nearestVirtualIndex(
@@ -1384,6 +1396,7 @@ export function convertToQl(
   if (ditherMethodForEngine(settings.ditherEngineId) !== settings.dithering) {
     throw new RangeError("Dither engine and dithering method do not match.");
   }
+  const engineFallback = engineFallbackFor(settings.ditherEngineId);
   if (
     !Number.isInteger(settings.errorDiffusionLineSuppression) ||
     settings.errorDiffusionLineSuppression < 0 ||
@@ -1404,8 +1417,13 @@ export function convertToQl(
     throw new RangeError("Sinclair QL mixed optimizer is invalid.");
   }
   const targetMode = settings.modeId;
+  const destination = destinationGeometryFor(settings.platformId, targetMode);
+  const internalSettings = settings.ditherEngineId === "error-diffusion-checker-phase-v4-5"
+    ? { ...settings, ditherEngineId: "error-diffusion-checker-phase-v4-4" as const }
+    : settings;
   if (
-    settings.ditherEngineId === "artistic-ordered-hybrid-v1" &&
+    (settings.ditherEngineId === "artistic-ordered-hybrid-v1" ||
+      settings.ditherEngineId === "artistic-ordered-tone-safe-v2") &&
     targetMode !== "mode8-plain-256x256" &&
     targetMode !== "mode4-plain-512x256" &&
     targetMode !== "mode8-256x256" &&
@@ -1419,7 +1437,19 @@ export function convertToQl(
   const checkerPlacementV33 =
     settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-3";
   const checkerPhaseV44 =
-    settings.ditherEngineId === "error-diffusion-checker-phase-v4-4";
+    settings.ditherEngineId === "error-diffusion-checker-phase-v4-4" ||
+    settings.ditherEngineId === "error-diffusion-checker-artistic-v1" ||
+    settings.ditherEngineId === "error-diffusion-checker-phase-v4-5" ||
+    settings.ditherEngineId === "error-diffusion-checker-phase-v4-5-1";
+  const stableCheckerCarrierV451 =
+    settings.ditherEngineId === "error-diffusion-checker-phase-v4-5-1" ||
+    settings.ditherEngineId === "error-diffusion-checker-artistic-v1";
+  const colorCarrierDiagnostics = stableCheckerCarrierV451
+    ? createColorCarrierDiagnostics()
+    : undefined;
+  const artisticToneSafetyDiagnostics = settings.ditherEngineId === "artistic-ordered-tone-safe-v2"
+    ? createArtisticToneSafetyDiagnostics()
+    : undefined;
   if (
     checkerPhaseV44 &&
     (targetMode === "mode8-vertical-spatial-256x256" ||
@@ -1486,7 +1516,7 @@ export function convertToQl(
       settings.ditherEngineId !== spatialDitherEngine
     ) throw new RangeError("Sinclair QL vertical spatial mode requires a matching Version 1 spatial dither engine.");
     const hardwareMode = hardwareModes[0]!;
-    const width = qlModeWidth(hardwareMode);
+    const width = destination.width;
     const framed = frameRgbaToDimensions(
       sourceRgba,
       sourceWidth,
@@ -1494,9 +1524,7 @@ export function convertToQl(
       width,
       QL_SCREEN_HEIGHT,
       settings,
-      hardwareMode === "mode8-256x256"
-        ? { width: 4, height: 3 }
-        : { width: 2, height: 3 },
+        destination.pixelAspect,
     );
     const filtered = filterRgba(
       settings.dithering === "ordered" && settings.ditheringAmount > 0
@@ -1532,7 +1560,7 @@ export function convertToQl(
       modeId: targetMode,
       width,
       height: QL_SCREEN_HEIGHT,
-      pixelAspectRatio: hardwareMode === "mode8-256x256" ? 4 / 3 : 2 / 3,
+      pixelAspectRatio: destination.pixelAspect.width / destination.pixelAspect.height,
       attributeOptimizerId: settings.attributeOptimizerId,
       ditherEngineId: settings.ditherEngineId,
       paletteSelections: settings.paletteSelections,
@@ -1550,6 +1578,7 @@ export function convertToQl(
       sourcePreviewRgba: normalized,
       previewRgba: preview,
       score: spatial.totalCost,
+      ...(engineFallback === undefined ? {} : { engineFallback }),
       verticalSpatialDiagnostics: spatial,
     };
   }
@@ -1593,7 +1622,7 @@ export function convertToQl(
           lowWidth,
           QL_SCREEN_HEIGHT,
           virtualPalette,
-          settings,
+          internalSettings,
           settings.ditherEngineId === "ordered-local-tone-v3" ||
             settings.ditherEngineId === "ordered-baseline-additive-v5" ||
             settings.ditherEngineId === "ordered-strict-matrix-v6",
@@ -1605,11 +1634,26 @@ export function convertToQl(
           virtualPalette,
           palettes[0]!,
           palettes[1]!,
-          settings,
+          internalSettings,
         );
     const sourceForLow = useLegacyAverage
       ? normalizedSource
       : collapseRgbaHorizontally2x(normalizedSource, highWidth, QL_SCREEN_HEIGHT);
+    if (settings.ditherEngineId === "artistic-ordered-tone-safe-v2") {
+      const toneSafeCandidates = virtualPalette.map((candidate, value) => ({
+        color: { r: candidate.r, g: candidate.g, b: candidate.b },
+        value,
+      }));
+      virtualIndices = renderToneSafeCandidateField(
+        sourceForLow,
+        lowWidth,
+        QL_SCREEN_HEIGHT,
+        settings.ditheringAmount,
+        settings.artisticPattern ?? "auto",
+        () => toneSafeCandidates,
+        artisticToneSafetyDiagnostics,
+      );
+    }
     const checkerMixedCandidateStrength = checkerPhaseV44
       ? settings.ditheringAmount * checkerCarrierStrengthV44(
           100,
@@ -1632,6 +1676,7 @@ export function convertToQl(
           return { r: low[0], g: low[1], b: low[2] };
         },
         checkerMixedCandidateStrength,
+        stableCheckerCarrierV451 ? "b" : "a",
       );
     }
     const lowIndices = new Uint8Array(lowWidth * QL_SCREEN_HEIGHT);
@@ -1649,8 +1694,10 @@ export function convertToQl(
           stableNeighbor &&
           (settings.ditherEngineId === "error-diffusion-matrix-guided-v1"
             ? orderedThreshold(matrix, x, y) < matrix.levels / 2
-            : settings.ditherEngineId === "error-diffusion-checker-phase-v4-4"
-              ? artisticThreshold(x, y, "checkerboard") < 0.5
+            : checkerPhaseV44
+              ? checkerMixedCandidateStrength > 0
+                ? artisticThreshold(x, y, "checkerboard") < 0.5
+                : (y & 1) === 0
             : (y & 1) === 0);
         const highOffset = y * highWidth + x * 2;
         highIndices[highOffset] = swapHighPair
@@ -1819,7 +1866,7 @@ export function convertToQl(
         highIndices[pixel] = highBits[pixel] === 1 ? ink : paper;
       }
     } else if (
-      settings.ditherEngineId === "artistic-ordered-hybrid-v1" &&
+      (settings.ditherEngineId === "artistic-ordered-hybrid-v1" || stableCheckerCarrierV451) &&
       settings.ditheringAmount > 0 &&
       settings.errorDiffusionLineSuppression > 0
     ) {
@@ -1874,6 +1921,9 @@ export function convertToQl(
         false,
         highIndices,
         4,
+        stableCheckerCarrierV451 ? "b" : "a",
+        stableCheckerCarrierV451,
+        colorCarrierDiagnostics,
       );
       highIndices.set(carrierPixels);
     }
@@ -1907,9 +1957,9 @@ export function convertToQl(
     return {
       platformId: "sinclair-ql",
       modeId: targetMode,
-      width: highWidth,
-      height: QL_SCREEN_HEIGHT,
-      pixelAspectRatio: 2 / 3,
+      width: destination.width,
+      height: destination.height,
+      pixelAspectRatio: destination.pixelAspect.width / destination.pixelAspect.height,
       attributeOptimizerId: settings.attributeOptimizerId,
       ditherEngineId: settings.ditherEngineId,
       paletteSelections: settings.paletteSelections,
@@ -1938,12 +1988,15 @@ export function convertToQl(
       sourcePreviewRgba: normalized,
       previewRgba: merged,
       score: temporalRgbaError(normalized, merged),
+      ...(engineFallback === undefined ? {} : { engineFallback }),
+      ...(colorCarrierDiagnostics === undefined ? {} : { colorCarrierDiagnostics }),
+      ...(artisticToneSafetyDiagnostics === undefined ? {} : { artisticToneSafetyDiagnostics }),
     };
   }
 
   const mode = qlHardwareModeForTarget(targetMode);
   const usesMixing = qlTargetUsesMixing(targetMode);
-  const width = qlModeWidth(mode);
+  const width = destination.width;
   const palette = qlModePalette(mode);
   const framed = frameRgbaToDimensions(
     sourceRgba,
@@ -1952,9 +2005,7 @@ export function convertToQl(
     width,
     QL_SCREEN_HEIGHT,
     settings,
-    width === 256
-      ? { width: 4, height: 3 }
-      : { width: 2, height: 3 },
+    destination.pixelAspect,
   );
   const filtered = filterRgba(
     settings.dithering === "ordered" && settings.ditheringAmount > 0
@@ -1973,25 +2024,41 @@ export function convertToQl(
   const artisticPlain = !usesMixing &&
     settings.ditherEngineId === "artistic-ordered-hybrid-v1" &&
     settings.ditheringAmount > 0;
+  const toneSafePlain = !usesMixing &&
+    settings.ditherEngineId === "artistic-ordered-tone-safe-v2";
   const checkerPlain = !usesMixing && checkerPhaseV44 &&
     settings.ditheringAmount > 0 && settings.errorDiffusionLineSuppression > 0;
-  let virtualIndices = artisticPlain || checkerPlain
+  let virtualIndices = artisticPlain || toneSafePlain || checkerPlain
     ? (() => {
         const enabled = selections[0]!.enabledColorIds;
-        const paletteIndices = renderArtisticPaletteOrdered(
-          normalized,
-          width,
-          QL_SCREEN_HEIGHT,
-          palette,
-          enabled,
-          artisticPlain
-            ? settings.ditheringAmount
-            : settings.ditheringAmount * checkerCarrierStrengthV44(
-                100,
-                settings.errorDiffusionLineSuppression,
-              ),
-          artisticPlain ? settings.artisticPattern : "checkerboard",
-        );
+        const paletteIndices = toneSafePlain
+          ? renderToneSafePaletteOrdered(
+              normalized,
+              width,
+              QL_SCREEN_HEIGHT,
+              palette,
+              enabled,
+              settings.ditheringAmount,
+              settings.artisticPattern ?? "auto",
+              artisticToneSafetyDiagnostics,
+            )
+          : renderArtisticPaletteOrdered(
+              normalized,
+              width,
+              QL_SCREEN_HEIGHT,
+              palette,
+              enabled,
+              artisticPlain
+                ? settings.ditheringAmount
+                : settings.ditheringAmount * checkerCarrierStrengthV44(
+                    100,
+                    settings.errorDiffusionLineSuppression,
+                  ),
+              artisticPlain ? settings.artisticPattern : "checkerboard",
+              stableCheckerCarrierV451 ? "b" : "a",
+              stableCheckerCarrierV451,
+              colorCarrierDiagnostics,
+            );
         const virtualByPalette = new Uint8Array(palette.length);
         for (let index = 0; index < enabled.length; index++) {
           virtualByPalette[enabled[index]!] = index;
@@ -2003,13 +2070,28 @@ export function convertToQl(
         width,
         QL_SCREEN_HEIGHT,
         virtualPalette,
-        settings,
+        internalSettings,
         usesMixing && (
           settings.ditherEngineId === "ordered-local-tone-v3" ||
           settings.ditherEngineId === "ordered-baseline-additive-v5" ||
           settings.ditherEngineId === "ordered-strict-matrix-v6"
         ),
       );
+  if (usesMixing && settings.ditherEngineId === "artistic-ordered-tone-safe-v2") {
+    const toneSafeCandidates = virtualPalette.map((candidate, value) => ({
+      color: { r: candidate.r, g: candidate.g, b: candidate.b },
+      value,
+    }));
+    virtualIndices = renderToneSafeCandidateField(
+      normalized,
+      width,
+      QL_SCREEN_HEIGHT,
+      settings.ditheringAmount,
+      settings.artisticPattern ?? "auto",
+      () => toneSafeCandidates,
+      artisticToneSafetyDiagnostics,
+    );
+  }
   const checkerMixedCandidateStrength = usesMixing && checkerPhaseV44
     ? settings.ditheringAmount * checkerCarrierStrengthV44(
         100,
@@ -2025,6 +2107,7 @@ export function convertToQl(
       virtualPalette,
       (candidate) => candidate,
       checkerMixedCandidateStrength,
+      stableCheckerCarrierV451 ? "b" : "a",
     );
   }
   const artisticMixed = usesMixing &&
@@ -2094,6 +2177,12 @@ export function convertToQl(
           coverage: Math.max(0, Math.min(1, 0.5 + (projected - 0.5) / scale)),
         };
       },
+      false,
+      undefined,
+      4,
+      stableCheckerCarrierV451 ? "b" : "a",
+      stableCheckerCarrierV451,
+      colorCarrierDiagnostics,
     );
     for (let pixel = 0; pixel < artisticPixels.length; pixel += 1) {
       const pair = virtualPalette[virtualIndices[pixel] ?? 0]!;
@@ -2209,7 +2298,7 @@ export function convertToQl(
       modeId: targetMode,
       width,
       height: QL_SCREEN_HEIGHT,
-      pixelAspectRatio: width === 256 ? 4 / 3 : 2 / 3,
+      pixelAspectRatio: destination.pixelAspect.width / destination.pixelAspect.height,
       attributeOptimizerId: settings.attributeOptimizerId,
       ditherEngineId: settings.ditherEngineId,
       paletteSelections: settings.paletteSelections,
@@ -2227,6 +2316,9 @@ export function convertToQl(
       sourcePreviewRgba: normalized,
       previewRgba: firstPreview,
       score: temporalRgbaError(normalized, firstPreview),
+      ...(engineFallback === undefined ? {} : { engineFallback }),
+      ...(colorCarrierDiagnostics === undefined ? {} : { colorCarrierDiagnostics }),
+      ...(artisticToneSafetyDiagnostics === undefined ? {} : { artisticToneSafetyDiagnostics }),
     };
   }
   const secondPreview = renderQlRgba(secondIndices, mode);
@@ -2236,7 +2328,7 @@ export function convertToQl(
     modeId: targetMode,
     width,
     height: QL_SCREEN_HEIGHT,
-    pixelAspectRatio: width === 256 ? 4 / 3 : 2 / 3,
+    pixelAspectRatio: destination.pixelAspect.width / destination.pixelAspect.height,
     attributeOptimizerId: settings.attributeOptimizerId,
     ditherEngineId: settings.ditherEngineId,
     paletteSelections: settings.paletteSelections,
@@ -2265,5 +2357,8 @@ export function convertToQl(
     sourcePreviewRgba: normalized,
     previewRgba: merged,
     score: temporalRgbaError(normalized, merged),
+    ...(engineFallback === undefined ? {} : { engineFallback }),
+    ...(colorCarrierDiagnostics === undefined ? {} : { colorCarrierDiagnostics }),
+    ...(artisticToneSafetyDiagnostics === undefined ? {} : { artisticToneSafetyDiagnostics }),
   };
 }

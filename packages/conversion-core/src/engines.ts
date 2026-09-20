@@ -2,6 +2,7 @@ import type {
   AttributeOptimizerId,
   DitherEngineId,
   DitheringMethod,
+  EngineFallbackDiagnostic,
   PlatformId,
   OrderedMatrixId,
   TargetModeId,
@@ -136,7 +137,10 @@ export const ATTRIBUTE_OPTIMIZERS: readonly AttributeOptimizerDescriptor[] = [
       "ordered-strict-matrix-v6",
       "ordered-void-cluster-v1",
       "artistic-ordered-hybrid-v1",
+      "artistic-ordered-tone-safe-v2",
       "error-diffusion-checker-phase-v4-4",
+      "error-diffusion-checker-phase-v4-5",
+      "error-diffusion-checker-phase-v4-5-1",
       "error-diffusion-decorrelated-v3",
     ],
     defaultDitherEngineId: "error-diffusion-decorrelated-v3",
@@ -438,6 +442,20 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
     effectiveParameterIds: ["ordered-matrix", "dithering-amount"],
   },
   {
+    id: "ordered-threshold-identity-v1",
+    name: "Ordered threshold identity v1 · experimental",
+    version: 1,
+    method: "ordered",
+    platforms: ["zx-spectrum"],
+    targetModeIds: ["zx48-standard-256x192", "zx48-mixed-256x192"],
+    orderedMatrixIds: [
+      "checkerboard-2x1", "bayer-2x2", "bayer-4x4", "bayer-8x8",
+      "clustered-dot-4x4", "clustered-dot-8x8", "void-cluster-8x8",
+    ],
+    lifecycle: "experimental",
+    effectiveParameterIds: ["ordered-matrix", "dithering-amount"],
+  },
+  {
     id: "ordered-clustered-dot-v1",
     name: "Clustered-dot ordered v1 · experimental",
     version: 1,
@@ -497,7 +515,7 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
   },
   {
     id: "artistic-ordered-hybrid-v1",
-    name: "Artistic ordered hybrid · experimental",
+    name: "Artistic ordered hybrid v1 · legacy",
     version: 1,
     method: "ordered",
     platforms: ["zx-spectrum", "sinclair-ql", "pmd-85"],
@@ -511,7 +529,53 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
       "mode8-256x256",
       "mode4-512x256",
       "mode8-mode4-mixed-512x256",
+      "pmd85-2-tv",
+      "pmd85-2-rgb",
+      "pmd85-3-tv",
+      "pmd85-3-pal",
+      "pmd85-3-rgb",
+      "pmd85-colorace",
     ],
+    effectiveParameterIds: ["dithering-amount", "artistic-pattern", "attribute-optimizer"],
+  },
+  {
+    id: "artistic-ordered-tone-safe-v2",
+    name: "Artistic ordered tone-safe v2 · experimental",
+    version: 2,
+    method: "ordered",
+    platforms: ["zx-spectrum", "sinclair-ql", "pmd-85"],
+    compatibleAttributeOptimizerIds: ["zx-source-cell-v1", "zx-guide-local-v1", "zx-adaptive-v1", "zx-guide-reference-halo-v1", "zx-guide-reference-halo-v2", "zx-guide-reference-rgb-halo-v3", "pmd85-cell-v1"],
+    lifecycle: "experimental",
+    targetModeIds: [
+      "zx48-standard-256x192",
+      "zx48-mixed-256x192",
+      "mode8-plain-256x256",
+      "mode4-plain-512x256",
+      "mode8-256x256",
+      "mode4-512x256",
+      "mode8-mode4-mixed-512x256",
+      "pmd85-2-tv",
+      "pmd85-2-rgb",
+      "pmd85-3-tv",
+      "pmd85-3-pal",
+      "pmd85-3-rgb",
+      "pmd85-colorace",
+    ],
+    effectiveParameterIds: ["dithering-amount", "artistic-pattern", "attribute-optimizer"],
+  },
+  {
+    id: "artistic-chessboard-smooth-v1",
+    name: "Artistic chessboard smooth v1 · experimental",
+    version: 1,
+    method: "ordered",
+    platforms: ["zx-spectrum"],
+    compatibleAttributeOptimizerIds: [
+      "zx-source-cell-v1", "zx-guide-local-v1", "zx-adaptive-v1",
+      "zx-guide-reference-halo-v1", "zx-guide-reference-halo-v2",
+      "zx-guide-reference-rgb-halo-v3",
+    ],
+    lifecycle: "experimental",
+    targetModeIds: ["zx48-standard-256x192", "zx48-mixed-256x192"],
     effectiveParameterIds: ["dithering-amount", "artistic-pattern", "attribute-optimizer"],
   },
   {
@@ -595,6 +659,28 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
     ],
   },
   {
+    id: "error-diffusion-checker-phase-v4-5",
+    name: "Adaptive checker/dispersed diffusion v4.5 · experimental",
+    version: 45,
+    method: "error-diffusion",
+    platforms: ["zx-spectrum", "sinclair-ql", "pmd-85"],
+    lifecycle: "experimental",
+    effectiveParameterIds: [
+      "dithering-amount", "error-randomization", "error-line-suppression",
+    ],
+  },
+  {
+    id: "error-diffusion-checker-phase-v4-5-1",
+    name: "Stable checker-phase diffusion v4.5.1 · experimental",
+    version: 451,
+    method: "error-diffusion",
+    platforms: ["zx-spectrum", "sinclair-ql", "pmd-85"],
+    lifecycle: "experimental",
+    effectiveParameterIds: [
+      "dithering-amount", "error-randomization", "error-line-suppression",
+    ],
+  },
+  {
     id: "error-diffusion-checker-phase-v4-4",
     name: "Artistic-carrier checker diffusion v4.4 · experimental",
     version: 44,
@@ -604,6 +690,15 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
     effectiveParameterIds: [
       "dithering-amount", "error-randomization", "error-line-suppression",
     ],
+  },
+  {
+    id: "error-diffusion-checker-artistic-v1",
+    name: "Checker artistic error diffusion v1 · experimental",
+    version: 1,
+    method: "error-diffusion",
+    platforms: ["zx-spectrum", "sinclair-ql"],
+    lifecycle: "experimental",
+    effectiveParameterIds: ["dithering-amount", "error-randomization", "error-line-suppression"],
   },
   {
     id: "error-diffusion-checker-phase-v4-1",
@@ -693,6 +788,18 @@ export function ditherMethodForEngine(id: DitherEngineId): DitheringMethod {
   return engine.method;
 }
 
+export function engineFallbackFor(
+  id: DitherEngineId,
+): EngineFallbackDiagnostic | undefined {
+  return id === "error-diffusion-checker-phase-v4-5"
+    ? {
+        requestedEngineId: id,
+        effectiveEngineId: "error-diffusion-checker-phase-v4-4",
+        reason: "grayscale-only-prototype",
+      }
+    : undefined;
+}
+
 export function latestDitherEngineForMethod(
   method: DitheringMethod,
 ): DitherEngineId {
@@ -753,4 +860,18 @@ export function isCompatibleEnginePair(
   const ditherIsCoupled = dither.family !== undefined;
   return optimizerIsCoupled === ditherIsCoupled &&
     (!optimizerIsCoupled || optimizer.family === dither.family);
+}
+
+export function isDitherEngineAvailableForSelection(
+  platformId: PlatformId,
+  targetModeId: TargetModeId,
+  attributeOptimizerId: AttributeOptimizerId,
+  ditherEngineId: DitherEngineId,
+): boolean {
+  const engine = DITHER_ENGINES.find((candidate) => candidate.id === ditherEngineId);
+  if (engine === undefined || !engine.platforms.includes(platformId as never)) return false;
+  if (engine.targetModeIds !== undefined && !engine.targetModeIds.includes(targetModeId)) return false;
+  if (targetModeId === "zx48-mixed-256x192" && engine.family !== undefined) return false;
+  if (platformId === "sinclair-ql") return true;
+  return isCompatibleEnginePair(attributeOptimizerId, ditherEngineId);
 }

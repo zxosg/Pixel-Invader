@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   checkerCarrierStrengthV44,
+  renderGrayscaleCarrierReference,
   renderGrayscaleArtisticCarrier,
   renderGrayscaleCheckerPhaseV44,
+  renderGrayscaleCheckerPhaseV45,
+  renderGrayscaleCheckerPhaseV451,
   renderGrayscaleDiffusionReference,
 } from "./grayscale-checker-v44.js";
 
@@ -138,5 +141,99 @@ describe("grayscale checker-phase v4.4 prototype", () => {
     const result = renderGrayscaleArtisticCarrier(flatSource(32, 32, 188), 32, 32);
     expect(result.diagnostics.checkerOccupancy).toBe(1);
     expect(result.diagnostics.checkerPhaseConsistency).toBe(1);
+  });
+});
+
+describe("grayscale adaptive carrier v4.5 prototype", () => {
+  it("matches neutral v3 exactly when carrier strength is zero", () => {
+    const source = flatSource(53, 37, 178);
+    const renderOptions = { ditheringAmount: 35, lineSuppression: 0, randomization: 0 };
+    const v3 = renderGrayscaleDiffusionReference(source, 53, 37, renderOptions, "v3");
+    const v45 = renderGrayscaleCheckerPhaseV45(source, 53, 37, renderOptions);
+    expect(v45.bits).toEqual(v3.bits);
+    expect(v45.guide).toEqual(v3.guide);
+    expect(v45.diagnostics.acceptedCount).toBe(0);
+  });
+
+  it("selects stable whole regions and remains deterministic", () => {
+    const source = flatSource(64, 64, 178);
+    const renderOptions = { ditheringAmount: 35, lineSuppression: 75, randomization: 0 };
+    const first = renderGrayscaleCheckerPhaseV45(source, 64, 64, renderOptions);
+    const second = renderGrayscaleCheckerPhaseV45(source, 64, 64, renderOptions);
+    expect(first.bits).toEqual(second.bits);
+    expect(first.guide).toEqual(second.guide);
+    expect(first.diagnostics).toEqual(second.diagnostics);
+    expect(first.diagnostics.carrierRegionCount).toBe(16);
+    expect(first.bits.every((bit) => bit === 0 || bit === 1)).toBe(true);
+  });
+
+  it("exposes complementary checker and dispersed carrier references", () => {
+    const source = flatSource(32, 32, 178);
+    const checkerA = renderGrayscaleCarrierReference(
+      source, 32, 32, { ditheringAmount: 100, lineSuppression: 100, randomization: 0 }, "checker-a",
+    );
+    const checkerB = renderGrayscaleCarrierReference(
+      source, 32, 32, { ditheringAmount: 100, lineSuppression: 100, randomization: 0 }, "checker-b",
+    );
+    const dispersed = renderGrayscaleCarrierReference(
+      source, 32, 32, { ditheringAmount: 100, lineSuppression: 100, randomization: 0 }, "dispersed-4x4",
+    );
+    expect(checkerA.bits).not.toEqual(checkerB.bits);
+    expect(dispersed.diagnostics.carrierFamilyCounts["dispersed-4x4"]).toBe(4);
+    expect(checkerA.diagnostics.checkerPhaseConsistency).toBeGreaterThan(0.5);
+  });
+
+  it("protects solid endpoints and strong edges", () => {
+    for (const value of [0, 255]) {
+      const source = flatSource(32, 24, value);
+      const v3 = renderGrayscaleDiffusionReference(source, 32, 24, options, "v3");
+      const v45 = renderGrayscaleCheckerPhaseV45(source, 32, 24, {
+        ...options,
+        lineSuppression: 100,
+      });
+      expect(v45.bits).toEqual(v3.bits);
+      expect(v45.diagnostics.acceptedCount).toBe(0);
+    }
+    const source = new Uint8Array(48 * 32 * 4);
+    for (let y = 0; y < 32; y += 1) for (let x = 0; x < 48; x += 1) {
+      const value = x < 24 ? 32 : 224;
+      const offset = (y * 48 + x) * 4;
+      source[offset] = value;
+      source[offset + 1] = value;
+      source[offset + 2] = value;
+      source[offset + 3] = 255;
+    }
+    const edge = renderGrayscaleCheckerPhaseV45(source, 48, 32, {
+      ...options,
+      lineSuppression: 100,
+    });
+    expect(edge.diagnostics.edgeRejectedCount).toBeGreaterThan(0);
+  });
+});
+
+describe("grayscale stable checker carrier v4.5.1", () => {
+  it("uses the complementary checker phase by default in large smooth regions", () => {
+    const source = flatSource(64, 64, 178);
+    const result = renderGrayscaleCheckerPhaseV451(source, 64, 64, {
+      ditheringAmount: 35,
+      lineSuppression: 75,
+      randomization: 0,
+    });
+    expect(result.diagnostics.carrierFamilyCounts["checker-b"]).toBe(4);
+    expect(result.diagnostics.carrierFamilyCounts["checker-a"]).toBe(0);
+    expect(result.diagnostics.carrierFamilyCounts["dispersed-4x4"]).toBe(0);
+    expect(result.diagnostics.carrierRegionCount).toBe(4);
+  });
+
+  it("matches neutral v3 when suppression is zero and is deterministic", () => {
+    const source = flatSource(53, 37, 178);
+    const options = { ditheringAmount: 35, lineSuppression: 0, randomization: 0 };
+    const v3 = renderGrayscaleDiffusionReference(source, 53, 37, options, "v3");
+    const first = renderGrayscaleCheckerPhaseV451(source, 53, 37, options);
+    const second = renderGrayscaleCheckerPhaseV451(source, 53, 37, options);
+    expect(first.bits).toEqual(v3.bits);
+    expect(first.guide).toEqual(v3.guide);
+    expect(first.bits).toEqual(second.bits);
+    expect(first.guide).toEqual(second.guide);
   });
 });

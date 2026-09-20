@@ -1586,12 +1586,40 @@ input[type="range"] {
   vector-effect: non-scaling-stroke;
 }
 
+.crop-resize-handle {
+  fill: #ffdc6a;
+  fill-opacity: 0.9;
+  stroke: #101827;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
 .crop-editor-canvas.crop-pointer-create {
   cursor: crosshair;
 }
 
 .crop-editor-canvas.crop-pointer-move {
   cursor: move;
+}
+
+.crop-editor-canvas.crop-pointer-nw,
+.crop-editor-canvas.crop-pointer-se {
+  cursor: nwse-resize;
+}
+
+.crop-editor-canvas.crop-pointer-ne,
+.crop-editor-canvas.crop-pointer-sw {
+  cursor: nesw-resize;
+}
+
+.crop-editor-canvas.crop-pointer-n,
+.crop-editor-canvas.crop-pointer-s {
+  cursor: ns-resize;
+}
+
+.crop-editor-canvas.crop-pointer-e,
+.crop-editor-canvas.crop-pointer-w {
+  cursor: ew-resize;
 }
 
 .show-pixel-grid .pixel-grid-overlay {

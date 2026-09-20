@@ -14,11 +14,18 @@ import {
   type Pmd85RgbColor,
 } from "@retro-converter/pmd-85";
 import { adjustRgba } from "./adjustments.js";
-import { assertCompatibleEngines, ditherMethodForEngine } from "./engines.js";
+import { assertCompatibleEngines, ditherMethodForEngine, engineFallbackFor } from "./engines.js";
 import { adaptiveDitherPrefilter, filterRgba } from "./filters.js";
 import { decorrelatedDiffusionKernel } from "./diffusion.js";
-import { artisticCoverage, renderArtisticPairField } from "./artistic-ordered.js";
+import {
+  artisticCoverage,
+  createArtisticToneSafetyDiagnostics,
+  createColorCarrierDiagnostics,
+  renderArtisticPairField,
+  renderToneSafeCandidateField,
+} from "./artistic-ordered.js";
 import { checkerCarrierStrengthV44 } from "./grayscale-checker-v44.js";
+import { destinationGeometryFor } from "./destination-geometry.js";
 import { frameRgbaToDimensions } from "./geometry.js";
 import { ORDERED_MATRICES, orderedThreshold } from "./matrices.js";
 import type {
@@ -181,14 +188,15 @@ function framePmd85LinearLight(
   sourceHeight: number,
   settings: ConversionSettings,
 ): Uint8Array {
-  const outputPixelAspect = { width: 1, height: 1 };
+  const destination = destinationGeometryFor(settings.platformId, settings.modeId);
+  const outputPixelAspect = destination.pixelAspect;
   if (settings.resampling === "nearest") {
     return frameRgbaToDimensions(
       source,
       sourceWidth,
       sourceHeight,
-      PMD85_SCREEN_WIDTH,
-      PMD85_SCREEN_HEIGHT,
+      destination.width,
+      destination.height,
       settings,
       outputPixelAspect,
     );
@@ -204,8 +212,8 @@ function framePmd85LinearLight(
     linearSource,
     sourceWidth,
     sourceHeight,
-    PMD85_SCREEN_WIDTH,
-    PMD85_SCREEN_HEIGHT,
+    destination.width,
+    destination.height,
     {
       ...settings,
       background: {
@@ -297,7 +305,9 @@ function buildDitherGuide(
   guide.fill(GUIDE_BLACK);
   const usesDiffusion =
     (settings.ditherEngineId === "error-diffusion-decorrelated-v3" ||
-      settings.ditherEngineId === "error-diffusion-checker-phase-v4-4") &&
+      settings.ditherEngineId === "error-diffusion-checker-phase-v4-4" ||
+      settings.ditherEngineId === "error-diffusion-checker-phase-v4-5" ||
+      settings.ditherEngineId === "error-diffusion-checker-phase-v4-5-1") &&
     settings.ditheringAmount > 0;
   const usesOrdered = (
     settings.ditherEngineId === "ordered-strict-matrix-v6" ||
@@ -407,6 +417,7 @@ export function convertToPmd85(
 ): Pmd85ConversionResult {
   if (settings.platformId !== "pmd-85") throw new RangeError("PMD 85 conversion requires the pmd-85 platform.");
   const hardwareMode = pmd85HardwareModeForTarget(settings.modeId);
+  const destination = destinationGeometryFor(settings.platformId, settings.modeId);
   const spatial = settings.modeId.includes("vertical-spatial");
   if (!spatial && (
     settings.ditherEngineId.startsWith("vertical-spatial-") ||
@@ -425,6 +436,7 @@ export function convertToPmd85(
     throw new RangeError("PMD 85 settings and target hardware interpretation do not match.");
   }
   assertCompatibleEngines("pmd-85", settings.attributeOptimizerId, settings.ditherEngineId);
+  const engineFallback = engineFallbackFor(settings.ditherEngineId);
   if (ditherMethodForEngine(settings.ditherEngineId) !== settings.dithering) {
     throw new RangeError("Dither engine and dithering method do not match.");
   }
@@ -503,8 +515,8 @@ export function convertToPmd85(
     return {
       platformId: "pmd-85",
       modeId: settings.modeId as Pmd85ConversionResult["modeId"],
-      width: PMD85_SCREEN_WIDTH,
-      height: PMD85_SCREEN_HEIGHT,
+      width: destination.width,
+      height: destination.height,
       pixelAspectRatio,
       attributeOptimizerId: settings.attributeOptimizerId,
       ditherEngineId: settings.ditherEngineId,
@@ -549,7 +561,9 @@ export function convertToPmd85(
   const supportedCells = new Uint8Array(cellInks.length);
   const usesDiffusion = (
     settings.ditherEngineId === "error-diffusion-decorrelated-v3" ||
-    settings.ditherEngineId === "error-diffusion-checker-phase-v4-4"
+    settings.ditherEngineId === "error-diffusion-checker-phase-v4-4" ||
+    settings.ditherEngineId === "error-diffusion-checker-phase-v4-5" ||
+    settings.ditherEngineId === "error-diffusion-checker-phase-v4-5-1"
   ) && settings.ditheringAmount > 0;
   const errors = usesDiffusion ? new Int32Array(baseLinear.length) : null;
   const orderedMatrix = settings.ditherEngineId === "ordered-void-cluster-v1"
@@ -712,8 +726,16 @@ export function convertToPmd85(
     }
   }
 
-  const checkerCarrier = settings.ditherEngineId === "error-diffusion-checker-phase-v4-4" &&
+  const checkerCarrier = (settings.ditherEngineId === "error-diffusion-checker-phase-v4-4" ||
+    settings.ditherEngineId === "error-diffusion-checker-phase-v4-5" ||
+    settings.ditherEngineId === "error-diffusion-checker-phase-v4-5-1") &&
     settings.ditheringAmount > 0 && settings.errorDiffusionLineSuppression > 0;
+  const colorCarrierDiagnostics = settings.ditherEngineId === "error-diffusion-checker-phase-v4-5-1"
+    ? createColorCarrierDiagnostics()
+    : undefined;
+  const artisticToneSafetyDiagnostics = settings.ditherEngineId === "artistic-ordered-tone-safe-v2"
+    ? createArtisticToneSafetyDiagnostics()
+    : undefined;
   if (
     (settings.ditherEngineId === "artistic-ordered-hybrid-v1" || checkerCarrier) &&
     settings.ditheringAmount > 0
@@ -741,6 +763,34 @@ export function convertToPmd85(
         return { first: black, second: ink, firstValue: 0, secondValue: 1,
           coverage: Math.max(0, Math.min(1, 0.5 + (projected - 0.5) / scale)) };
       }, false, reference, settings.orderedMatrix === "bayer-2x2" ? 2 : 4,
+      settings.ditherEngineId === "error-diffusion-checker-phase-v4-5-1" ? "b" : "a",
+      settings.ditherEngineId === "error-diffusion-checker-phase-v4-5-1",
+      colorCarrierDiagnostics,
+    );
+    pixelMasks.fill(0);
+    for (let y = 0; y < PMD85_SCREEN_HEIGHT; y += 1) for (let x = 0; x < PMD85_SCREEN_WIDTH; x += 1) {
+      if (artisticPixels[y * PMD85_SCREEN_WIDTH + x] !== 0) {
+        const index = y * PMD85_VISIBLE_BYTES_PER_LINE + Math.floor(x / 6);
+        pixelMasks[index] = (pixelMasks[index] ?? 0) | (1 << (x % 6));
+      }
+    }
+  }
+  if (settings.ditherEngineId === "artistic-ordered-tone-safe-v2") {
+    const artisticPixels = renderToneSafeCandidateField(
+      normalized,
+      PMD85_SCREEN_WIDTH,
+      PMD85_SCREEN_HEIGHT,
+      settings.ditheringAmount,
+      settings.artisticPattern ?? "auto",
+      (x, y) => {
+        const cell = Math.floor(y / cellHeight) * PMD85_VISIBLE_BYTES_PER_LINE + Math.floor(x / 6);
+        const ink = foregroundPalette[cellInks[cell] ?? 0]!;
+        return [
+          { color: black, value: 0 },
+          { color: ink, value: 1 },
+        ];
+      },
+      artisticToneSafetyDiagnostics,
     );
     pixelMasks.fill(0);
     for (let y = 0; y < PMD85_SCREEN_HEIGHT; y += 1) for (let x = 0; x < PMD85_SCREEN_WIDTH; x += 1) {
@@ -763,8 +813,8 @@ export function convertToPmd85(
   return {
     platformId: "pmd-85",
     modeId: settings.modeId as Pmd85ConversionResult["modeId"],
-    width: PMD85_SCREEN_WIDTH,
-    height: PMD85_SCREEN_HEIGHT,
+    width: destination.width,
+    height: destination.height,
     pixelAspectRatio,
     attributeOptimizerId: settings.attributeOptimizerId,
     ditherEngineId: settings.ditherEngineId,
@@ -787,5 +837,8 @@ export function convertToPmd85(
     sourcePreviewRgba: normalized,
     previewRgba: preview,
     score: rgbaError(normalized, preview),
+    ...(engineFallback === undefined ? {} : { engineFallback }),
+    ...(colorCarrierDiagnostics === undefined ? {} : { colorCarrierDiagnostics }),
+    ...(artisticToneSafetyDiagnostics === undefined ? {} : { artisticToneSafetyDiagnostics }),
   };
 }

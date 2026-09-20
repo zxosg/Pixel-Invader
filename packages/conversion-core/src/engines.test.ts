@@ -4,6 +4,8 @@ import {
   DITHER_ENGINES,
   assertCompatibleEngines,
   ditherMethodForEngine,
+  isCompatibleEnginePair,
+  isDitherEngineAvailableForSelection,
   latestDitherEngineForMethod,
 } from "./index.js";
 
@@ -41,6 +43,8 @@ describe("versioned conversion engines", () => {
       .toBe("ordered");
     expect(ditherMethodForEngine("ordered-mixed-phase-stable-v8"))
       .toBe("ordered");
+    expect(ditherMethodForEngine("ordered-threshold-identity-v1"))
+      .toBe("ordered");
     expect(ditherMethodForEngine("ordered-clustered-dot-v1"))
       .toBe("ordered");
     expect(ditherMethodForEngine("ordered-void-cluster-v1"))
@@ -65,6 +69,27 @@ describe("versioned conversion engines", () => {
       .toBe("error-diffusion");
     expect(ditherMethodForEngine("error-diffusion-checker-phase-v4-4"))
       .toBe("error-diffusion");
+    expect(ditherMethodForEngine("error-diffusion-checker-phase-v4-5"))
+      .toBe("error-diffusion");
+    expect(ditherMethodForEngine("error-diffusion-checker-phase-v4-5-1"))
+      .toBe("error-diffusion");
+    expect(ditherMethodForEngine("error-diffusion-checker-artistic-v1"))
+      .toBe("error-diffusion");
+    expect(() => assertCompatibleEngines(
+      "zx-spectrum",
+      "zx-adaptive-v1",
+      "error-diffusion-checker-artistic-v1",
+    )).not.toThrow();
+    expect(isCompatibleEnginePair(
+      "zx-adaptive-v1",
+      "error-diffusion-checker-artistic-v1",
+    )).toBe(true);
+    expect(isDitherEngineAvailableForSelection(
+      "zx-spectrum",
+      "zx48-standard-256x192",
+      "zx-adaptive-v1",
+      "error-diffusion-checker-artistic-v1",
+    )).toBe(true);
     expect(ditherMethodForEngine("error-diffusion-checker-phase-v4-1"))
       .toBe("error-diffusion");
     expect(ditherMethodForEngine("error-diffusion-checker-phase-v4-2"))
@@ -124,9 +149,29 @@ describe("versioned conversion engines", () => {
       "error-diffusion-checker-phase-v4-4",
     )).not.toThrow();
     expect(() => assertCompatibleEngines(
+      "sinclair-ql",
+      "zx-adaptive-v1",
+      "error-diffusion-checker-phase-v4-5",
+    )).not.toThrow();
+    expect(() => assertCompatibleEngines(
+      "sinclair-ql",
+      "zx-adaptive-v1",
+      "error-diffusion-checker-phase-v4-5-1",
+    )).not.toThrow();
+    expect(() => assertCompatibleEngines(
       "pmd-85",
       "pmd85-cell-v1",
       "error-diffusion-checker-phase-v4-4",
+    )).not.toThrow();
+    expect(() => assertCompatibleEngines(
+      "pmd-85",
+      "pmd85-cell-v1",
+      "error-diffusion-checker-phase-v4-5",
+    )).not.toThrow();
+    expect(() => assertCompatibleEngines(
+      "pmd-85",
+      "pmd85-cell-v1",
+      "error-diffusion-checker-phase-v4-5-1",
     )).not.toThrow();
     expect(() => assertCompatibleEngines(
       "zx-spectrum",

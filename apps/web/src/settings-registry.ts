@@ -156,15 +156,35 @@ export function settingMatchesSearch(definition: SettingDefinition, query: strin
     .some((value) => value.toLocaleLowerCase().includes(needle));
 }
 
-export function filterSettings(definitions: readonly SettingDefinition[], query: string, category: SettingCategory | "all", preset: SettingPresetId, values: Readonly<Record<string, unknown>>): readonly SettingDefinition[] {
+export function filterSettings(
+  definitions: readonly SettingDefinition[],
+  query: string,
+  category: SettingCategory | "all",
+  preset: SettingPresetId,
+  values: Readonly<Record<string, unknown>>,
+  baselineValues?: Readonly<Record<string, unknown>>,
+): readonly SettingDefinition[] {
+  const baseline = baselineValues ?? Object.fromEntries(definitions.map((definition) => [definition.id, definition.defaultValue]));
   return definitions.filter((definition) => settingMatchesSearch(definition, query)
     && (category === "all" || definition.category === category)
-    && (preset === "all" || preset === "modified" ? (preset !== "modified" || !Object.is(values[definition.id], definition.defaultValue)) : (definition.presets ?? []).includes(preset) || (preset === "startup" && definition.category === "startup") || (preset === "workspace-mouse" && (definition.category === "workspace" || definition.category === "mouse"))));
+    && (preset === "all" || preset === "modified" ? (preset !== "modified" || !Object.is(values[definition.id], baseline[definition.id])) : (definition.presets ?? []).includes(preset) || (preset === "startup" && definition.category === "startup") || (preset === "workspace-mouse" && (definition.category === "workspace" || definition.category === "mouse"))));
 }
 
 export function createSettingsDraft(values: object): Record<string, unknown> {
   const source = values as Record<string, unknown>;
   return Object.fromEntries(SETTINGS_REGISTRY.map((definition) => [definition.id, Object.prototype.hasOwnProperty.call(source, definition.id) ? source[definition.id] : definition.defaultValue]));
+}
+
+export function resetSettingsCategory(
+  values: Readonly<Record<string, unknown>>,
+  category: SettingCategory | "all",
+  definitions = SETTINGS_REGISTRY,
+): Record<string, unknown> {
+  const next = { ...values };
+  for (const definition of definitions) {
+    if (category === "all" || definition.category === category) next[definition.id] = definition.defaultValue;
+  }
+  return next;
 }
 
 export function validateSettingsDraft(values: Readonly<Record<string, unknown>>, definitions = SETTINGS_REGISTRY): { readonly values: Record<string, unknown>; readonly errors: Record<string, string> } {

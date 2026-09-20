@@ -4,6 +4,7 @@ import {
   diffusionNoiseOffset,
   phaseBalancedDiffusionKernel,
 } from "./diffusion.js";
+import { ORDERED_MATRICES, orderedThreshold } from "./matrices.js";
 
 const LUMA_WEIGHTS = [0.2126, 0.7152, 0.0722] as const;
 const STRONG_EDGE = 0.18;
@@ -13,6 +14,12 @@ const RUN_MIN_COVERAGE = 0.30;
 const RUN_MAX_COVERAGE = 0.70;
 
 export type GrayscaleDiffusionReference = "v3" | "v4";
+type GrayscaleAdaptiveCarrier = "adaptive-v45" | "adaptive-v45-1";
+export type GrayscaleCarrierFamily =
+  | "checker-a"
+  | "checker-b"
+  | "dispersed-4x4"
+  | "diagonal";
 
 export interface GrayscaleCheckerPhaseOptions {
   readonly ditheringAmount: number;
@@ -39,6 +46,9 @@ export interface GrayscaleCheckerDiagnostics {
   readonly directionalAnisotropy: number;
   readonly toneDrift: number;
   readonly toneVariance: number;
+  readonly carrierFamilyCounts: Readonly<Record<GrayscaleCarrierFamily, number>>;
+  readonly carrierRegionCount: number;
+  readonly carrierSwitchCount: number;
 }
 
 export interface GrayscaleCheckerResult {
@@ -222,6 +232,133 @@ function checkerMetrics(bits: Uint8Array, width: number, height: number): {
   };
 }
 
+const CARRIER_FAMILY_ORDER: readonly GrayscaleCarrierFamily[] = [
+  "checker-a",
+  "checker-b",
+  "dispersed-4x4",
+  "diagonal",
+];
+
+function carrierThreshold(
+  family: GrayscaleCarrierFamily,
+  x: number,
+  y: number,
+): number {
+  if (family === "checker-a") return artisticThreshold(x, y, "checkerboard");
+  if (family === "checker-b") return 1 - artisticThreshold(x, y, "checkerboard");
+  if (family === "dispersed-4x4") {
+    const matrix = ORDERED_MATRICES["bayer-4x4"];
+    return (orderedThreshold(matrix, x, y) + 0.5) / matrix.levels;
+  }
+  return (((x + y) & 3) + 0.5) / 4;
+}
+
+function carrierTrialCost(
+  luma: Float32Array,
+  width: number,
+  height: number,
+  left: number,
+  top: number,
+  family: GrayscaleCarrierFamily,
+): number {
+  const right = Math.min(width, left + 16);
+  const bottom = Math.min(height, top + 16);
+  let cost = 0;
+  for (let y = top; y < bottom; y += 1) {
+    for (let x = left; x < right; x += 1) {
+      const value = luma[y * width + x] ?? 0;
+      if (value < 0.12 || value > 0.88) continue;
+      const bit = value > carrierThreshold(family, x, y) ? 1 : 0;
+      cost += Math.abs(bit - value) * 8;
+      if (x > left) {
+        const previous = luma[y * width + x - 1] ?? 0;
+        if (previous > 0.12 && previous < 0.88 &&
+            (previous > carrierThreshold(family, x - 1, y) ? 1 : 0) === bit) cost += 2;
+      }
+      if (y > top) {
+        const previous = luma[(y - 1) * width + x] ?? 0;
+        if (previous > 0.12 && previous < 0.88 &&
+            (previous > carrierThreshold(family, x, y - 1) ? 1 : 0) === bit) cost += 4;
+      }
+      if (x > left && y > top) {
+        const previous = luma[(y - 1) * width + x - 1] ?? 0;
+        if (previous > 0.12 && previous < 0.88 &&
+            (previous > carrierThreshold(family, x - 1, y - 1) ? 1 : 0) === bit) cost += 1;
+      }
+    }
+  }
+  return cost;
+}
+
+interface CarrierRegionPlan {
+  readonly families: Uint8Array;
+  readonly columns: number;
+  readonly regionSize: number;
+  readonly familyCounts: Readonly<Record<GrayscaleCarrierFamily, number>>;
+  readonly switchCount: number;
+}
+
+function buildCarrierRegionPlan(
+  luma: Float32Array,
+  width: number,
+  height: number,
+  forcedFamily?: GrayscaleCarrierFamily,
+  regionSize = 16,
+  refined = false,
+): CarrierRegionPlan {
+  const columns = Math.ceil(width / regionSize);
+  const rows = Math.ceil(height / regionSize);
+  const families = new Uint8Array(columns * rows);
+  const familyCounts: Record<GrayscaleCarrierFamily, number> = {
+    "checker-a": 0,
+    "checker-b": 0,
+    "dispersed-4x4": 0,
+    diagonal: 0,
+  };
+  for (let regionY = 0; regionY < rows; regionY += 1) {
+    for (let regionX = 0; regionX < columns; regionX += 1) {
+      const left = regionX * regionSize;
+      const top = regionY * regionSize;
+      let selected: GrayscaleCarrierFamily = forcedFamily ?? (refined ? "checker-b" : "checker-a");
+      if (forcedFamily === undefined) {
+        const checkerA = carrierTrialCost(luma, width, height, left, top, "checker-a");
+        const checkerB = carrierTrialCost(luma, width, height, left, top, "checker-b");
+        if (refined) {
+          // v4.5.1 deliberately prefers the visually stronger complementary
+          // checker phase. Switch to phase A only on clear evidence; do not
+          // introduce Bayer seams into the refined candidate.
+          selected = checkerA + 2 < checkerB * 0.95 ? "checker-a" : "checker-b";
+        } else {
+          const checker = Math.min(checkerA, checkerB);
+          const dispersed = carrierTrialCost(luma, width, height, left, top, "dispersed-4x4");
+          if (dispersed <= checker * 0.9 && checker - dispersed >= 2) {
+            selected = "dispersed-4x4";
+          } else if (checkerB < checkerA) {
+            selected = "checker-b";
+          }
+        }
+      }
+      families[regionY * columns + regionX] = CARRIER_FAMILY_ORDER.indexOf(selected);
+      familyCounts[selected] += 1;
+    }
+  }
+  let switchCount = 0;
+  for (let regionY = 0; regionY < rows; regionY += 1) {
+    for (let regionX = 0; regionX < columns; regionX += 1) {
+      const current = families[regionY * columns + regionX];
+      if (regionX > 0 && families[regionY * columns + regionX - 1] !== current) switchCount += 1;
+      if (regionY > 0 && families[(regionY - 1) * columns + regionX] !== current) switchCount += 1;
+    }
+  }
+  return { families, columns, regionSize, familyCounts, switchCount };
+}
+
+function familyAt(plan: CarrierRegionPlan, x: number, y: number): GrayscaleCarrierFamily {
+  return CARRIER_FAMILY_ORDER[
+    plan.families[Math.floor(y / plan.regionSize) * plan.columns + Math.floor(x / plan.regionSize)] ?? 0
+  ] ?? "checker-a";
+}
+
 function diagnostics(
   bits: Uint8Array,
   guide: Float32Array,
@@ -234,6 +371,14 @@ function diagnostics(
   sourceRejectedCount: number,
   structureRejectedCount: number,
   edgeRejectedCount: number,
+  carrierFamilyCounts: Readonly<Record<GrayscaleCarrierFamily, number>> = {
+    "checker-a": 1,
+    "checker-b": 0,
+    "dispersed-4x4": 0,
+    diagonal: 0,
+  },
+  carrierRegionCount = 0,
+  carrierSwitchCount = 0,
 ): GrayscaleCheckerDiagnostics {
   const vertical = runScore(bits, luma, width, height, 0, 1);
   const horizontal = runScore(bits, luma, width, height, 1, 0);
@@ -272,6 +417,9 @@ function diagnostics(
       Math.max(1, horizontalEnergy + verticalEnergy),
     toneDrift,
     toneVariance,
+    carrierFamilyCounts,
+    carrierRegionCount,
+    carrierSwitchCount,
   };
 }
 
@@ -281,7 +429,7 @@ function renderGrayscaleDiffusion(
   height: number,
   options: GrayscaleCheckerPhaseOptions,
   reference: GrayscaleDiffusionReference,
-  carrier: boolean,
+  carrier: boolean | GrayscaleAdaptiveCarrier | GrayscaleCarrierFamily,
 ): GrayscaleCheckerResult {
   if (width <= 0 || height <= 0) throw new RangeError("Grayscale dimensions must be positive.");
   if (source.length < width * height * 4) throw new RangeError("Grayscale source buffer is too short.");
@@ -299,6 +447,18 @@ function renderGrayscaleDiffusion(
   const carrierStrength = carrier
     ? checkerCarrierStrengthV44(options.ditheringAmount, options.lineSuppression)
     : 0;
+  const adaptiveCarrier = carrier === "adaptive-v45" || carrier === "adaptive-v45-1" || typeof carrier === "string";
+  const refinedAdaptiveCarrier = carrier === "adaptive-v45-1";
+  const carrierPlan = adaptiveCarrier
+    ? buildCarrierRegionPlan(
+        luma,
+        width,
+        height,
+        carrier === "adaptive-v45" || carrier === "adaptive-v45-1" ? undefined : carrier,
+        refinedAdaptiveCarrier ? 32 : 16,
+        refinedAdaptiveCarrier,
+      )
+    : undefined;
   let candidateCount = 0;
   let acceptedCount = 0;
   let sourceRejectedCount = 0;
@@ -316,7 +476,7 @@ function renderGrayscaleDiffusion(
       const baseBit = adjusted >= 0.5 ? 1 : 0;
       let outputBit = baseBit;
 
-      if (carrier && carrierStrength > 0 && adjusted > 0.12 && adjusted < 0.88) {
+      if (carrier === true && carrierStrength > 0 && adjusted > 0.12 && adjusted < 0.88) {
         const stats = neighborhoodStats(luma, width, height, x, y);
         const directionalGradient = Math.max(stats.gx, stats.gy);
         const dominantGradient = directionalGradient > 0.035 &&
@@ -345,6 +505,53 @@ function renderGrayscaleDiffusion(
                 : 1;
               if (candidateStructureCost <= baseStructureCost &&
                 candidateVerticalRun <= Math.max(2, baseVerticalRun)) {
+                outputBit = candidateBit;
+                acceptedCount += 1;
+              } else {
+                structureRejectedCount += 1;
+              }
+            }
+          }
+        }
+      }
+
+      if (adaptiveCarrier && carrierStrength > 0 && adjusted > 0.12 && adjusted < 0.88) {
+        const stats = neighborhoodStats(luma, width, height, x, y);
+        const directionalGradient = Math.max(stats.gx, stats.gy);
+        const dominantGradient = directionalGradient > 0.035 &&
+          directionalGradient > Math.min(stats.gx, stats.gy) * 1.5;
+        const protectedRegion = stats.strong || stats.weak || stats.variance > 0.012 ||
+          directionalGradient > 0.035 || dominantGradient;
+        if (protectedRegion) {
+          edgeRejectedCount += 1;
+        } else {
+          const family = familyAt(carrierPlan!, x, y);
+          const candidateBit = adjusted > carrierThreshold(family, x, y) ? 1 : 0;
+          if (candidateBit !== baseBit) {
+            candidateCount += 1;
+            const baseSourceCost = Math.abs((luma[index] ?? 0) - baseBit);
+            const candidateSourceCost = Math.abs((luma[index] ?? 0) - candidateBit);
+            const sourceBudget = 0.02 + 0.08 * carrierStrength;
+            if (candidateSourceCost > baseSourceCost + sourceBudget) {
+              sourceRejectedCount += 1;
+            } else {
+              const baseStructureCost = localDirectionalCost(bits, luma, written, width, height, x, y, baseBit);
+              const candidateStructureCost = localDirectionalCost(bits, luma, written, width, height, x, y, candidateBit);
+              const baseVerticalRun = previousRowBits[x] === baseBit
+                ? (verticalRuns[x] ?? 0) + 1
+                : 1;
+              const candidateVerticalRun = previousRowBits[x] === candidateBit
+                ? (verticalRuns[x] ?? 0) + 1
+                : 1;
+              const phaseConsistent = family === "checker-a" || family === "checker-b"
+                ? candidateBit === ((((x + y) & 1) ^ (family === "checker-a" ? 1 : 0)))
+                : false;
+              const candidatePenalty = candidateStructureCost +
+                (candidateVerticalRun > Math.max(2, baseVerticalRun) ? 8 : 0) +
+                (phaseConsistent ? -1 : 0);
+              const basePenalty = baseStructureCost;
+              if (candidatePenalty <= basePenalty &&
+                  candidateVerticalRun <= Math.max(2, baseVerticalRun)) {
                 outputBit = candidateBit;
                 acceptedCount += 1;
               } else {
@@ -400,6 +607,9 @@ function renderGrayscaleDiffusion(
       sourceRejectedCount,
       structureRejectedCount,
       edgeRejectedCount,
+      carrierPlan?.familyCounts,
+      carrierPlan === undefined ? 0 : carrierPlan.families.length,
+      carrierPlan?.switchCount ?? 0,
     ),
   };
 }
@@ -412,6 +622,37 @@ export function renderGrayscaleCheckerPhaseV44(
   options: GrayscaleCheckerPhaseOptions,
 ): GrayscaleCheckerResult {
   return renderGrayscaleDiffusion(source, width, height, options, "v3", true);
+}
+
+/** Grayscale-only v4.5 prototype with a stable adaptive carrier per 16×16 region. */
+export function renderGrayscaleCheckerPhaseV45(
+  source: Uint8Array,
+  width: number,
+  height: number,
+  options: GrayscaleCheckerPhaseOptions,
+): GrayscaleCheckerResult {
+  return renderGrayscaleDiffusion(source, width, height, options, "v3", "adaptive-v45");
+}
+
+/** Refined grayscale v4.5 candidate using stable checker-B regions only. */
+export function renderGrayscaleCheckerPhaseV451(
+  source: Uint8Array,
+  width: number,
+  height: number,
+  options: GrayscaleCheckerPhaseOptions,
+): GrayscaleCheckerResult {
+  return renderGrayscaleDiffusion(source, width, height, options, "v3", "adaptive-v45-1");
+}
+
+/** Forced carrier references used by the v4.5 grayscale benchmark. */
+export function renderGrayscaleCarrierReference(
+  source: Uint8Array,
+  width: number,
+  height: number,
+  options: GrayscaleCheckerPhaseOptions,
+  family: GrayscaleCarrierFamily,
+): GrayscaleCheckerResult {
+  return renderGrayscaleDiffusion(source, width, height, options, "v3", family);
 }
 
 /** Grayscale-only v3/v4 references used by the prototype benchmark. */

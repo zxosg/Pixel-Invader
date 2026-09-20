@@ -9,6 +9,10 @@ export {
   qlTargetUsesVerticalSpatialMix,
 } from "./ql-convert.js";
 export { convertToPmd85 } from "./pmd85-convert.js";
+export {
+  destinationGeometryFor,
+  type DestinationGeometry,
+} from "./destination-geometry.js";
 export { adjustRgba, validateAdjustments, type ImageAdjustments } from "./adjustments.js";
 export { filterRgba, validateImageFilters, type ImageFilters } from "./filters.js";
 export {
@@ -37,12 +41,16 @@ export {
 export * from "./vertical-spatial-mix.js";
 export {
   checkerCarrierStrengthV44,
+  renderGrayscaleCarrierReference,
   renderGrayscaleArtisticCarrier,
   renderGrayscaleCheckerPhaseV44,
+  renderGrayscaleCheckerPhaseV45,
+  renderGrayscaleCheckerPhaseV451,
   renderGrayscaleDiffusionReference,
   type GrayscaleCheckerDiagnostics,
   type GrayscaleCheckerPhaseOptions,
   type GrayscaleCheckerResult,
+  type GrayscaleCarrierFamily,
   type GrayscaleDiffusionReference,
 } from "./grayscale-checker-v44.js";
 export {

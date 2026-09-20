@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress — first iteration implemented
+In progress — first iteration and bitmap editor implemented; documentation and acceptance verification remain
 
 ## Summary
 
@@ -227,5 +227,8 @@ Only the first and explicitly defined fourth category may affect exported output
   tile diagnostics.
 - Palette usage reports normal/BRIGHT INK/PAPER counts and percentages, with a
   used-colors-only filter shared across the palette views.
-- The next implementation phase is the palette-mode bitmap/cell editor with a
-  post-conversion edit layer and scoped undo/redo.
+- The palette-mode bitmap/cell editor, post-conversion edit layer, and scoped
+  undo/redo are now implemented through the shared bitmap editor lifecycle.
+- Remaining work is acceptance verification, explicit status tracking, and
+  workspace-preset coverage. Detachable panels remain deferred unless usage
+  demonstrates a need.

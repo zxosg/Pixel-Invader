@@ -1,5 +1,9 @@
 # Full-Bitmap Working-Source Editor
 
+## Status
+
+Implemented in the current application; final browser and target-geometry acceptance verification remains.
+
 ## Summary
 
 Add a full-screen `Bitmap editor` pane for bitmap conversion mode. The editor displays the converted bitmap at high zoom, supports direct pixel editing, and keeps the second pane synchronized.

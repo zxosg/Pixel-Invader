@@ -1,6 +1,12 @@
 import { decodeAttribute } from "./palette.js";
 import { ARTISTIC_ROW_RANKS, ARTISTIC_SQUARE_RANKS } from "./artistic-ranks.js";
-import type { AttributeHeight, ArtisticPatternPreference, RgbColor } from "./types.js";
+import type {
+  ArtisticToneSafetyDiagnostics,
+  AttributeHeight,
+  ArtisticPatternPreference,
+  ColorCarrierDiagnostics,
+  RgbColor,
+} from "./types.js";
 
 export const ARTISTIC_SEED = 1729;
 type Family = Exclude<ArtisticPatternPreference, "auto">;
@@ -15,6 +21,29 @@ const linear = Array.from({ length: 256 }, (_, i) => {
 });
 const weights = [0.2126, 0.7152, 0.0722] as const;
 const BAYER_4X4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5] as const;
+
+export function createColorCarrierDiagnostics(): ColorCarrierDiagnostics {
+  return {
+    eligibleBlocks: 0,
+    intermediateCoverageBlocks: 0,
+    checkerCandidateCount: 0,
+    corrected2x2Blocks: 0,
+    correctedPixels: 0,
+    rejectedDiagonalIncrease: 0,
+    rejectedHorizontal2x1: 0,
+    sourceRejectedCandidates: 0,
+    structureRejectedCandidates: 0,
+    coveragePreservationFailures: 0,
+    pairBoundaryRejections: 0,
+    edgeRejectedBlocks: 0,
+    verticalArtifactScoreBefore: 0,
+    verticalArtifactScoreAfter: 0,
+    diagonalArtifactScoreBefore: 0,
+    diagonalArtifactScoreAfter: 0,
+    horizontalArtifactScoreBefore: 0,
+    horizontalArtifactScoreAfter: 0,
+  };
+}
 
 /** Each quarter has its own translated rank permutation on its actual eligible
  * lattice. The half-coverage motif never moves. Thresholds cover all 4096 bins
@@ -93,6 +122,210 @@ export interface ArtisticPairSample {
   readonly coverage: number;
 }
 
+export interface ToneSafeCandidate {
+  readonly color: RgbColor;
+  readonly value: number;
+}
+
+/**
+ * V2 Artistic placement.  The nearest visible colour is always one endpoint,
+ * so amount zero is an exact solid/no-dither field.  Alternatives are judged
+ * in the same linear-light space as the final visible colour rather than in a
+ * hardware plane which may later be averaged with another plane.
+ */
+export function renderToneSafeCandidateField(
+  source: Uint8Array,
+  width: number,
+  height: number,
+  amount: number,
+  preference: ArtisticPatternPreference,
+  candidatesAt: (x: number, y: number) => readonly ToneSafeCandidate[],
+  diagnostics?: ArtisticToneSafetyDiagnostics,
+  groupWidth = 2,
+  groupHeight = 2,
+): Uint8Array {
+  const alpha = Math.max(0, Math.min(100, amount)) / 100;
+  const length = width * height;
+  const baselineValues = new Uint8Array(length);
+  const alternateValues = new Uint8Array(length);
+  const baselineColors = new Uint8Array(length * 3);
+  const alternateColors = new Uint8Array(length * 3);
+  const proposal = renderArtisticPairField(
+    source,
+    width,
+    height,
+    amount,
+    preference,
+    (x, y) => {
+      const candidates = candidatesAt(x, y);
+      if (candidates.length === 0) throw new RangeError("Tone-safe Artistic rendering requires a legal candidate.");
+      const offset = (y * width + x) * 4;
+      const sr = source[offset] ?? 0;
+      const sg = source[offset + 1] ?? 0;
+      const sb = source[offset + 2] ?? 0;
+      let baseline = candidates[0]!;
+      let baselineError = linearDistance(sr, sg, sb, baseline.color);
+      for (let index = 1; index < candidates.length; index += 1) {
+        const candidate = candidates[index]!;
+        const error = linearDistance(sr, sg, sb, candidate.color);
+        if (error < baselineError || (error === baselineError && candidate.value < baseline.value)) {
+          baseline = candidate;
+          baselineError = error;
+        }
+      }
+      let alternate = baseline;
+      let bestProjectionError = baselineError;
+      let bestExcursion = Number.POSITIVE_INFINITY;
+      let bestCoverage = 0;
+      const sourceLinear = [linear[sr]!, linear[sg]!, linear[sb]!] as const;
+      const baselineLinear = [
+        linear[baseline.color.r]!, linear[baseline.color.g]!, linear[baseline.color.b]!,
+      ] as const;
+      if (diagnostics) diagnostics.candidateCount += candidates.length;
+      for (const candidate of candidates) {
+        if (candidate.value === baseline.value) continue;
+        if (diagnostics) diagnostics.alternateCount += 1;
+        const candidateLinear = [
+          linear[candidate.color.r]!, linear[candidate.color.g]!, linear[candidate.color.b]!,
+        ] as const;
+        let numerator = 0;
+        let denominator = 0;
+        for (let channel = 0; channel < 3; channel += 1) {
+          const delta = candidateLinear[channel]! - baselineLinear[channel]!;
+          numerator += weights[channel]! * (sourceLinear[channel]! - baselineLinear[channel]!) * delta;
+          denominator += weights[channel]! * delta * delta;
+        }
+        if (denominator <= 0 || numerator <= 0) continue;
+        const coverage = Math.max(0, Math.min(1, numerator / denominator));
+        if (coverage <= 0) continue;
+        let projectionError = 0;
+        for (let channel = 0; channel < 3; channel += 1) {
+          const projected = baselineLinear[channel]! +
+            coverage * (candidateLinear[channel]! - baselineLinear[channel]!);
+          const difference = sourceLinear[channel]! - projected;
+          projectionError += weights[channel]! * difference * difference;
+        }
+        if (projectionError >= baselineError) continue;
+        const excursion = coverage * linearDistance(sr, sg, sb, candidate.color);
+        if (
+          projectionError < bestProjectionError ||
+          (projectionError === bestProjectionError && excursion < bestExcursion) ||
+          (projectionError === bestProjectionError && excursion === bestExcursion && candidate.value < alternate.value)
+        ) {
+          alternate = candidate;
+          bestProjectionError = projectionError;
+          bestExcursion = excursion;
+          bestCoverage = coverage;
+        }
+      }
+      const pixel = y * width + x;
+      baselineValues[pixel] = baseline.value;
+      alternateValues[pixel] = alternate.value;
+      baselineColors.set([baseline.color.r, baseline.color.g, baseline.color.b], pixel * 3);
+      alternateColors.set([alternate.color.r, alternate.color.g, alternate.color.b], pixel * 3);
+      return {
+        first: baseline.color,
+        second: alternate.color,
+        firstValue: baseline.value,
+        secondValue: alternate.value,
+        coverage: alpha * bestCoverage,
+      };
+    },
+  );
+  if (!diagnostics) return proposal;
+
+  const colorChannel = (pixel: number, value: number, channel: number): number =>
+    value === alternateValues[pixel]
+      ? alternateColors[pixel * 3 + channel] ?? 0
+      : baselineColors[pixel * 3 + channel] ?? 0;
+  const exactError = (left: number, top: number, right: number, bottom: number, values: Uint8Array): number => {
+    let error = 0;
+    for (let y = top; y < bottom; y += 1) for (let x = left; x < right; x += 1) {
+      const pixel = y * width + x;
+      const sourceOffset = pixel * 4;
+      for (let channel = 0; channel < 3; channel += 1) {
+        const difference = (source[sourceOffset + channel] ?? 0) - colorChannel(pixel, values[pixel] ?? 0, channel);
+        error += difference * difference;
+      }
+    }
+    return error;
+  };
+  const lowPassError = (left: number, top: number, right: number, bottom: number, values: Uint8Array): number => {
+    let error = 0;
+    for (let y = top; y < bottom; y += 2) for (let x = left; x < right; x += 2) {
+      const blockRight = Math.min(right, x + 2);
+      const blockBottom = Math.min(bottom, y + 2);
+      const count = (blockRight - x) * (blockBottom - y);
+      for (let channel = 0; channel < 3; channel += 1) {
+        let sourceSum = 0;
+        let outputSum = 0;
+        for (let by = y; by < blockBottom; by += 1) for (let bx = x; bx < blockRight; bx += 1) {
+          const pixel = by * width + bx;
+          sourceSum += source[pixel * 4 + channel] ?? 0;
+          outputSum += colorChannel(pixel, values[pixel] ?? 0, channel);
+        }
+        const difference = sourceSum / count - outputSum / count;
+        error += difference * difference;
+      }
+    }
+    return error;
+  };
+
+  const output = proposal.slice();
+  for (let top = 0; top < height; top += Math.max(1, groupHeight)) {
+    for (let left = 0; left < width; left += Math.max(1, groupWidth)) {
+      const right = Math.min(width, left + Math.max(1, groupWidth));
+      const bottom = Math.min(height, top + Math.max(1, groupHeight));
+      const baselineExact = exactError(left, top, right, bottom, baselineValues);
+      const proposalExact = exactError(left, top, right, bottom, proposal);
+      const baselineLowPass = lowPassError(left, top, right, bottom, baselineValues);
+      const proposalLowPass = lowPassError(left, top, right, bottom, proposal);
+      diagnostics.baselineExactRgbError += baselineExact;
+      diagnostics.proposalExactRgbError += proposalExact;
+      diagnostics.baselineLowPassRgbError += baselineLowPass;
+      diagnostics.proposalLowPassRgbError += proposalLowPass;
+      const accept = proposalLowPass < baselineLowPass ||
+        (proposalLowPass === baselineLowPass && proposalExact < baselineExact);
+      if (accept) {
+        diagnostics.acceptedGroups += 1;
+        diagnostics.finalExactRgbError += proposalExact;
+        diagnostics.finalLowPassRgbError += proposalLowPass;
+      } else {
+        diagnostics.rejectedGroups += 1;
+        diagnostics.finalExactRgbError += baselineExact;
+        diagnostics.finalLowPassRgbError += baselineLowPass;
+        for (let y = top; y < bottom; y += 1) for (let x = left; x < right; x += 1) {
+          const pixel = y * width + x;
+          output[pixel] = baselineValues[pixel] ?? 0;
+        }
+      }
+    }
+  }
+  for (let pixel = 0; pixel < length; pixel += 1) {
+    const residual = [0, 1, 2].map((channel) =>
+      colorChannel(pixel, output[pixel] ?? 0, channel) - (source[pixel * 4 + channel] ?? 0));
+    const mean = (residual[0]! + residual[1]! + residual[2]!) / 3;
+    diagnostics.unexpectedChromaEnergy += residual.reduce((sum, value) => sum + (value - mean) ** 2, 0);
+  }
+  return output;
+}
+
+export function createArtisticToneSafetyDiagnostics(): ArtisticToneSafetyDiagnostics {
+  return {
+    candidateCount: 0,
+    alternateCount: 0,
+    acceptedGroups: 0,
+    rejectedGroups: 0,
+    baselineExactRgbError: 0,
+    proposalExactRgbError: 0,
+    finalExactRgbError: 0,
+    baselineLowPassRgbError: 0,
+    proposalLowPassRgbError: 0,
+    finalLowPassRgbError: 0,
+    unexpectedChromaEnergy: 0,
+  };
+}
+
 interface CanonicalSample {
   readonly low: RgbColor;
   readonly high: RgbColor;
@@ -151,6 +384,9 @@ export function renderArtisticPairField(
   rowOnly = false,
   referenceValues?: Uint8Array,
   guidePeriod = 4,
+  checkerPhase: "a" | "b" = "a",
+  protectVerticalSpikes = false,
+  diagnostics?: ColorCarrierDiagnostics,
 ): Uint8Array {
   const length = width * height;
   const samples = new Array<CanonicalSample>(length);
@@ -289,8 +525,20 @@ export function renderArtisticPairField(
     edgeBand.set(expanded);
   }
 
+  const carrierValues = new Uint8Array(length);
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const index = y * width + x;
+    const sample = samples[index]!;
+    const family = preference === "auto"
+      ? auto[Math.floor(y / 16) * Math.ceil(width / 16) + Math.floor(x / 16)] ?? "checkerboard"
+      : preference;
+    const threshold = checkerPhase === "b" && family === "checkerboard"
+      ? 1 - artisticThreshold(x, y, family, rowOnly)
+      : artisticThreshold(x, y, family, rowOnly);
+    carrierValues[index] = coverage[index]! > threshold ? sample.highValue : sample.lowValue;
+  }
+
   const output = new Uint8Array(length);
-  const familyColumns = Math.ceil(width / 16);
   for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
     const index = y * width + x;
     const sample = samples[index]!;
@@ -329,12 +577,190 @@ export function renderArtisticPairField(
       output[index] = bayerValues[index]!;
       continue;
     }
-    const family = preference === "auto"
-      ? auto[Math.floor(y / 16) * familyColumns + Math.floor(x / 16)] ?? "checkerboard"
-      : preference;
-    output[index] = coverage[index]! > artisticThreshold(x, y, family, rowOnly)
-      ? sample.highValue
-      : sample.lowValue;
+    output[index] = carrierValues[index]!;
+  }
+
+  if (protectVerticalSpikes) {
+    const endpointBit = (sample: CanonicalSample, value: number): number =>
+      value === sample.highValue ? 1 : 0;
+    const valueAt = (
+      x: number,
+      y: number,
+      left: number,
+      top: number,
+      candidate: readonly number[],
+    ): number => {
+      if (x >= left && x < left + 2 && y >= top && y < top + 2) {
+        return candidate[(y - top) * 2 + x - left] ?? 0;
+      }
+      return output[y * width + x] ?? 0;
+    };
+    const scorePattern = (
+      left: number,
+      top: number,
+      candidate: readonly number[],
+    ): { readonly total: number; readonly vertical: number; readonly horizontal: number; readonly diagonal: number; readonly twoByOne: number } => {
+      let sourceCost = 0;
+      let vertical = 0;
+      let horizontal = 0;
+      let diagonal = 0;
+      let twoByOne = 0;
+      const right = Math.min(width - 1, left + 2);
+      const bottom = Math.min(height - 1, top + 3);
+      for (let y = Math.max(0, top - 1); y <= bottom; y += 1) {
+        for (let x = Math.max(0, left - 1); x <= right; x += 1) {
+          const index = y * width + x;
+          const sample = samples[index]!;
+          const value = valueAt(x, y, left, top, candidate);
+          const color = value === sample.highValue ? sample.high : sample.low;
+          const sourceOffset = index * 4;
+          sourceCost += linearDistance(
+            source[sourceOffset] ?? 0,
+            source[sourceOffset + 1] ?? 0,
+            source[sourceOffset + 2] ?? 0,
+            color,
+          );
+          const bit = endpointBit(sample, value);
+          for (const [dx, dy, weight] of [
+            [0, 1, 5], [1, 0, 3], [1, 1, 2], [-1, 1, 2],
+          ] as const) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+            const neighbor = ny * width + nx;
+            if (samples[neighbor]!.key !== sample.key) continue;
+            if (endpointBit(samples[neighbor]!, valueAt(nx, ny, left, top, candidate)) !== bit) continue;
+            if (dy === 1 && dx === 0) vertical += weight;
+            else if (dy === 0) horizontal += weight;
+            else diagonal += weight;
+          }
+        }
+      }
+      const pattern = candidate.map((value, index) =>
+        endpointBit(samples[(top + Math.floor(index / 2)) * width + left + (index & 1)]!, value));
+      const highCount = pattern.reduce((sum, bit) => sum + bit, 0);
+      if (highCount === 2 &&
+          ((pattern[0] === pattern[1] && pattern[2] === pattern[3]) ||
+            (pattern[0] === pattern[2] && pattern[1] === pattern[3]))) twoByOne += 12;
+      let phasePenalty = 0;
+      for (let index = 0; index < 4; index += 1) {
+        const x = left + (index & 1);
+        const y = top + Math.floor(index / 2);
+        const expected = ((x + y) & 1) === 1 ? 1 : 0;
+        if (pattern[index] !== expected) phasePenalty += 1;
+      }
+      return {
+        total: sourceCost * 100 + vertical + horizontal + diagonal + twoByOne + phasePenalty,
+        vertical,
+        horizontal: horizontal + twoByOne,
+        diagonal,
+        twoByOne,
+      };
+    };
+    const isSmoothBlock = (left: number, top: number): boolean => {
+      for (let y = Math.max(0, top - 1); y <= Math.min(height - 1, top + 2); y += 1) {
+        for (let x = Math.max(0, left - 1); x <= Math.min(width - 1, left + 2); x += 1) {
+          if (edgeBand[y * width + x]) return false;
+        }
+      }
+      return true;
+    };
+    for (let top = 0; top + 1 < height; top += 2) {
+      for (let left = 0; left + 1 < width; left += 2) {
+        const indices = [
+          top * width + left,
+          top * width + left + 1,
+          (top + 1) * width + left,
+          (top + 1) * width + left + 1,
+        ] as const;
+        const first = samples[indices[0]]!;
+        if (indices.some((index) => samples[index]!.key !== first.key)) {
+          if (diagnostics) diagnostics.pairBoundaryRejections += 1;
+          continue;
+        }
+        if (!isSmoothBlock(left, top)) {
+          if (diagnostics) diagnostics.edgeRejectedBlocks += 1;
+          continue;
+        }
+        if (indices.some((index) => coverage[index]! <= 0.12 || coverage[index]! >= 0.88)) continue;
+        if (diagnostics) diagnostics.intermediateCoverageBlocks += 1;
+        const current = indices.map((index) => output[index] ?? 0);
+        const currentBits = current.map((value) => endpointBit(first, value));
+        if (currentBits.reduce((sum, bit) => sum + bit, 0) !== 2) {
+          continue;
+        }
+        if (diagnostics) {
+          diagnostics.eligibleBlocks += 1;
+          diagnostics.checkerCandidateCount += 2;
+        }
+        const low = first.lowValue;
+        const high = first.highValue;
+        const checkerB = [low, high, high, low] as const;
+        const checkerA = [high, low, low, high] as const;
+        const currentScore = scorePattern(left, top, current);
+        const scoreB = scorePattern(left, top, checkerB);
+        const scoreA = scorePattern(left, top, checkerA);
+        const candidate = scoreB.total <= scoreA.total ? checkerB : checkerA;
+        const candidateScore = scoreB.total <= scoreA.total ? scoreB : scoreA;
+        if (diagnostics) {
+          diagnostics.verticalArtifactScoreBefore += currentScore.vertical;
+          diagnostics.diagonalArtifactScoreBefore += currentScore.diagonal;
+          diagnostics.horizontalArtifactScoreBefore += currentScore.horizontal;
+        }
+        if (candidate.every((value, index) => value === current[index])) {
+          if (diagnostics) {
+            diagnostics.verticalArtifactScoreAfter += currentScore.vertical;
+            diagnostics.diagonalArtifactScoreAfter += currentScore.diagonal;
+            diagnostics.horizontalArtifactScoreAfter += currentScore.horizontal;
+          }
+          continue;
+        }
+        if (candidateScore.diagonal > currentScore.diagonal) {
+          if (diagnostics) {
+            diagnostics.rejectedDiagonalIncrease += 1;
+            diagnostics.diagonalArtifactScoreAfter += currentScore.diagonal;
+            diagnostics.verticalArtifactScoreAfter += currentScore.vertical;
+            diagnostics.horizontalArtifactScoreAfter += currentScore.horizontal;
+          }
+          continue;
+        }
+        if (candidateScore.horizontal > currentScore.horizontal) {
+          if (diagnostics) {
+            diagnostics.rejectedHorizontal2x1 += 1;
+            diagnostics.diagonalArtifactScoreAfter += currentScore.diagonal;
+            diagnostics.verticalArtifactScoreAfter += currentScore.vertical;
+            diagnostics.horizontalArtifactScoreAfter += currentScore.horizontal;
+          }
+          continue;
+        }
+        if (candidateScore.vertical > currentScore.vertical) {
+          if (diagnostics) {
+            diagnostics.structureRejectedCandidates += 1;
+            diagnostics.verticalArtifactScoreAfter += currentScore.vertical;
+            diagnostics.diagonalArtifactScoreAfter += currentScore.diagonal;
+            diagnostics.horizontalArtifactScoreAfter += currentScore.horizontal;
+          }
+          continue;
+        }
+        if (candidateScore.total + 0.5 >= currentScore.total) {
+          if (diagnostics) {
+            diagnostics.sourceRejectedCandidates += 1;
+            diagnostics.diagonalArtifactScoreAfter += currentScore.diagonal;
+            diagnostics.verticalArtifactScoreAfter += currentScore.vertical;
+            diagnostics.horizontalArtifactScoreAfter += currentScore.horizontal;
+          }
+          continue;
+        }
+        if (diagnostics) {
+          diagnostics.corrected2x2Blocks += 1;
+          diagnostics.correctedPixels += 4;
+          diagnostics.verticalArtifactScoreAfter += candidateScore.vertical;
+          diagnostics.diagonalArtifactScoreAfter += candidateScore.diagonal;
+          diagnostics.horizontalArtifactScoreAfter += candidateScore.horizontal;
+        }
+        for (let index = 0; index < 4; index += 1) output[indices[index]!] = candidate[index]!;
+      }
+    }
   }
   return output;
 }
@@ -347,6 +773,9 @@ export function renderArtisticOrdered(
   preference: ArtisticPatternPreference = "auto",
   _referencePixels?: Uint8Array,
   guidePeriod = 4,
+  checkerPhase: "a" | "b" = "a",
+  protectVerticalSpikes = false,
+  diagnostics?: ColorCarrierDiagnostics,
 ): Uint8Array {
   const width = 256;
   const pairs = Array.from({ length: 128 }, (_, attribute) => decodeAttribute(attribute));
@@ -379,6 +808,37 @@ export function renderArtisticOrdered(
     cellHeight === 1 && _referencePixels === undefined,
     _referencePixels,
     guidePeriod,
+    checkerPhase,
+    protectVerticalSpikes,
+    diagnostics,
+  );
+}
+
+export function renderToneSafeZxOrdered(
+  source: Uint8Array,
+  attributes: Uint8Array,
+  cellHeight: AttributeHeight,
+  amount: number,
+  preference: ArtisticPatternPreference = "auto",
+  diagnostics?: ArtisticToneSafetyDiagnostics,
+): Uint8Array {
+  const pairs = Array.from({ length: 128 }, (_, attribute) => decodeAttribute(attribute));
+  return renderToneSafeCandidateField(
+    source,
+    256,
+    192,
+    amount,
+    preference,
+    (x, y) => {
+      const pair = pairs[attributes[Math.floor(y / cellHeight) * 32 + Math.floor(x / 8)]!]!;
+      return [
+        { color: pair.paper, value: 0 },
+        { color: pair.ink, value: 1 },
+      ];
+    },
+    diagnostics,
+    8,
+    cellHeight,
   );
 }
 
@@ -424,6 +884,9 @@ export function renderArtisticPaletteOrdered(
   enabled: readonly number[],
   amount: number,
   preference: ArtisticPatternPreference = "auto",
+  checkerPhase: "a" | "b" = "a",
+  protectVerticalSpikes = false,
+  diagnostics?: ColorCarrierDiagnostics,
 ): Uint8Array {
   const candidates = artisticPaletteCandidates(palette, enabled, amount);
   const selected = new Array<PaletteCandidate>(width * height);
@@ -449,5 +912,27 @@ export function renderArtisticPaletteOrdered(
       secondValue: candidate.second,
       coverage: candidate.coverage,
     };
-  });
+  }, false, undefined, 4, checkerPhase, protectVerticalSpikes, diagnostics);
+}
+
+export function renderToneSafePaletteOrdered(
+  source: Uint8Array,
+  width: number,
+  height: number,
+  palette: readonly RgbColor[],
+  enabled: readonly number[],
+  amount: number,
+  preference: ArtisticPatternPreference = "auto",
+  diagnostics?: ArtisticToneSafetyDiagnostics,
+): Uint8Array {
+  const candidates = enabled.map((value) => ({ color: palette[value]!, value }));
+  return renderToneSafeCandidateField(
+    source,
+    width,
+    height,
+    amount,
+    preference,
+    () => candidates,
+    diagnostics,
+  );
 }

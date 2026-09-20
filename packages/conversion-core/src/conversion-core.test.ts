@@ -765,7 +765,7 @@ describe("ordered matrices", () => {
     }
   });
 
-  it("normalizes v7 matrices to equal zero-mean signed energy", () => {
+  it("preserves every normalized threshold rank", () => {
     for (const id of [
       "checkerboard-2x1",
       "bayer-2x2",
@@ -780,25 +780,42 @@ describe("ordered matrices", () => {
           Math.floor(index / matrix.width),
         )
       );
-      expect(values.reduce((sum, value) => sum + value, 0)).toBe(0);
-      expect(Math.sqrt(
-        values.reduce((sum, value) => sum + value * value, 0) / values.length,
-      )).toBe(0.25);
-      expect(Math.max(...values.map(Math.abs))).toBe(0.25);
+      expect(new Set(values).size).toBe(matrix.levels);
+      expect([...new Set(values)].sort((left, right) => left - right)).toEqual(
+        Array.from({ length: matrix.levels }, (_, level) =>
+          (level + 0.5) / matrix.levels - 0.5,
+        ),
+      );
+      expect(values.reduce((sum, value) => sum + value, 0)).toBeCloseTo(0, 12);
+      expect(Math.max(...values.map(Math.abs)))
+        .toBeCloseTo(0.5 - 0.5 / matrix.levels, 12);
     }
   });
 
-  it("reports linear v7 perturbation diagnostics at representative amounts", () => {
+  it("reports full-rank perturbation diagnostics at representative amounts", () => {
     for (const amount of [0, 1, 25, 50, 100]) {
       const diagnostics = [
         "checkerboard-2x1", "bayer-2x2", "bayer-4x4", "bayer-8x8",
       ].map((id) => orderedPerturbationDiagnostics(
         ORDERED_MATRICES[id as keyof typeof ORDERED_MATRICES], amount,
       ));
-      expect(diagnostics.every((value) => value.mean === 0)).toBe(true);
-      for (const value of diagnostics) {
-        expect(value.rms).toBeCloseTo(0.25 * amount / 100, 12);
-        expect(value.peak).toBeCloseTo(0.25 * amount / 100, 12);
+      expect(diagnostics.every((value) => Math.abs(value.mean) < 1e-12)).toBe(true);
+      for (const [index, value] of diagnostics.entries()) {
+        const matrix = ORDERED_MATRICES[
+          ["checkerboard-2x1", "bayer-2x2", "bayer-4x4", "bayer-8x8"][index] as
+            "checkerboard-2x1" | "bayer-2x2" | "bayer-4x4" | "bayer-8x8"
+        ];
+        const scale = amount / 100;
+        const expectedRms = Math.sqrt(
+          Array.from({ length: matrix.levels }, (_, level) =>
+            (((level + 0.5) / matrix.levels - 0.5) * scale) ** 2,
+          ).reduce((sum, squared) => sum + squared, 0) / matrix.levels,
+        );
+        expect(value.rms).toBeCloseTo(expectedRms, 12);
+        expect(value.peak).toBeCloseTo(
+          (0.5 - 0.5 / matrix.levels) * scale,
+          12,
+        );
       }
     }
   });
@@ -1147,6 +1164,33 @@ describe("ZX conversion", () => {
       .toBeGreaterThan(checkerCount(phaseBalanced.preConstraintPreviewRgba));
   });
 
+  it("keeps checker artistic diffusion deterministic and zero-identical", () => {
+    const source = solid(256, 192, [112, 112, 112, 255]);
+    const base = settings({
+      framing: "stretch",
+      resampling: "nearest",
+      dithering: "error-diffusion",
+      ditherEngineId: "error-diffusion-checker-artistic-v1",
+      ditheringAmount: 35,
+      errorDiffusionRandomization: 0,
+      errorDiffusionLineSuppression: 75,
+    });
+    const first = convertToZx(source, 256, 192, base);
+    const second = convertToZx(source, 256, 192, base);
+    expect(first.previewRgba).toEqual(second.previewRgba);
+    expect(first.screen.pixels).toEqual(second.screen.pixels);
+    const zero = convertToZx(source, 256, 192, { ...base, ditheringAmount: 0 });
+    const none = convertToZx(source, 256, 192, {
+      ...base,
+      dithering: "none",
+      ditherEngineId: "none-discrete-v2",
+      ditheringAmount: 0,
+    });
+    expect(zero.screen.pixels).toEqual(none.screen.pixels);
+    expect(zero.attributes).toEqual(none.attributes);
+    expect(validateScreen(first.screen)).toEqual([]);
+  });
+
   it("keeps matrix-guided placement deterministic and valid", () => {
     const source = solid(256, 192, [112, 112, 112, 255]);
     for (let pixel = 0; pixel < 256 * 192; pixel += 1) {
@@ -1242,6 +1286,67 @@ describe("ZX conversion", () => {
     expect(first.previewRgba).toEqual(second.previewRgba);
     expect(first.screen.pixels).toEqual(second.screen.pixels);
     expect(validateScreen(first.screen)).toEqual([]);
+  });
+
+  it("falls back from v4.5 to byte-identical v4.4 behavior on ZX", () => {
+    const source = new Uint8Array(256 * 192 * 4);
+    for (let y = 0; y < 192; y += 1) for (let x = 0; x < 256; x += 1) {
+      const value = Math.round((x + y) * 255 / (256 + 192 - 2));
+      const offset = (y * 256 + x) * 4;
+      source[offset] = value;
+      source[offset + 1] = value;
+      source[offset + 2] = value;
+      source[offset + 3] = 255;
+    }
+    const base = settings({
+      framing: "stretch",
+      resampling: "nearest",
+      dithering: "error-diffusion",
+      ditheringAmount: 35,
+      errorDiffusionLineSuppression: 75,
+      errorDiffusionRandomization: 0,
+    });
+    const v44 = convertToZx(source, 256, 192, {
+      ...base,
+      ditherEngineId: "error-diffusion-checker-phase-v4-4",
+    }, "draft");
+    const v45 = convertToZx(source, 256, 192, {
+      ...base,
+      ditherEngineId: "error-diffusion-checker-phase-v4-5",
+    }, "draft");
+    expect(v45.screen).toEqual(v44.screen);
+    expect(v45.previewRgba).toEqual(v44.previewRgba);
+    expect(v45.engineFallback).toEqual({
+      requestedEngineId: "error-diffusion-checker-phase-v4-5",
+      effectiveEngineId: "error-diffusion-checker-phase-v4-4",
+      reason: "grayscale-only-prototype",
+    });
+  });
+
+  it("uses the stable color carrier for v4.5.1 without grayscale fallback", () => {
+    const source = new Uint8Array(256 * 192 * 4);
+    for (let y = 0; y < 192; y += 1) for (let x = 0; x < 256; x += 1) {
+      const offset = (y * 256 + x) * 4;
+      source[offset] = Math.min(255, x + 24);
+      source[offset + 1] = Math.min(255, y + 24);
+      source[offset + 2] = Math.min(255, Math.round((x + y) / 2));
+      source[offset + 3] = 255;
+    }
+    const result = convertToZx(source, 256, 192, {
+      ...settings({
+        framing: "stretch",
+        resampling: "nearest",
+        dithering: "error-diffusion",
+        ditheringAmount: 25,
+        errorDiffusionLineSuppression: 100,
+        errorDiffusionRandomization: 0,
+      }),
+      ditherEngineId: "error-diffusion-checker-phase-v4-5-1",
+    }, "draft");
+    expect(result.engineFallback).toBeUndefined();
+    expect(validateScreen(result.screen)).toEqual([]);
+    expect(result.colorCarrierDiagnostics).toBeDefined();
+    expect((result.colorCarrierDiagnostics?.correctedPixels ?? 0) % 4).toBe(0);
   });
 
   it("supports checker-phase v4.4 in ZX mixed mode", () => {
@@ -1648,6 +1753,41 @@ describe("ZX conversion", () => {
       expect(actual).toEqual(none);
     }
   });
+
+  it.each(["zx48-standard-256x192", "zx48-mixed-256x192"] as const)(
+    "keeps ordered threshold identity v1 byte-identical at 0%% in %s",
+    (modeId) => {
+      const source = new Uint8Array(16 * 16 * 4);
+      for (let index = 0; index < source.length; index += 1) source[index] = (index * 53) & 255;
+      const ordered = convertToZx(source, 16, 16, settings({
+        framing: "stretch",
+        modeId,
+        dithering: "ordered",
+        ditherEngineId: "ordered-threshold-identity-v1",
+        ditheringAmount: 0,
+      }));
+      const none = convertToZx(source, 16, 16, settings({
+        framing: "stretch",
+        modeId,
+        dithering: "none",
+        ditherEngineId: "none-discrete-v2",
+        ditheringAmount: 0,
+      }));
+
+      expect(ordered.frames.map((frame) => frame.encoded))
+        .toEqual(none.frames.map((frame) => frame.encoded));
+      expect(ordered.previewRgba).toEqual(none.previewRgba);
+
+      const dithered = convertToZx(source, 16, 16, settings({
+        framing: "stretch",
+        modeId,
+        dithering: "ordered",
+        ditherEngineId: "ordered-threshold-identity-v1",
+        ditheringAmount: 100,
+      }));
+      expect(dithered.previewRgba).not.toEqual(none.previewRgba);
+    },
+  );
 
   it("keeps the unrestricted yellow guide yellow in discrete no-dither v2", () => {
     const source = solid(1, 1, [240, 120, 0, 255]);

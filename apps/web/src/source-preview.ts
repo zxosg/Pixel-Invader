@@ -1,4 +1,5 @@
 import {
+  destinationGeometryFor,
   frameRgbaToDimensions,
   type ConversionSettings,
   type PlatformId,
@@ -26,32 +27,18 @@ export function frameFallbackSourcePreview(
   modeId: TargetModeId,
   settings: SourcePreviewSettings,
 ): FramedSourcePreview {
-  const isPmd = platformId === "pmd-85";
-  const isQl = platformId === "sinclair-ql";
-  const qlUsesMode4Width = modeId === "mode4-512x256" ||
-    modeId === "mode4-plain-512x256" ||
-    modeId === "mode4-vertical-spatial-512x256" ||
-    modeId === "mode8-mode4-mixed-512x256";
-  const width = isPmd ? 288 : isQl && qlUsesMode4Width ? 512 : 256;
-  const height = isPmd || isQl ? 256 : 192;
-  const pixelAspect = isPmd
-    ? { width: 1, height: 1 }
-    : isQl
-      ? qlUsesMode4Width
-        ? { width: 2, height: 3 }
-        : { width: 4, height: 3 }
-      : { width: 1, height: 1 };
+  const destination = destinationGeometryFor(platformId, modeId);
   return {
     rgba: frameRgbaToDimensions(
       source,
       sourceWidth,
       sourceHeight,
-      width,
-      height,
+      destination.width,
+      destination.height,
       settings,
-      pixelAspect,
+      destination.pixelAspect,
     ),
-    width,
-    height,
+    width: destination.width,
+    height: destination.height,
   };
 }

@@ -8,10 +8,16 @@ import {
 } from "@retro-converter/zx-spectrum";
 import {
   artisticCoverage,
+  createArtisticToneSafetyDiagnostics,
+  createColorCarrierDiagnostics,
   renderArtisticOrdered,
   renderArtisticPairField,
+  renderToneSafeCandidateField,
+  renderToneSafeZxOrdered,
 } from "./artistic-ordered.js";
+import { renderSmoothChessboardZx } from "./artistic-chessboard.js";
 import { checkerCarrierStrengthV44 } from "./grayscale-checker-v44.js";
+import { destinationGeometryFor } from "./destination-geometry.js";
 import { frameRgba } from "./geometry.js";
 import { adjustRgba, validateAdjustments } from "./adjustments.js";
 import { adaptiveDitherPrefilter, filterRgba, validateImageFilters } from "./filters.js";
@@ -40,7 +46,7 @@ import {
   validateVerticalSpatialMixSettings,
   withAnalyticPreview,
 } from "./vertical-spatial-mix.js";
-import { assertCompatibleEngines, ditherMethodForEngine } from "./engines.js";
+import { assertCompatibleEngines, ditherMethodForEngine, engineFallbackFor } from "./engines.js";
 import {
   applyCheckerPlacement,
   checkerPlacementStrengthV33,
@@ -76,6 +82,17 @@ const PALETTE_SCORE_SCALE = 4_096;
 const PAIR_SPAN_PENALTY_NUMERATOR = 1;
 const PAIR_SPAN_PENALTY_DENOMINATOR = 2;
 const HUE_NORMALIZATION_MIN_CHROMA = 8;
+
+function checkerArtisticDiffusionStrength(lineSuppression: number): number {
+  return Math.sqrt(Math.max(0, Math.min(100, lineSuppression)) / 100);
+}
+
+function checkerArtisticCarrierStrength(lineSuppression: number): number {
+  const normalized = Math.max(0, Math.min(100, lineSuppression)) / 100;
+  if (normalized <= 0.15) return 0;
+  const t = Math.max(0, Math.min(1, (normalized - 0.15) / 0.85));
+  return t * t * (3 - 2 * t);
+}
 
 function squaredDistance(r: number, g: number, b: number, color: RgbColor): number {
   const dr = r - color.r;
@@ -403,6 +420,10 @@ function renderLocalErrorDiffusion(
   const checkerPhaseV42 = engineId === "error-diffusion-checker-phase-v4-2";
   const checkerPhaseV43 = engineId === "error-diffusion-checker-phase-v4-3";
   const checkerPhaseV5 = engineId === "error-diffusion-checker-phase-v5";
+  const checkerArtistic = engineId === "error-diffusion-checker-artistic-v1";
+  const effectiveLineSuppression = checkerArtistic
+    ? checkerArtisticDiffusionStrength(lineSuppression) * 100
+    : lineSuppression;
   const matrixGuided = engineId === "error-diffusion-matrix-guided-v1";
   const unrestrictedBrightValues = brightMode === "on"
     ? [true] as const
@@ -532,7 +553,7 @@ function renderLocalErrorDiffusion(
         : 1;
       previousRowKeys[x] = outputKey;
       let smoothSource = true;
-      if ((phaseBalanced || checkerPhaseV5 || checkerPhaseV42 || checkerPhaseV43 || matrixGuided) && lineSuppression > 0) {
+      if ((phaseBalanced || checkerPhaseV5 || checkerPhaseV42 || checkerPhaseV43 || matrixGuided || checkerArtistic) && effectiveLineSuppression > 0) {
         for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]] as const) {
           if (nx < 0 || nx >= ZX_SCREEN_WIDTH || ny < 0 || ny >= ZX_SCREEN_HEIGHT) continue;
           const neighborSource = (ny * ZX_SCREEN_WIDTH + nx) * 4;
@@ -571,7 +592,7 @@ function renderLocalErrorDiffusion(
                 direction,
                 x,
                 y,
-                lineSuppression,
+                effectiveLineSuppression,
                 smoothSource ? verticalRunLengths[x] ?? 0 : 0,
               ).map(([dx, dy, weight]) => [x + dx, y + dy, weight] as const)
           : checkerPhaseV42
@@ -582,6 +603,14 @@ function renderLocalErrorDiffusion(
                 lineSuppression,
                 smoothSource ? verticalRunLengths[x] ?? 0 : 0,
                 smoothSource ? columnBias : 0,
+              ).map(([dx, dy, weight]) => [x + dx, y + dy, weight] as const)
+          : checkerArtistic
+            ? checkerPhaseV43DiffusionKernel(
+                direction,
+                x,
+                y,
+                effectiveLineSuppression,
+                0,
               ).map(([dx, dy, weight]) => [x + dx, y + dy, weight] as const)
           : checkerPhaseV43
             ? checkerPhaseV43DiffusionKernel(
@@ -2457,12 +2486,15 @@ function validateSettings(settings: ConversionSettings): void {
   if (ditherMethodForEngine(settings.ditherEngineId) !== settings.dithering) {
     throw new RangeError("Dither engine and dithering method do not match.");
   }
-  if (settings.ditherEngineId === "artistic-ordered-hybrid-v1" &&
+  if ((settings.ditherEngineId === "artistic-ordered-hybrid-v1" ||
+      settings.ditherEngineId === "artistic-ordered-tone-safe-v2") &&
       settings.modeId !== "zx48-standard-256x192" &&
       settings.modeId !== "zx48-mixed-256x192") {
     throw new RangeError("Artistic ordered hybrid supports only standard or mixed ZX targets.");
   }
-  if (settings.ditherEngineId === "error-diffusion-checker-phase-v4-4" &&
+  if ((settings.ditherEngineId === "error-diffusion-checker-phase-v4-4" ||
+      settings.ditherEngineId === "error-diffusion-checker-phase-v4-5" ||
+      settings.ditherEngineId === "error-diffusion-checker-phase-v4-5-1") &&
       settings.modeId !== "zx48-standard-256x192" &&
       settings.modeId !== "zx48-mixed-256x192") {
     throw new RangeError("Artistic-carrier checker diffusion v4.4 supports only standard or mixed ZX targets.");
@@ -2647,6 +2679,8 @@ export function convertToZx(
   level: OptimizationLevel = "high",
 ): ZxConversionResult {
   validateSettings(settings);
+  const destination = destinationGeometryFor(settings.platformId, settings.modeId);
+  const engineFallback = engineFallbackFor(settings.ditherEngineId);
   if (
     settings.modeId !== "zx48-standard-256x192" &&
     settings.modeId !== "zx48-mixed-256x192" &&
@@ -2665,7 +2699,19 @@ export function convertToZx(
     settings,
   );
   const normalized = adjustRgba(filtered, settings);
-  const checkerPhaseV44 = settings.ditherEngineId === "error-diffusion-checker-phase-v4-4";
+  const checkerPhaseV44 = settings.ditherEngineId === "error-diffusion-checker-phase-v4-4" ||
+    settings.ditherEngineId === "error-diffusion-checker-artistic-v1" ||
+    settings.ditherEngineId === "error-diffusion-checker-phase-v4-5" ||
+    settings.ditherEngineId === "error-diffusion-checker-phase-v4-5-1";
+  const stableCheckerCarrierV451 =
+    settings.ditherEngineId === "error-diffusion-checker-phase-v4-5-1" ||
+    settings.ditherEngineId === "error-diffusion-checker-artistic-v1";
+  const colorCarrierDiagnostics = stableCheckerCarrierV451
+    ? createColorCarrierDiagnostics()
+    : undefined;
+  const artisticToneSafetyDiagnostics = settings.ditherEngineId === "artistic-ordered-tone-safe-v2"
+    ? createArtisticToneSafetyDiagnostics()
+    : undefined;
   if (
     settings.modeId !== "zx48-vertical-spatial-256x192" &&
     (
@@ -2730,8 +2776,8 @@ export function convertToZx(
     return {
       platformId: "zx-spectrum",
       modeId: "zx48-vertical-spatial-256x192",
-      width: ZX_SCREEN_WIDTH,
-      height: ZX_SCREEN_HEIGHT,
+      width: destination.width,
+      height: destination.height,
       pixelAspectRatio: 1,
       attributeOptimizerId: settings.attributeOptimizerId,
       ditherEngineId: settings.ditherEngineId,
@@ -2754,6 +2800,7 @@ export function convertToZx(
       sourcePreviewRgba: normalized,
       previewRgba,
       score: spatial.totalCost,
+      ...(engineFallback === undefined ? {} : { engineFallback }),
       verticalSpatialDiagnostics: spatial,
     };
   }
@@ -2801,16 +2848,33 @@ export function convertToZx(
       firstPhysicalPalette.map((_, index) => index),
       secondPhysicalPalette.map((_, index) => firstPhysicalPalette.length + index),
     );
-    const virtualIndices = quantizeTemporalVirtual(
-      normalized,
-      ZX_SCREEN_WIDTH,
-      ZX_SCREEN_HEIGHT,
-      virtualPalette,
-      settings,
-      settings.ditherEngineId === "ordered-local-tone-v3" ||
-        settings.ditherEngineId === "ordered-baseline-additive-v5" ||
-        settings.ditherEngineId === "ordered-strict-matrix-v6",
-    );
+    const toneSafeVirtualCandidates = virtualPalette.map((pair, value) => ({
+      color: { r: pair.r, g: pair.g, b: pair.b },
+      value,
+    }));
+    const virtualIndices = settings.ditherEngineId === "artistic-ordered-tone-safe-v2" ||
+      settings.ditherEngineId === "artistic-chessboard-smooth-v1"
+      ? renderToneSafeCandidateField(
+          normalized,
+          ZX_SCREEN_WIDTH,
+          ZX_SCREEN_HEIGHT,
+          settings.ditheringAmount,
+          settings.artisticPattern ?? "auto",
+          () => toneSafeVirtualCandidates,
+          artisticToneSafetyDiagnostics,
+          8,
+          settings.attributeHeight,
+        )
+      : quantizeTemporalVirtual(
+          normalized,
+          ZX_SCREEN_WIDTH,
+          ZX_SCREEN_HEIGHT,
+          virtualPalette,
+          settings,
+          settings.ditherEngineId === "ordered-local-tone-v3" ||
+            settings.ditherEngineId === "ordered-baseline-additive-v5" ||
+            settings.ditherEngineId === "ordered-strict-matrix-v6",
+        );
     const endpointOne = new Uint8Array(normalized.length);
     const endpointTwo = new Uint8Array(normalized.length);
     const unrestrictedMerged = new Uint8Array(normalized.length);
@@ -2853,6 +2917,12 @@ export function convertToZx(
                 : Math.max(0, Math.min(1, 0.5 + (projected - 0.5) / scale)),
             };
           },
+          false,
+          undefined,
+          4,
+          stableCheckerCarrierV451 ? "b" : "a",
+          stableCheckerCarrierV451,
+          colorCarrierDiagnostics,
         )
       : null;
     for (let pixel = 0; pixel < virtualIndices.length; pixel += 1) {
@@ -3000,8 +3070,8 @@ export function convertToZx(
     return {
       platformId: "zx-spectrum",
       modeId: "zx48-mixed-256x192",
-      width: ZX_SCREEN_WIDTH,
-      height: ZX_SCREEN_HEIGHT,
+      width: destination.width,
+      height: destination.height,
       pixelAspectRatio: 1,
       attributeOptimizerId: settings.attributeOptimizerId,
       ditherEngineId: settings.ditherEngineId,
@@ -3016,6 +3086,9 @@ export function convertToZx(
       sourcePreviewRgba: normalized,
       previewRgba: merged,
       score: temporalRgbaError(normalized, merged),
+      ...(engineFallback === undefined ? {} : { engineFallback }),
+      ...(colorCarrierDiagnostics === undefined ? {} : { colorCarrierDiagnostics }),
+      ...(artisticToneSafetyDiagnostics === undefined ? {} : { artisticToneSafetyDiagnostics }),
     };
   }
   const cellHeight = settings.attributeHeight;
@@ -3072,8 +3145,8 @@ export function convertToZx(
     return {
       platformId: "zx-spectrum",
       modeId: "zx48-standard-256x192",
-      width: ZX_SCREEN_WIDTH,
-      height: ZX_SCREEN_HEIGHT,
+      width: destination.width,
+      height: destination.height,
       pixelAspectRatio: 1,
       attributeOptimizerId: settings.attributeOptimizerId,
       ditherEngineId: settings.ditherEngineId,
@@ -3099,6 +3172,7 @@ export function convertToZx(
       sourcePreviewRgba: normalized,
       previewRgba,
       score: structured.score,
+      ...(engineFallback === undefined ? {} : { engineFallback }),
       structuredDiagnostics: structured.diagnostics,
     };
   }
@@ -3189,8 +3263,10 @@ export function convertToZx(
       settings.ditherEngineId === "ordered-coverage-normalized-v7" ||
       settings.ditherEngineId === "ordered-clustered-dot-v1" ||
       settings.ditherEngineId === "ordered-void-cluster-v1" ||
+      settings.ditherEngineId === "artistic-chessboard-smooth-v1" ||
       settings.ditherEngineId === "pattern-legal-mask-dbs-v1" ||
       settings.ditherEngineId === "artistic-ordered-hybrid-v1" ||
+      settings.ditherEngineId === "artistic-ordered-tone-safe-v2" ||
       settings.ditherEngineId === "error-diffusion-unrestricted-v2" ||
       settings.ditherEngineId === "error-diffusion-phase-balanced-v3" ||
       settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-1" ||
@@ -3198,12 +3274,15 @@ export function convertToZx(
       settings.ditherEngineId === "error-diffusion-phase-balanced-checker-v3-3" ||
       settings.ditherEngineId === "error-diffusion-checker-phase-v4" ||
       settings.ditherEngineId === "error-diffusion-checker-phase-v4-4" ||
+      settings.ditherEngineId === "error-diffusion-checker-phase-v4-5" ||
+      settings.ditherEngineId === "error-diffusion-checker-phase-v4-5-1" ||
       settings.ditherEngineId === "error-diffusion-checker-phase-v4-1" ||
       settings.ditherEngineId === "error-diffusion-checker-phase-v4-2" ||
       settings.ditherEngineId === "error-diffusion-checker-phase-v4-3" ||
       settings.ditherEngineId === "error-diffusion-checker-phase-v5" ||
       settings.ditherEngineId === "error-diffusion-matrix-guided-v1" ||
       settings.ditherEngineId === "error-diffusion-decorrelated-v3" ||
+      settings.ditherEngineId === "error-diffusion-checker-artistic-v1" ||
       settings.ditherEngineId === "error-diffusion-atkinson-v1" ||
       settings.ditherEngineId === "error-diffusion-riemersma-v1";
     const localAttributes = usesUnrestrictedGuide
@@ -3220,7 +3299,8 @@ export function convertToZx(
     // 4×4 guide for Halo pair selection. That makes its legal pair and BRIGHT
     // decisions comparable with the ordered baseline instead of introducing a
     // second, hidden colour-balance model.
-    const matrix = ORDERED_MATRICES[settings.ditherEngineId === "artistic-ordered-hybrid-v1"
+    const matrix = ORDERED_MATRICES[(settings.ditherEngineId === "artistic-ordered-hybrid-v1" ||
+      settings.ditherEngineId === "artistic-ordered-tone-safe-v2")
       ? "bayer-4x4"
       : settings.orderedMatrix];
     guideKeys = settings.dithering === "error-diffusion"
@@ -3231,10 +3311,13 @@ export function convertToZx(
           settings.errorDiffusionRandomization,
           enabledColors,
           zxBrightMode(settings),
-          settings.ditherEngineId,
+          settings.ditherEngineId === "error-diffusion-checker-phase-v4-5"
+            ? "error-diffusion-checker-phase-v4-4"
+            : settings.ditherEngineId,
           settings.errorDiffusionLineSuppression,
         )
-      : settings.ditherEngineId === "ordered-coverage-normalized-v7"
+      : (settings.ditherEngineId === "ordered-coverage-normalized-v7" ||
+        settings.ditherEngineId === "ordered-threshold-identity-v1")
       ? renderCoverageNormalizedOrderedDither(
           normalized,
           matrix,
@@ -3474,11 +3557,31 @@ export function convertToZx(
       settings.orderedMatrix === "bayer-2x2" ? 2 : 4,
     );
   }
-  if (checkerPhaseV44 && settings.ditheringAmount > 0 && settings.errorDiffusionLineSuppression > 0) {
-    const strength = checkerCarrierStrengthV44(
-      100,
-      settings.errorDiffusionLineSuppression,
+  if (settings.ditherEngineId === "artistic-ordered-tone-safe-v2") {
+    pixels = renderToneSafeZxOrdered(
+      normalized,
+      attributes,
+      cellHeight,
+      settings.ditheringAmount,
+      settings.artisticPattern,
+      artisticToneSafetyDiagnostics,
     );
+  }
+  if (settings.ditherEngineId === "artistic-chessboard-smooth-v1" && settings.ditheringAmount > 0) {
+    pixels = renderSmoothChessboardZx(
+      normalized,
+      attributes,
+      cellHeight,
+      settings.ditheringAmount,
+    );
+  }
+  if (checkerPhaseV44 && settings.ditheringAmount > 0 && settings.errorDiffusionLineSuppression > 0) {
+    const strength = settings.ditherEngineId === "error-diffusion-checker-artistic-v1"
+      ? checkerArtisticCarrierStrength(settings.errorDiffusionLineSuppression)
+      : checkerCarrierStrengthV44(
+          100,
+          settings.errorDiffusionLineSuppression,
+        );
     if (strength > 0) {
       pixels = renderArtisticOrdered(
         normalized,
@@ -3488,6 +3591,9 @@ export function convertToZx(
         "checkerboard",
         pixels,
         cellHeight === 1 ? 2 : 4,
+        stableCheckerCarrierV451 ? "b" : "a",
+        stableCheckerCarrierV451,
+        colorCarrierDiagnostics,
       );
     }
   }
@@ -3505,8 +3611,8 @@ export function convertToZx(
   return {
     platformId: "zx-spectrum",
     modeId: "zx48-standard-256x192",
-    width: ZX_SCREEN_WIDTH,
-    height: ZX_SCREEN_HEIGHT,
+    width: destination.width,
+    height: destination.height,
     pixelAspectRatio: 1,
     attributeOptimizerId: settings.attributeOptimizerId,
     ditherEngineId: settings.ditherEngineId,
@@ -3529,7 +3635,10 @@ export function convertToZx(
     sourcePreviewRgba: normalized,
     previewRgba,
     score: Math.floor(totalScore / COST_SCALE),
+    ...(engineFallback === undefined ? {} : { engineFallback }),
     ...(artifactCorrection === undefined ? {} : { artifactCorrection }),
     ...(checkerPlacementDiagnostics === undefined ? {} : { checkerPlacementDiagnostics }),
+    ...(colorCarrierDiagnostics === undefined ? {} : { colorCarrierDiagnostics }),
+    ...(artisticToneSafetyDiagnostics === undefined ? {} : { artisticToneSafetyDiagnostics }),
   };
 }

@@ -1,5 +1,9 @@
 # Registry-Driven Settings Workspace
 
+## Status
+
+Registry-driven modal, filtering, validation, and draft application are implemented. Finalization covers saved-value modified tracking, category reset, scope persistence verification, and browser acceptance. Paint mode/history/selection remain transient by design.
+
 ## Summary
 
 Replace the fixed Settings modal with a scalable, searchable settings workspace. Settings are described by a typed registry and rendered by generic controls, so adding a new application or conversion option does not require another hand-built settings section.

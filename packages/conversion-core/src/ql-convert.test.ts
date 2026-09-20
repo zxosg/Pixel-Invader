@@ -580,6 +580,36 @@ describe("Sinclair QL conversion", () => {
     expect(swappedOff.mergedPreviewRgba).toEqual(checker.mergedPreviewRgba);
   }, 30_000);
 
+  it("falls back from v4.5 to byte-identical v4.4 behavior on QL", () => {
+    const source = new Uint8Array(256 * 256 * 4).fill(188);
+    for (let offset = 3; offset < source.length; offset += 4) source[offset] = 255;
+    const base = {
+      ...DEFAULT_CONVERSION_SETTINGS,
+      platformId: "sinclair-ql" as const,
+      profileId: "org.retroconverter.sinclair-ql.default",
+      modeId: "mode8-256x256" as const,
+      framing: "stretch" as const,
+      resampling: "nearest" as const,
+      dithering: "error-diffusion" as const,
+      ditheringAmount: 35,
+      errorDiffusionLineSuppression: 75,
+      errorDiffusionRandomization: 0,
+      screenFlickerSuppression: true,
+      paletteSelections: qlPaletteSelections([0, 7]),
+    };
+    const v44 = convertToQl(source, 256, 256, {
+      ...base,
+      ditherEngineId: "error-diffusion-checker-phase-v4-4",
+    });
+    const v45 = convertToQl(source, 256, 256, {
+      ...base,
+      ditherEngineId: "error-diffusion-checker-phase-v4-5",
+    });
+    expect(v45.frames).toEqual(v44.frames);
+    expect(v45.mergedPreviewRgba).toEqual(v44.mergedPreviewRgba);
+    expect(v45.engineFallback?.effectiveEngineId).toBe("error-diffusion-checker-phase-v4-4");
+  }, 30_000);
+
   it("derives QL Mode 8/4 v4.4 frames from one legal candidate field", () => {
     const source = new Uint8Array(512 * 256 * 4);
     for (let offset = 0; offset < source.length; offset += 4) {

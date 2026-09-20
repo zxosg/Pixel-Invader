@@ -200,7 +200,8 @@ export async function buildConversionMetadata(input: MetadataInput) {
     },
     conversion: {
       quality_level: "High",
-      seed: input.settings.ditherEngineId === "artistic-ordered-hybrid-v1"
+      seed: (input.settings.ditherEngineId === "artistic-ordered-hybrid-v1" ||
+          input.settings.ditherEngineId === "artistic-ordered-tone-safe-v2")
         ? "artistic-void-cluster-v1:seed-1729"
         : input.settings.errorDiffusionRandomization > 0
         ? "rc-error-randomizer-1:seed-1"

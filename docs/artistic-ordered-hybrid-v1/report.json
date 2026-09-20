@@ -76,8 +76,8 @@
         {
           "engineId": "artistic-ordered-hybrid-v1",
           "optimizerId": "zx-guide-reference-halo-v1",
-          "rgbError": 1007065800,
-          "lowPass2x2Error": 104612211
+          "rgbError": 944932665,
+          "lowPass2x2Error": 89275682.25
         }
       ]
     },
@@ -117,8 +117,8 @@
         {
           "engineId": "artistic-ordered-hybrid-v1",
           "optimizerId": "zx-guide-reference-halo-v1",
-          "rgbError": 1038537225,
-          "lowPass2x2Error": 178950056.25
+          "rgbError": 938946825,
+          "lowPass2x2Error": 150518531.25
         }
       ]
     },
@@ -134,14 +134,14 @@
         {
           "engineId": "ordered-strict-matrix-v6",
           "optimizerId": "zx-guide-reference-halo-v1",
-          "rgbError": 898640971,
-          "lowPass2x2Error": 180293463.75
+          "rgbError": 898658238,
+          "lowPass2x2Error": 180282665
         },
         {
           "engineId": "ordered-void-cluster-v1",
           "optimizerId": "zx-guide-reference-halo-v1",
-          "rgbError": 898640971,
-          "lowPass2x2Error": 180293463.75
+          "rgbError": 898658238,
+          "lowPass2x2Error": 180282665
         },
         {
           "engineId": "error-diffusion-decorrelated-v3",
@@ -152,14 +152,14 @@
         {
           "engineId": "ordered-cell-pattern-v4",
           "optimizerId": "zx-structured-global-v4",
-          "rgbError": 773650556,
-          "lowPass2x2Error": 160121277.5
+          "rgbError": 773663223,
+          "lowPass2x2Error": 160111756.25
         },
         {
           "engineId": "artistic-ordered-hybrid-v1",
           "optimizerId": "zx-guide-reference-halo-v1",
-          "rgbError": 912537396,
-          "lowPass2x2Error": 192164815
+          "rgbError": 904894133,
+          "lowPass2x2Error": 190909186.25
         }
       ]
     }

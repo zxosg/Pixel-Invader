@@ -4,6 +4,7 @@ import {
   createSettingsDraft,
   filterSettings,
   loadRegisteredValues,
+  resetSettingsCategory,
   serializeSettingsByScope,
   settingMatchesSearch,
   validateSettingsDraft,
@@ -28,9 +29,18 @@ describe("settings registry", () => {
   it("filters by category, preset, and modified values", () => {
     const values = createSettingsDraft({ ditheringAmount: 50, mouseWheelZoom: true });
     expect(filterSettings(SETTINGS_REGISTRY, "", "dithering", "all", values).map((item) => item.id)).toContain("ditheringAmount");
-    expect(filterSettings(SETTINGS_REGISTRY, "", "all", "modified", values).map((item) => item.id)).toEqual(["ditheringAmount"]);
+    expect(filterSettings(SETTINGS_REGISTRY, "", "all", "modified", values, createSettingsDraft({})).map((item) => item.id)).toEqual(["ditheringAmount"]);
     expect(filterSettings(SETTINGS_REGISTRY, "", "all", "workspace-mouse", values).map((item) => item.id)).toContain("mouseWheelZoom");
     expect(filterSettings(SETTINGS_REGISTRY, "", "startup", "all", values).map((item) => item.id)).toContain("workspaceLayout");
+  });
+
+  it("resets only the requested draft category", () => {
+    const values = createSettingsDraft({ ditheringAmount: 50, brightness: 20, mouseWheelZoom: false });
+    const reset = resetSettingsCategory(values, "dithering");
+    expect(reset.ditheringAmount).toBe(100);
+    expect(reset.brightness).toBe(20);
+    expect(reset.mouseWheelZoom).toBe(false);
+    expect(resetSettingsCategory(values, "all").brightness).toBe(0);
   });
 
   it("validates, scopes, and safely loads values", () => {

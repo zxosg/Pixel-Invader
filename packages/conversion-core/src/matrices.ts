@@ -62,18 +62,15 @@ export function orderedThreshold(matrix: OrderedMatrix, x: number, y: number): n
 }
 
 /**
- * A zero-mean, equal-energy threshold used by coverage-normalized v7.
- * Every supported Bayer/checker matrix contributes the same +/- 0.25
- * perturbation; the matrix changes spatial placement, not effective strength.
+ * A centered, full-rank threshold used by normalized ordered engines.
+ * The selected matrix controls both spatial placement and threshold level.
  */
 export function normalizedOrderedOffset(
   matrix: OrderedMatrix,
   x: number,
   y: number,
 ): number {
-  const centered =
-    (orderedThreshold(matrix, x, y) + 0.5) / matrix.levels - 0.5;
-  return centered < 0 ? -0.25 : centered > 0 ? 0.25 : 0;
+  return (orderedThreshold(matrix, x, y) + 0.5) / matrix.levels - 0.5;
 }
 
 export interface OrderedPerturbationDiagnostics {
