@@ -102,6 +102,27 @@ describe("workbench preferences", () => {
       .toBe("floating");
   });
 
+  it("migrates the aggregate settings layout into promoted window layouts", () => {
+    const legacy = {
+      ...DEFAULT_WORKBENCH_PREFERENCES,
+      dock: "left" as const,
+      minimized: false,
+      toolsDock: "right" as const,
+      toolsOpen: true,
+      geometryFloating: true,
+      sectionsOpen: {
+        ...DEFAULT_WORKBENCH_PREFERENCES.sectionsOpen,
+        geometry: false,
+      },
+    } as Record<string, unknown>;
+    delete legacy.windowLayouts;
+    const migrated = loadWorkbenchPreferences(memoryStorage(JSON.stringify(legacy)));
+    expect(migrated.windowLayouts.geometry).toMatchObject({ dock: "floating", minimized: false, open: false });
+    expect(migrated.windowLayouts.adjustments.dock).toBe("left");
+    expect(migrated.windowLayouts.tools).toMatchObject({ dock: "right", minimized: false, open: true });
+    expect(migrated.windowLayouts.source.dock).toBe("center");
+  });
+
   it("rejects an invalid Tools dock state", () => {
     const storage = memoryStorage(JSON.stringify({
       ...DEFAULT_WORKBENCH_PREFERENCES,
@@ -154,6 +175,22 @@ describe("workbench preferences", () => {
       sourceFloatingWidth: 200,
     }));
     expect(loadWorkbenchPreferences(storage)).toEqual(DEFAULT_WORKBENCH_PREFERENCES);
+  });
+
+  it("preserves fully collapsed dock sizes", () => {
+    const preferences = {
+      ...DEFAULT_WORKBENCH_PREFERENCES,
+      sideWidth: 0,
+      bottomHeight: 0,
+      windowLayouts: {
+        ...DEFAULT_WORKBENCH_PREFERENCES.windowLayouts,
+        tools: { ...DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.tools, dockSize: 0 },
+        geometry: { ...DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.geometry, dockSize: 0 },
+      },
+    };
+    const storage = memoryStorage();
+    saveWorkbenchPreferences(storage, preferences);
+    expect(loadWorkbenchPreferences(storage)).toEqual(preferences);
   });
 
   it("migrates the current eight-window order by inserting Tilemap before previews", () => {

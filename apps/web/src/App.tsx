@@ -8,6 +8,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
   type CSSProperties,
   type UIEvent as ReactUIEvent,
   type WheelEvent as ReactWheelEvent,
@@ -230,8 +231,12 @@ import {
   loadWorkbenchPreferences,
   saveWorkbenchPreferences,
   type WorkbenchDock,
+  type ActiveWorkbenchWindowId,
   type WorkbenchSettingsSection,
   type WorkbenchWindowId,
+  type WorkbenchWindowDock,
+  type WorkbenchWindowLayout,
+  type WorkbenchWindowLayouts,
 } from "./workbench-preferences.js";
 import {
   createSavedWorkbenchLayoutId,
@@ -247,6 +252,11 @@ import {
   saveApplicationSettings,
   type ApplicationSettings,
 } from "./application-settings.js";
+import {
+  uiTypographyCssVariables,
+  uiTypographyFromRecord,
+  type UiTypographySettings,
+} from "./ui-typography.js";
 import {
   SETTING_CATEGORIES,
   SETTING_FILTER_PRESETS,
@@ -1257,6 +1267,15 @@ export function App() {
   const [showAttributeGrid, setShowAttributeGrid] = useState(DEFAULT_WORKSPACE_PREFERENCES.showAttributeGrid);
   const [hideAttributes, setHideAttributes] = useState(DEFAULT_WORKSPACE_PREFERENCES.hideAttributes);
   const [developmentMode, setDevelopmentMode] = useState(startupApplicationSettings.developmentMode);
+  const [uiTypography, setUiTypography] = useState<UiTypographySettings>(() => ({
+    uiFontFamily: startupApplicationSettings.uiFontFamily,
+    windowTitleFontSize: startupApplicationSettings.windowTitleFontSize,
+    windowTitleFontWeight: startupApplicationSettings.windowTitleFontWeight,
+    uiLabelFontSize: startupApplicationSettings.uiLabelFontSize,
+    uiLabelFontWeight: startupApplicationSettings.uiLabelFontWeight,
+    uiBodyFontSize: startupApplicationSettings.uiBodyFontSize,
+    uiBodyFontWeight: startupApplicationSettings.uiBodyFontWeight,
+  }));
   const [scaleQlToDisplayAspect, setScaleQlToDisplayAspect] = useState(true);
   const [qlMixedDisplayResolution, setQlMixedDisplayResolution] =
     useState<QlMixedDisplayResolution>("high");
@@ -1440,6 +1459,9 @@ export function App() {
   const [workbenchSectionsOpen, setWorkbenchSectionsOpen] = useState<Record<WorkbenchSettingsSection, boolean>>(
     () => ({ ...startupWorkbenchPreferences.sectionsOpen }),
   );
+  const [workbenchWindowLayouts, setWorkbenchWindowLayouts] = useState<WorkbenchWindowLayouts>(
+    () => ({ ...startupWorkbenchPreferences.windowLayouts }),
+  );
   const workbenchResizeRef = useRef<
     | {
         kind: "dock";
@@ -1489,6 +1511,9 @@ export function App() {
   const workbenchSettingsWindowRef = useRef<HTMLDivElement | null>(null);
   const workbenchPreviewWorkspaceRef = useRef<HTMLDivElement | null>(null);
   const [workbenchPreviewLayer, setWorkbenchPreviewLayer] = useState<HTMLDivElement | null>(null);
+  const [workbenchLeftDockLayer, setWorkbenchLeftDockLayer] = useState<HTMLDivElement | null>(null);
+  const [workbenchRightDockLayer, setWorkbenchRightDockLayer] = useState<HTMLDivElement | null>(null);
+  const [workbenchBottomDockLayer, setWorkbenchBottomDockLayer] = useState<HTMLDivElement | null>(null);
   const [benchmarkPanelHost, setBenchmarkPanelHost] = useState<HTMLDivElement | null>(null);
   const workbenchDragRef = useRef<{
     window: WorkbenchWindowId;
@@ -1538,8 +1563,99 @@ export function App() {
   const isQl = selectedPlatformId === "sinclair-ql";
   const isPmd = selectedPlatformId === "pmd-85";
   const isZx = selectedPlatformId === "zx-spectrum";
+  function workbenchWindowLayout(window: ActiveWorkbenchWindowId): WorkbenchWindowLayout {
+    return workbenchWindowLayouts[window];
+  }
+
+  function updateWorkbenchWindowLayout(
+    window: ActiveWorkbenchWindowId,
+    update: (layout: WorkbenchWindowLayout) => WorkbenchWindowLayout,
+  ): void {
+    setWorkbenchWindowLayouts((current) => ({
+      ...current,
+      [window]: update(current[window]),
+    }));
+  }
+
+  function setWorkbenchWindowDock(window: ActiveWorkbenchWindowId, dock: WorkbenchWindowDock): void {
+    updateWorkbenchWindowLayout(window, (layout) => ({ ...layout, dock }));
+    if (window === "tools" && dock !== "center") setWorkbenchToolsDock(dock as WorkbenchDock);
+    if (window === "geometry") setWorkbenchGeometryFloating(dock === "floating");
+    if (window === "adjustments") setWorkbenchAdjustmentsFloating(dock === "floating");
+    if (window === "palette") setWorkbenchPaletteFloating(dock === "floating");
+    if (window === "dithering") setWorkbenchDitheringFloating(dock === "floating");
+    if (window === "tilemap") setWorkbenchTilemapFloating(dock === "floating");
+    if (window === "source") setWorkbenchSourceFloating(dock === "floating");
+    if (window === "result") setWorkbenchResultFloating(dock === "floating");
+  }
+
+  function setWorkbenchWindowMinimized(window: ActiveWorkbenchWindowId, minimized: boolean): void {
+    updateWorkbenchWindowLayout(window, (layout) => ({ ...layout, minimized }));
+    if (window === "tools") setWorkbenchToolsOpen(!minimized);
+  }
+
+  function setWorkbenchWindowOpen(window: ActiveWorkbenchWindowId, open: boolean): void {
+    updateWorkbenchWindowLayout(window, (layout) => ({ ...layout, open }));
+    if (window === "tools") setWorkbenchToolsOpen(open);
+  }
+
+  function workbenchDockLayerFor(dock: WorkbenchWindowDock): HTMLDivElement | null {
+    if (dock === "left") return workbenchLeftDockLayer;
+    if (dock === "right") return workbenchRightDockLayer;
+    if (dock === "bottom") return workbenchBottomDockLayer;
+    if (dock === "floating") return workbenchPreviewLayer;
+    return null;
+  }
+
+  function workbenchPortal(window: ActiveWorkbenchWindowId, content: ReactNode): ReactNode {
+    const target = workbenchDockLayerFor(workbenchWindowLayout(window).dock);
+    return target === null ? null : createPortal(content, target, window);
+  }
+
+  function toggleWorkbenchWindowMinimized(window: ActiveWorkbenchWindowId): void {
+    setWorkbenchWindowMinimized(window, !workbenchWindowLayout(window).minimized);
+  }
+
+  function workbenchWindowActions(window: ActiveWorkbenchWindowId, includeCenter = false): ReactNode {
+    const layout = workbenchWindowLayout(window);
+    return (
+      <span className="workbench-window-actions" aria-label={`${window} window actions`}>
+        <select
+          className="workbench-window-dock-select"
+          aria-label={`Dock ${window} window`}
+          value={layout.dock}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
+          onChange={(event) => {
+            event.stopPropagation();
+            setWorkbenchWindowDock(window, event.target.value as WorkbenchWindowDock);
+          }}
+        >
+          {includeCenter ? <option value="center">Center stage</option> : null}
+          <option value="left">Left dock</option>
+          <option value="right">Right dock</option>
+          <option value="bottom">Bottom dock</option>
+          <option value="floating">Floating</option>
+        </select>
+        <button
+          type="button"
+          aria-label={`${layout.minimized ? "Restore" : "Minimize"} ${window} window`}
+          title={`${layout.minimized ? "Restore" : "Minimize"} ${window} window`}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            toggleWorkbenchWindowMinimized(window);
+          }}
+        >{layout.minimized ? "□" : "—"}</button>
+      </span>
+    );
+  }
+
   const workbenchHasFloatingSections = workbenchGeometryFloating || workbenchAdjustmentsFloating || workbenchPaletteFloating || workbenchDitheringFloating || (workspaceMode === "tilemap" && workbenchTilemapFloating);
   const workbenchToolsFloating = workbenchToolsDock === "floating";
+  const workbenchHasLeftDock = Object.values(workbenchWindowLayouts).some((layout) => layout.dock === "left");
+  const workbenchHasRightDock = Object.values(workbenchWindowLayouts).some((layout) => layout.dock === "right");
   const previewLayout = workbenchSourceFloating
     ? workbenchResultFloating ? "both-floating" : "source-floating"
     : workbenchResultFloating ? "result-floating" : "both-docked";
@@ -1558,6 +1674,7 @@ export function App() {
   }
 
   function snapWorkbenchSize(value: number, minimum: number, maximum: number): number {
+    if (minimum === 0 && value <= workbenchSnapDistance) return 0;
     return Math.min(maximum, Math.max(minimum, Math.round(value / workbenchGridSize) * workbenchGridSize));
   }
 
@@ -1786,10 +1903,10 @@ export function App() {
 
   function adjustWorkbenchSize(dock: WorkbenchDock, delta: number): void {
     if (dock === "bottom") {
-      setWorkbenchBottomHeight((height) => Math.min(480, Math.max(160, height + delta)));
+      setWorkbenchBottomHeight((height) => Math.min(480, Math.max(0, height + delta)));
       return;
     }
-    setWorkbenchSideWidth((width) => Math.min(560, Math.max(280, width + delta)));
+    setWorkbenchSideWidth((width) => Math.min(560, Math.max(0, width + delta)));
   }
 
   function resetWorkbenchLayout(): void {
@@ -1853,6 +1970,7 @@ export function App() {
     setWorkbenchWindowOrder([...DEFAULT_WORKBENCH_PREFERENCES.windowOrder]);
     setWorkbenchToolsOpen(DEFAULT_WORKBENCH_PREFERENCES.toolsOpen);
     setWorkbenchSectionsOpen({ ...DEFAULT_WORKBENCH_PREFERENCES.sectionsOpen });
+    setWorkbenchWindowLayouts({ ...DEFAULT_WORKBENCH_PREFERENCES.windowLayouts });
   }
 
   function resetWorkspaceArrangement(): void {
@@ -1923,6 +2041,7 @@ export function App() {
     setWorkbenchWindowOrder([...startupWorkbenchPreferences.windowOrder]);
     setWorkbenchToolsOpen(startupWorkbenchPreferences.toolsOpen);
     setWorkbenchSectionsOpen({ ...startupWorkbenchPreferences.sectionsOpen });
+    setWorkbenchWindowLayouts({ ...startupWorkbenchPreferences.windowLayouts });
   }
 
   function setWorkbenchSectionOpen(section: WorkbenchSettingsSection, open: boolean): void {
@@ -1951,7 +2070,7 @@ export function App() {
   ): void {
     const target = event.target as HTMLElement;
     if (
-      target.closest(".workbench-window-actions, .workbench-section-float-action, .workbench-tools-float-action, .workbench-floating-resize-handle") !== null ||
+      target.closest(".workbench-window-actions, .workbench-section-float-action, .workbench-floating-resize-handle") !== null ||
       target.closest("select, input, textarea") !== null ||
       (target.closest("button") !== null && target.closest(".workbench-window-title") === null)
     ) return;
@@ -2052,75 +2171,79 @@ export function App() {
     document.body.style.cursor = "move";
   }
 
-  function toggleWorkbenchToolsFloating(): void {
-    setWorkbenchToolsDock((dock) => {
-      if (dock !== "floating") setWorkbenchToolsOpen(true);
-      return dock === "floating" ? "bottom" : "floating";
-    });
-  }
-
   function toggleWorkbenchSectionFloating(section: WorkbenchFloatingSection): void {
     if (section === "geometry") {
-      setWorkbenchGeometryFloating((floating) => {
-        if (!floating) setWorkbenchSectionOpen("geometry", true);
-        return !floating;
-      });
+      const nextFloating = workbenchWindowLayout("geometry").dock !== "floating";
+      setWorkbenchWindowDock("geometry", nextFloating ? "floating" : "bottom");
+      if (nextFloating) setWorkbenchSectionOpen("geometry", true);
       return;
     }
     if (section === "adjustments") {
-      setWorkbenchAdjustmentsFloating((floating) => {
-        if (!floating) setWorkbenchSectionOpen("adjustments", true);
-        return !floating;
-      });
+      const nextFloating = workbenchWindowLayout("adjustments").dock !== "floating";
+      setWorkbenchWindowDock("adjustments", nextFloating ? "floating" : "bottom");
+      if (nextFloating) setWorkbenchSectionOpen("adjustments", true);
       return;
     }
     if (section === "palette") {
-      setWorkbenchPaletteFloating((floating) => {
-        if (!floating) setWorkbenchSectionOpen("palette", true);
-        return !floating;
-      });
+      const nextFloating = workbenchWindowLayout("palette").dock !== "floating";
+      setWorkbenchWindowDock("palette", nextFloating ? "floating" : "bottom");
+      if (nextFloating) setWorkbenchSectionOpen("palette", true);
       return;
     }
     if (section === "source") {
-      setWorkbenchSourceFloating((floating) => !floating);
+      const nextFloating = workbenchWindowLayout("source").dock !== "floating";
+      setWorkbenchWindowDock("source", nextFloating ? "floating" : "center");
       bringWorkbenchWindowToFront("source");
       return;
     }
     if (section === "result") {
-      setWorkbenchResultFloating((floating) => !floating);
+      const nextFloating = workbenchWindowLayout("result").dock !== "floating";
+      setWorkbenchWindowDock("result", nextFloating ? "floating" : "center");
       bringWorkbenchWindowToFront("result");
       return;
     }
     if (section === "tilemap") {
-      setWorkbenchTilemapFloating((floating) => {
-        if (!floating) setWorkbenchSectionOpen("tilemap", true);
-        return !floating;
-      });
+      const nextFloating = workbenchWindowLayout("tilemap").dock !== "floating";
+      setWorkbenchWindowDock("tilemap", nextFloating ? "floating" : "bottom");
+      if (nextFloating) setWorkbenchSectionOpen("tilemap", true);
       bringWorkbenchWindowToFront("tilemap");
       return;
     }
-    setWorkbenchDitheringFloating((floating) => {
-      if (!floating) setWorkbenchSectionOpen("dithering", true);
-      return !floating;
-    });
+    const nextFloating = workbenchWindowLayout("dithering").dock !== "floating";
+    setWorkbenchWindowDock("dithering", nextFloating ? "floating" : "bottom");
+    if (nextFloating) setWorkbenchSectionOpen("dithering", true);
   }
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent): void => {
       const resize = workbenchResizeRef.current;
       if (resize !== null && resize.kind === "dock" && resize.dock === "bottom") {
-        setWorkbenchBottomHeight(snapWorkbenchSize(
+        const nextSize = snapWorkbenchSize(
           resize.startBottomHeight + resize.startPointer - event.clientY,
-          160,
+          0,
           480,
-        ));
+        );
+        setWorkbenchBottomHeight(nextSize);
+        setWorkbenchWindowLayouts((current) => Object.fromEntries(
+          Object.entries(current).map(([window, layout]) => [
+            window,
+            layout.dock === "bottom" ? { ...layout, dockSize: nextSize } : layout,
+          ]),
+        ) as WorkbenchWindowLayouts);
         return;
       }
       if (resize !== null && resize.kind === "dock") {
         const delta = resize.dock === "left"
           ? event.clientX - resize.startPointer
           : resize.startPointer - event.clientX;
-        setWorkbenchSideWidth(snapWorkbenchSize(resize.startSideWidth + delta, 280, 560));
+        const nextSize = snapWorkbenchSize(resize.startSideWidth + delta, 0, 560);
+        setWorkbenchSideWidth(nextSize);
+        setWorkbenchWindowLayouts((current) => Object.fromEntries(
+          Object.entries(current).map(([window, layout]) => [
+            window,
+            (layout.dock === "left" || layout.dock === "right") ? { ...layout, dockSize: nextSize } : layout,
+          ]),
+        ) as WorkbenchWindowLayouts);
         return;
       }
       if (resize !== null && resize.kind === "preview-docked") {
@@ -2471,6 +2594,7 @@ export function App() {
       resultDockedWidth: workbenchResultDockedWidth,
       toolsOpen: workbenchToolsOpen,
       sectionsOpen: workbenchSectionsOpen,
+      windowLayouts: workbenchWindowLayouts,
     });
   }, [workbenchSettingsDock, workbenchSettingsMinimized, workbenchSideWidth,
     workbenchBottomHeight, workbenchFloatingX, workbenchFloatingY,
@@ -2498,7 +2622,7 @@ export function App() {
     workbenchResultFloating, workbenchResultFloatingX, workbenchResultFloatingY,
     workbenchResultFloatingWidth, workbenchResultFloatingHeight, workbenchResultFloatingAutoHeight,
     workbenchSourceDockedWidth, workbenchResultDockedWidth,
-    workbenchToolsOpen, workbenchSectionsOpen]);
+    workbenchToolsOpen, workbenchSectionsOpen, workbenchWindowLayouts]);
 
   useEffect(() => {
     if (originalImage === null) return;
@@ -3938,6 +4062,31 @@ export function App() {
   function applyWorkbenchLayoutPreset(layout: WorkspaceLayoutId): void {
     if (layout === "custom") return;
 
+    setWorkbenchWindowLayouts((current) => {
+      const next = { ...current };
+      const settingWindows = ["geometry", "adjustments", "palette", "dithering", "tilemap"] as const;
+      for (const window of settingWindows) {
+        next[window] = { ...next[window], dock: "bottom", minimized: true, open: false };
+      }
+      next.tools = { ...next.tools, dock: "bottom", minimized: true, open: false };
+      next.source = { ...next.source, dock: "center", minimized: false, open: true };
+      next.result = { ...next.result, dock: "center", minimized: false, open: true };
+      if (layout === "conversion") {
+        for (const window of ["geometry", "adjustments", "palette", "dithering"] as const) {
+          next[window] = { ...next[window], minimized: false, open: true };
+        }
+      } else if (layout === "palette") {
+        next.palette = { ...next.palette, dock: "floating", minimized: false, open: true };
+      } else if (layout === "dithering") {
+        next.dithering = { ...next.dithering, dock: "floating", minimized: false, open: true };
+      } else if (layout === "inspection" || layout === "editor") {
+        next.tools = { ...next.tools, dock: "floating", minimized: false, open: true };
+      } else if (layout === "tilemap") {
+        next.tilemap = { ...next.tilemap, minimized: false, open: true };
+      }
+      return next;
+    });
+
     const baseSections = {
       geometry: false,
       adjustments: false,
@@ -4106,6 +4255,7 @@ export function App() {
         resultDockedWidth: workbenchResultDockedWidth,
         toolsOpen: workbenchToolsOpen,
         sectionsOpen: workbenchSectionsOpen,
+        windowLayouts: workbenchWindowLayouts,
       },
     };
   }
@@ -4223,6 +4373,9 @@ export function App() {
     setWorkbenchResultDockedWidth(saved.workbench.resultDockedWidth ?? 1);
     setWorkbenchToolsOpen(saved.workbench.toolsOpen);
     setWorkbenchSectionsOpen({ ...saved.workbench.sectionsOpen });
+    setWorkbenchWindowLayouts({
+      ...(saved.workbench.windowLayouts ?? startupWorkbenchPreferences.windowLayouts),
+    });
     setSelectedSavedWorkbenchLayoutId(saved.id);
     setLayoutNameEntry(saved.name);
   }
@@ -4979,6 +5132,7 @@ export function App() {
       synchronizePan,
       synchronizeZoom,
       developmentMode,
+      ...uiTypography,
     });
     setSettingsDraft(draft as ApplicationSettings & Record<string, unknown>);
     setSettingsBaseline(draft);
@@ -5015,6 +5169,15 @@ export function App() {
     setSynchronizePan(canonical.application.synchronizePan);
     setSynchronizeZoom(canonical.application.synchronizeZoom);
     setDevelopmentMode(canonical.application.developmentMode);
+    setUiTypography({
+      uiFontFamily: canonical.application.uiFontFamily,
+      windowTitleFontSize: canonical.application.windowTitleFontSize,
+      windowTitleFontWeight: canonical.application.windowTitleFontWeight,
+      uiLabelFontSize: canonical.application.uiLabelFontSize,
+      uiLabelFontWeight: canonical.application.uiLabelFontWeight,
+      uiBodyFontSize: canonical.application.uiBodyFontSize,
+      uiBodyFontWeight: canonical.application.uiBodyFontWeight,
+    });
     const nextStartupLayout = normalizeStartupWorkspaceLayout(canonical.application.workspaceLayout);
     setStartupWorkspaceLayout(nextStartupLayout);
     applyWorkspaceLayout(nextStartupLayout);
@@ -8514,7 +8677,7 @@ export function App() {
   return (
     <>
     <a className="skip-link" href="#workspace-title">Skip to converter</a>
-    <main className="shell" id="main-content">
+    <main className="shell" id="main-content" style={uiTypographyCssVariables(uiTypography) as CSSProperties}>
       <header className="hero">
         <p className="eyebrow">{platformLabel} · conversion laboratory</p>
         <h1>Pixel Invader</h1>
@@ -8527,8 +8690,13 @@ export function App() {
         ref={workbenchRootRef}
         className={`proof workspace workbench-workspace workbench-settings-${workbenchSettingsDock} workbench-settings-${workbenchSettingsMinimized ? "minimized" : "expanded"}`}
         data-preview-layout={previewLayout}
+        data-left-dock-collapsed={workbenchHasLeftDock && workbenchSideWidth <= 0 ? "true" : "false"}
+        data-right-dock-collapsed={workbenchHasRightDock && workbenchSideWidth <= 0 ? "true" : "false"}
+        data-bottom-dock-collapsed={workbenchBottomHeight <= 0 ? "true" : "false"}
         style={{
           "--workbench-side-width": `${workbenchSideWidth}px`,
+          "--workbench-left-dock-width": `${workbenchHasLeftDock ? workbenchSideWidth : 0}px`,
+          "--workbench-right-dock-width": `${workbenchHasRightDock ? workbenchSideWidth : 0}px`,
           "--workbench-bottom-height": `${workbenchBottomHeight}px`,
           "--workbench-floating-x": `${workbenchFloatingX}px`,
           "--workbench-floating-y": `${workbenchFloatingY}px`,
@@ -8613,7 +8781,6 @@ export function App() {
                 >
                   <option value="all">All controls</option>
                   <optgroup label="Windows">
-                    <option value="settings">Conversion settings</option>
                     <option value="tools">Tools</option>
                     <option value="source">Source preview</option>
                     <option value="result">Result preview</option>
@@ -8906,7 +9073,7 @@ export function App() {
               tabIndex={0}
               aria-label={`Resize Conversion settings ${workbenchSettingsDock === "bottom" ? "height" : "width"}`}
               aria-orientation={workbenchSettingsDock === "bottom" ? "horizontal" : "vertical"}
-              aria-valuemin={workbenchSettingsDock === "floating" ? 280 : workbenchSettingsDock === "bottom" ? 160 : 280}
+              aria-valuemin={workbenchSettingsDock === "floating" ? 280 : 0}
               aria-valuemax={workbenchSettingsDock === "floating" ? 760 : workbenchSettingsDock === "bottom" ? 480 : 560}
               aria-valuenow={workbenchSettingsDock === "floating" ? workbenchSettingsFloatingHeight : workbenchSettingsDock === "bottom" ? workbenchBottomHeight : workbenchSideWidth}
               onPointerDown={workbenchSettingsDock === "floating" ? startWorkbenchSettingsFloatingResize : (event) => startWorkbenchResize(workbenchSettingsDock, event)}
@@ -8971,10 +9138,13 @@ export function App() {
               </div>
             </div>
             <div className="workbench-window-content" hidden={workbenchSettingsMinimized && !workbenchHasFloatingSections}>
+          {workbenchPortal("geometry", (
           <details
-            className={`workbench-settings-section${workbenchGeometryFloating ? ` workbench-section-floating workbench-geometry-floating${workbenchGeometryFloatingAutoHeight ? " workbench-floating-auto-height" : ""}` : ""}`}
-            hidden={workbenchSettingsMinimized && !workbenchGeometryFloating}
-            open={workbenchSectionsOpen.geometry}
+            className={`workbench-settings-section workbench-window${workbenchGeometryFloating ? ` workbench-section-floating workbench-geometry-floating${workbenchGeometryFloatingAutoHeight ? " workbench-floating-auto-height" : ""}` : ""}`}
+            data-workbench-window="geometry"
+            data-dock={workbenchWindowLayout("geometry").dock}
+            data-minimized={workbenchWindowLayout("geometry").minimized ? "true" : "false"}
+            open={workbenchSectionsOpen.geometry && !workbenchWindowLayout("geometry").minimized}
             style={workbenchGeometryFloating ? { zIndex: workbenchWindowZIndex("geometry") } : undefined}
             onPointerDown={(event) => {
               if (workbenchGeometryFloating) {
@@ -8985,7 +9155,7 @@ export function App() {
             onFocusCapture={() => {
               if (workbenchGeometryFloating) bringWorkbenchWindowToFront("geometry");
             }}
-            onToggle={(event) => setWorkbenchSectionOpen("geometry", event.currentTarget.open)}
+            onToggle={(event) => setWorkbenchWindowOpen("geometry", event.currentTarget.open)}
           >
             <summary
               onPointerDown={(event) => {
@@ -8994,6 +9164,7 @@ export function App() {
               onClick={preventWorkbenchDragClick}
             >
               <span>Geometry</span>
+              {workbenchWindowActions("geometry")}
               {workbenchGeometryFloating ? (
                 <span
                   className="workbench-window-drag-handle"
@@ -9196,10 +9367,14 @@ export function App() {
           </div>
           </fieldset>
           </details>
+          ))}
+          {workbenchPortal("adjustments", (
           <details
-            className={`workbench-settings-section${workbenchAdjustmentsFloating ? ` workbench-section-floating workbench-adjustments-floating${workbenchAdjustmentsFloatingAutoHeight ? " workbench-floating-auto-height" : ""}` : ""}`}
-            hidden={workbenchSettingsMinimized && !workbenchAdjustmentsFloating}
-            open={workbenchSectionsOpen.adjustments}
+            className={`workbench-settings-section workbench-window${workbenchAdjustmentsFloating ? ` workbench-section-floating workbench-adjustments-floating${workbenchAdjustmentsFloatingAutoHeight ? " workbench-floating-auto-height" : ""}` : ""}`}
+            data-workbench-window="adjustments"
+            data-dock={workbenchWindowLayout("adjustments").dock}
+            data-minimized={workbenchWindowLayout("adjustments").minimized ? "true" : "false"}
+            open={workbenchSectionsOpen.adjustments && !workbenchWindowLayout("adjustments").minimized}
             style={workbenchAdjustmentsFloating ? { zIndex: workbenchWindowZIndex("adjustments") } : undefined}
             onPointerDown={(event) => {
               if (workbenchAdjustmentsFloating) {
@@ -9210,7 +9385,7 @@ export function App() {
             onFocusCapture={() => {
               if (workbenchAdjustmentsFloating) bringWorkbenchWindowToFront("adjustments");
             }}
-            onToggle={(event) => setWorkbenchSectionOpen("adjustments", event.currentTarget.open)}
+            onToggle={(event) => setWorkbenchWindowOpen("adjustments", event.currentTarget.open)}
           >
             <summary
               onPointerDown={(event) => {
@@ -9219,6 +9394,7 @@ export function App() {
               onClick={preventWorkbenchDragClick}
             >
               <span>Image adjustments</span>
+              {workbenchWindowActions("adjustments")}
               {workbenchAdjustmentsFloating ? (
                 <span
                   className="workbench-window-drag-handle"
@@ -9287,12 +9463,16 @@ export function App() {
             }}>Reset adjustments</button>
           </fieldset>
           </details>
+          ))}
           {workspaceMode === "palette" ? (
           <>
+          {workbenchPortal("palette", (
           <details
-            className={`workbench-settings-section${workbenchPaletteFloating ? ` workbench-section-floating workbench-palette-floating${workbenchPaletteFloatingAutoHeight ? " workbench-floating-auto-height" : ""}` : ""}`}
-            hidden={workbenchSettingsMinimized && !workbenchPaletteFloating}
-            open={workbenchSectionsOpen.palette}
+            className={`workbench-settings-section workbench-window${workbenchPaletteFloating ? ` workbench-section-floating workbench-palette-floating${workbenchPaletteFloatingAutoHeight ? " workbench-floating-auto-height" : ""}` : ""}`}
+            data-workbench-window="palette"
+            data-dock={workbenchWindowLayout("palette").dock}
+            data-minimized={workbenchWindowLayout("palette").minimized ? "true" : "false"}
+            open={workbenchSectionsOpen.palette && !workbenchWindowLayout("palette").minimized}
             style={workbenchPaletteFloating ? { zIndex: workbenchWindowZIndex("palette") } : undefined}
             onPointerDown={(event) => {
               if (workbenchPaletteFloating) {
@@ -9303,7 +9483,7 @@ export function App() {
             onFocusCapture={() => {
               if (workbenchPaletteFloating) bringWorkbenchWindowToFront("palette");
             }}
-            onToggle={(event) => setWorkbenchSectionOpen("palette", event.currentTarget.open)}
+            onToggle={(event) => setWorkbenchWindowOpen("palette", event.currentTarget.open)}
           >
             <summary
             onPointerDown={(event) => {
@@ -9312,6 +9492,7 @@ export function App() {
             onClick={preventWorkbenchDragClick}
             >
               <span>{isQl ? "QL palette" : isPmd ? "PMD 85 palette" : "ZX palette and attributes"}</span>
+              {workbenchWindowActions("palette")}
               {workbenchPaletteFloating ? (
                 <span
                   className="workbench-window-drag-handle"
@@ -9643,10 +9824,14 @@ export function App() {
             </div>
           </fieldset>
           </details>
+          ))}
+          {workbenchPortal("dithering", (
           <details
-            className={`workbench-settings-section${workbenchDitheringFloating ? ` workbench-section-floating workbench-dithering-floating${workbenchDitheringFloatingAutoHeight ? " workbench-floating-auto-height" : ""}` : ""}`}
-            hidden={workbenchSettingsMinimized && !workbenchDitheringFloating}
-            open={workbenchSectionsOpen.dithering}
+            className={`workbench-settings-section workbench-window${workbenchDitheringFloating ? ` workbench-section-floating workbench-dithering-floating${workbenchDitheringFloatingAutoHeight ? " workbench-floating-auto-height" : ""}` : ""}`}
+            data-workbench-window="dithering"
+            data-dock={workbenchWindowLayout("dithering").dock}
+            data-minimized={workbenchWindowLayout("dithering").minimized ? "true" : "false"}
+            open={workbenchSectionsOpen.dithering && !workbenchWindowLayout("dithering").minimized}
             style={workbenchDitheringFloating ? { zIndex: workbenchWindowZIndex("dithering") } : undefined}
             onPointerDown={(event) => {
               if (workbenchDitheringFloating) {
@@ -9657,7 +9842,7 @@ export function App() {
             onFocusCapture={() => {
               if (workbenchDitheringFloating) bringWorkbenchWindowToFront("dithering");
             }}
-            onToggle={(event) => setWorkbenchSectionOpen("dithering", event.currentTarget.open)}
+            onToggle={(event) => setWorkbenchWindowOpen("dithering", event.currentTarget.open)}
           >
             <summary
             onPointerDown={(event) => {
@@ -9666,6 +9851,7 @@ export function App() {
             onClick={preventWorkbenchDragClick}
             >
               <span>Dithering</span>
+              {workbenchWindowActions("dithering")}
               {workbenchDitheringFloating ? (
                 <span
                   className="workbench-window-drag-handle"
@@ -10308,14 +10494,17 @@ export function App() {
           ) : null}
           </fieldset>
           </details>
+          ))}
           </>
           ) : (
           <>
+          {workbenchPortal("tilemap", (
           <details
-            className={`workbench-settings-section${workbenchTilemapFloating ? ` workbench-section-floating workbench-tilemap-floating${workbenchTilemapFloatingAutoHeight ? " workbench-floating-auto-height" : ""}` : ""}`}
-            hidden={workbenchSettingsMinimized && !workbenchTilemapFloating}
+            className={`workbench-settings-section workbench-window${workbenchTilemapFloating ? ` workbench-section-floating workbench-tilemap-floating${workbenchTilemapFloatingAutoHeight ? " workbench-floating-auto-height" : ""}` : ""}`}
             data-workbench-window="tilemap"
-            open={workbenchSectionsOpen.tilemap}
+            data-dock={workbenchWindowLayout("tilemap").dock}
+            data-minimized={workbenchWindowLayout("tilemap").minimized ? "true" : "false"}
+            open={workbenchSectionsOpen.tilemap && !workbenchWindowLayout("tilemap").minimized}
             style={workbenchTilemapFloating ? { zIndex: workbenchWindowZIndex("tilemap") } : undefined}
             onPointerDown={(event) => {
               if (workbenchTilemapFloating) {
@@ -10326,7 +10515,7 @@ export function App() {
             onFocusCapture={() => {
               if (workbenchTilemapFloating) bringWorkbenchWindowToFront("tilemap");
             }}
-            onToggle={(event) => setWorkbenchSectionOpen("tilemap", event.currentTarget.open)}
+            onToggle={(event) => setWorkbenchWindowOpen("tilemap", event.currentTarget.open)}
           >
             <summary
               onPointerDown={(event) => {
@@ -10335,6 +10524,7 @@ export function App() {
               onClick={preventWorkbenchDragClick}
             >
               <span>Tilemap</span>
+              {workbenchWindowActions("tilemap")}
               {workbenchTilemapFloating ? (
                 <span
                   className="workbench-window-drag-handle"
@@ -10727,6 +10917,7 @@ export function App() {
             />
           ) : null}
           </details>
+          ))}
           </>
           )}
           </div>
@@ -11141,11 +11332,36 @@ export function App() {
 
           </div>
           {exportError === null ? null : <div className="field-error workbench-export-error" role="alert">{exportError}</div>}
+          <div
+            className="workbench-dock-region workbench-dock-left"
+            ref={setWorkbenchLeftDockLayer}
+            data-dock-region="left"
+            aria-label="Left dock"
+          >
+            <div className="workbench-dock-resize-handle workbench-dock-resize-left" role="separator" tabIndex={0} aria-label="Resize left dock" aria-orientation="vertical" aria-valuemin={0} aria-valuemax={560} aria-valuenow={workbenchSideWidth} onPointerDown={(event) => startWorkbenchResize("left", event)} onKeyDown={(event) => { if (event.key === "ArrowLeft") adjustWorkbenchSize("left", -16); if (event.key === "ArrowRight") adjustWorkbenchSize("left", 16); }} />
+          </div>
+          <div
+            className="workbench-dock-region workbench-dock-right"
+            ref={setWorkbenchRightDockLayer}
+            data-dock-region="right"
+            aria-label="Right dock"
+          >
+            <div className="workbench-dock-resize-handle workbench-dock-resize-right" role="separator" tabIndex={0} aria-label="Resize right dock" aria-orientation="vertical" aria-valuemin={0} aria-valuemax={560} aria-valuenow={workbenchSideWidth} onPointerDown={(event) => startWorkbenchResize("right", event)} onKeyDown={(event) => { if (event.key === "ArrowLeft") adjustWorkbenchSize("right", 16); if (event.key === "ArrowRight") adjustWorkbenchSize("right", -16); }} />
+          </div>
+          <div
+            className="workbench-dock-region workbench-dock-bottom"
+            ref={setWorkbenchBottomDockLayer}
+            data-dock-region="bottom"
+            aria-label="Bottom dock"
+          >
+            <div className="workbench-dock-resize-handle workbench-dock-resize-bottom" role="separator" tabIndex={0} aria-label="Resize bottom dock" aria-orientation="horizontal" aria-valuemin={0} aria-valuemax={480} aria-valuenow={workbenchBottomHeight} onPointerDown={(event) => startWorkbenchResize("bottom", event)} onKeyDown={(event) => { if (event.key === "ArrowUp") adjustWorkbenchSize("bottom", 16); if (event.key === "ArrowDown") adjustWorkbenchSize("bottom", -16); }} />
+          </div>
         </form>
 
         {settingsOpen && settingsDraft !== null ? (() => {
           const draftProfile = profiles.find(({ id }) => id === settingsDraft.profileId) ?? BUILT_IN_PROFILE;
           const draftModes = Object.keys(draftProfile.palette.modes) as TargetModeId[];
+          const draftTypography = uiTypographyFromRecord(settingsDraft);
           const visibleSettings = filterSettings(SETTINGS_REGISTRY, settingsSearch, settingsCategory, settingsPreset, settingsDraft, settingsBaseline ?? settingsDraft);
           const updateSetting = (definition: SettingDefinition, value: unknown) => {
             const next = { ...settingsDraft, [definition.id]: value };
@@ -11230,6 +11446,17 @@ export function App() {
                   <select aria-label="Filter preset" value={settingsPreset} onChange={(event) => setSettingsPreset(event.target.value as SettingPresetId)}>{SETTING_FILTER_PRESETS.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}</select>
                 </div>
                 <div className="settings-result-count" role="status">{visibleSettings.length} setting{visibleSettings.length === 1 ? "" : "s"}</div>
+                <section
+                  className="settings-typography-preview"
+                  style={uiTypographyCssVariables(draftTypography) as CSSProperties}
+                  aria-label="Typography preview"
+                >
+                  <div className="settings-typography-preview-heading">Typography preview</div>
+                  <div className="typography-preview-window-title">Window title · Floating</div>
+                  <div className="typography-preview-label"><span>UI label</span><strong>Sample value</strong></div>
+                  <p className="typography-preview-body">Palette, Attributes, and Dithering body text uses the selected size and weight.</p>
+                  <code className="typography-preview-monospace">Diagnostic 0x7F · 256×192</code>
+                </section>
                 <div className="settings-modal-content">
                   {visibleSettings.length === 0 ? <p className="settings-empty">No settings match your search or filters.</p> : Object.entries(SETTING_CATEGORIES).map(([category, label]) => {
                     const definitions = visibleSettings.filter((definition) => definition.category === category);
@@ -11270,47 +11497,17 @@ export function App() {
           <div className="inspection-heading">
             <div>
               <h2 id="inspection-title">Preview and inspection</h2>
-              <p>Zoom, click-drag to pan, inspect encoded cells, and verify palette usage.</p>
-            </div>
-            <div className={`inspection-actions${workbenchSourceFloating && workbenchResultFloating ? " inspection-actions-hidden-when-floating" : ""}`}>
-              <span className="zoom-title">Zoom</span>
-              <button
-                className="secondary compact zoom-step"
-                type="button"
-                aria-label="Zoom out"
-                onClick={() => stepZoom(-1)}
-                disabled={previewZoom === "fit"}
-              >−</button>
-              <label className="zoom-slider">
-                <span>{previewZoom === "fit" ? "Fit" : `${previewZoom}:1`}</span>
-                <input
-                  type="range"
-                  min="0"
-                  max="16"
-                  step="1"
-                  aria-label="Preview scale"
-                  value={previewZoom === "fit" ? 0 : previewZoom}
-                  onInput={(event) => {
-                    const value = Number(event.currentTarget.value);
-                    setZoom(value === 0 ? "fit" : value as PreviewZoom);
-                  }}
-                />
-              </label>
-              <button
-                className="secondary compact zoom-step"
-                type="button"
-                aria-label="Zoom in"
-                onClick={() => stepZoom(1)}
-                disabled={previewZoom === 16}
-              >+</button>
-              <button className="secondary compact zoom-reset" type="button" onClick={() => setZoom("fit")}>Fit</button>
+              <p>Click-drag to pan, inspect encoded cells, and verify palette usage.</p>
             </div>
           </div>
 
+          {workbenchPortal("tools", (
           <details
-            className={`inspection-controls workbench-tools-window${workbenchToolsFloating ? " workbench-tools-floating" : ""}${workbenchToolsDock === "left" || workbenchToolsDock === "right" ? " workbench-tools-side-docked" : ""}`}
-            data-dock={workbenchToolsDock}
-            open={workbenchToolsOpen}
+            className={`inspection-controls workbench-tools-window workbench-window${workbenchToolsFloating ? " workbench-tools-floating" : ""}${workbenchToolsDock === "left" || workbenchToolsDock === "right" ? " workbench-tools-side-docked" : ""}`}
+            data-workbench-window="tools"
+            data-dock={workbenchWindowLayout("tools").dock}
+            data-minimized={workbenchWindowLayout("tools").minimized ? "true" : "false"}
+            open={workbenchToolsOpen && !workbenchWindowLayout("tools").minimized}
             style={workbenchToolsFloating ? { zIndex: workbenchWindowZIndex("tools") } : undefined}
             onPointerDown={() => {
               if (workbenchToolsFloating) bringWorkbenchWindowToFront("tools");
@@ -11318,7 +11515,7 @@ export function App() {
             onFocusCapture={() => {
               if (workbenchToolsFloating) bringWorkbenchWindowToFront("tools");
             }}
-            onToggle={(event) => setWorkbenchToolsOpen(event.currentTarget.open)}
+            onToggle={(event) => setWorkbenchWindowOpen("tools", event.currentTarget.open)}
           >
             <summary
               aria-label="Tools"
@@ -11328,22 +11525,7 @@ export function App() {
               onClick={preventWorkbenchDragClick}
             >
               <span>Tools</span>
-              <select
-                className="workbench-tools-dock-select"
-                aria-label="Tools docking"
-                value={workbenchToolsDock}
-                onClick={(event) => event.stopPropagation()}
-                onChange={(event) => {
-                  event.stopPropagation();
-                  setWorkbenchToolsDock(event.target.value as WorkbenchDock);
-                  setWorkbenchToolsOpen(event.target.value !== "bottom");
-                }}
-              >
-                <option value="bottom">Bottom dock</option>
-                <option value="left">Left rail</option>
-                <option value="right">Right rail</option>
-                <option value="floating">Floating</option>
-              </select>
+              {workbenchWindowActions("tools")}
               {workbenchToolsFloating ? (
                 <span
                   className="workbench-window-drag-handle"
@@ -11365,17 +11547,6 @@ export function App() {
                   }}
                 >⠿</span>
               ) : null}
-              <button
-                className="workbench-tools-float-action"
-                type="button"
-                aria-label={workbenchToolsFloating ? "Dock Tools below preview" : "Float Tools"}
-                title={workbenchToolsFloating ? "Dock Tools below preview" : "Float Tools"}
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  toggleWorkbenchToolsFloating();
-                }}
-              >{workbenchToolsFloating ? "▼" : "⤢"}</button>
             </summary>
             {workbenchToolsFloating ? (
               <div
@@ -11393,7 +11564,15 @@ export function App() {
                 }}
               />
             ) : null}
-            <div className="workbench-tools-content">
+            <div className="workbench-tools-content" hidden={workbenchWindowLayout("tools").minimized}>
+            <div className="tools-zoom-controls" aria-label="Preview zoom">
+              <span>Zoom</span>
+              <div className="pan-pad tools-zoom-pad">
+                <button type="button" aria-label="Zoom out preview" title="Zoom out" onClick={() => stepZoom(-1)} disabled={previewZoom === "fit"}>−</button>
+                <button type="button" aria-label="Zoom in preview" title="Zoom in" onClick={() => stepZoom(1)} disabled={previewZoom === 16}>+</button>
+                <button type="button" aria-label="Fit preview" title="Fit" onClick={() => setZoom("fit")}>%</button>
+              </div>
+            </div>
             <label className="check-control tools-option-pixel">
               <input type="checkbox" checked={showPixelGrid} onChange={(event) => setShowPixelGrid(event.target.checked)} />
               <span>Pixel grid</span>
@@ -11459,6 +11638,7 @@ export function App() {
               ) : null}
             </div>
           </details>
+          ))}
 
           {workspaceMode === "palette" ? (
           <aside className="preview-palette-panel" aria-label="Palette summary">
@@ -11641,10 +11821,14 @@ export function App() {
 
           <div className="comparison workbench-preview-dock" aria-label="Configurable preview panes" data-preview-layout={previewLayout}>
             {(() => {
+            const sourceDock = workbenchWindowLayout("source").dock;
+            const sourceDockTarget = workbenchDockLayerFor(sourceDock);
             const sourcePreviewPane = (
             <section
               className={`preview-panel source-panel${workbenchSourceFloating ? ` preview-panel-floating preview-source-window${workbenchSourceFloatingAutoHeight ? " workbench-floating-auto-height" : ""}` : " preview-panel-docked"} ${workspaceMode === "tilemap" ? "tilemap-preview-panel" : ""}`}
               data-workbench-window="source"
+              data-dock={sourceDock}
+              data-minimized={workbenchWindowLayout("source").minimized ? "true" : "false"}
               aria-labelledby="source-preview-title"
               style={workbenchSourceFloating ? { zIndex: workbenchWindowZIndex("source") } : undefined}
               onPointerDown={() => { if (workbenchSourceFloating) bringWorkbenchWindowToFront("source"); }}
@@ -11700,6 +11884,7 @@ export function App() {
                           ? "Difference heatmap"
                         : "Inspector"}
                 </h3>
+                {workbenchWindowActions("source", true)}
                 <label className="preview-content-selector">
                   <span className="sr-only">Source window content</span>
                   <select
@@ -11946,15 +12131,19 @@ export function App() {
               ) : null}
             </section>
             );
-            return workbenchSourceFloating && workbenchPreviewLayer !== null
-              ? createPortal(sourcePreviewPane, workbenchPreviewLayer, "source-preview")
+            return sourceDock !== "center" && sourceDockTarget !== null
+              ? createPortal(sourcePreviewPane, sourceDockTarget, "source-preview")
               : sourcePreviewPane;
             })()}
             {(() => {
+            const resultDock = workbenchWindowLayout("result").dock;
+            const resultDockTarget = workbenchDockLayerFor(resultDock);
             const resultPreviewPane = (
             <section
               className={`preview-panel result-panel${workbenchResultFloating ? ` preview-panel-floating preview-result-window${workbenchResultFloatingAutoHeight ? " workbench-floating-auto-height" : ""}` : " preview-panel-docked"} ${workspaceMode === "tilemap" ? "tilemap-preview-panel" : ""}`}
               data-workbench-window="result"
+              data-dock={resultDock}
+              data-minimized={workbenchWindowLayout("result").minimized ? "true" : "false"}
               aria-labelledby="result-preview-title"
               style={workbenchResultFloating ? { zIndex: workbenchWindowZIndex("result") } : undefined}
               onPointerDown={() => { if (workbenchResultFloating) bringWorkbenchWindowToFront("result"); }}
@@ -11984,6 +12173,7 @@ export function App() {
                 onClick={preventWorkbenchDragClick}
               >
                 <h3 className="preview-panel-title" id="result-preview-title">{resultPreviewContent === "image" || resultPreviewContent === "result-image" ? resultLabel : resultPreviewContent === "source-image" ? "Conversion input" : resultPreviewContent === "bitmap-editor" ? "Bitmap editor" : resultPreviewContent === "pre-attribute" ? "Pre-attribute dither" : resultPreviewContent === "screen-1" ? hasVerticalSpatialTarget ? "Full resolution" : "Screen 1" : resultPreviewContent === "screen-2" ? hasVerticalSpatialTarget ? "Analytic" : "Screen 2" : resultPreviewContent === "merged-low" ? "Merged · low resolution" : resultPreviewContent === "merged-high" ? "Merged · high resolution" : resultPreviewContent === "palette-usage" ? "Palette usage" : resultPreviewContent === "tile-usage" ? "Used tiles" : resultPreviewContent === "unified-editor" ? "Unified editor" : resultPreviewContent === "difference" ? "Difference heatmap" : "Inspector"}</h3>
+                {workbenchWindowActions("result", true)}
                 <label className="preview-content-selector">
                   <span className="sr-only">Result window content</span>
                   <select
@@ -12209,8 +12399,8 @@ export function App() {
               ) : null}
             </section>
             );
-            return workbenchResultFloating && workbenchPreviewLayer !== null
-              ? createPortal(resultPreviewPane, workbenchPreviewLayer, "result-preview")
+            return resultDock !== "center" && resultDockTarget !== null
+              ? createPortal(resultPreviewPane, resultDockTarget, "result-preview")
               : resultPreviewPane;
             })()}
           </div>

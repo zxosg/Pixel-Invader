@@ -1,15 +1,321 @@
 :root {
   --ui-control-height: 1.7rem;
-  --ui-control-font-size: 0.74rem;
-  --ui-label-font-size: 0.68rem;
+  --ui-font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --ui-title-font-size: 12px;
+  --ui-title-font-weight: 700;
+  --ui-label-font-size: 11px;
+  --ui-label-font-weight: 700;
+  --ui-body-font-size: 12px;
+  --ui-body-font-weight: 400;
+  --ui-control-font-size: var(--ui-body-font-size);
   --workbench-compact-control-height: 1.55rem;
   color: #e8edf5;
   background: #11151c;
-  font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
+  font-family: var(--ui-font-family);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+}
+
+/* Side-docked Tools is a normal workbench window. Keep it inside the dock
+   bounds instead of rendering the old narrow vertical rail over the dock. */
+@media (min-width: 1280px) {
+  .workbench-workspace .workbench-dock-left > .workbench-tools-window.workbench-tools-side-docked,
+  .workbench-workspace .workbench-dock-right > .workbench-tools-window.workbench-tools-side-docked {
+    position: relative;
+    inset: auto;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    flex: 1 1 auto;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    max-width: none;
+    max-height: none;
+    overflow: hidden;
+  }
+
+  .workbench-workspace .workbench-dock-left > .workbench-tools-window.workbench-tools-side-docked > summary,
+  .workbench-workspace .workbench-dock-right > .workbench-tools-window.workbench-tools-side-docked > summary {
+    order: initial;
+    min-height: 1.55rem;
+    width: auto;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.25rem 0.35rem;
+    border: 1px solid #33425d;
+    border-radius: 0.35rem 0.35rem 0 0;
+    writing-mode: horizontal-tb;
+    transform: none;
+    overflow: hidden;
+  }
+
+  .workbench-workspace .workbench-dock-left > .workbench-tools-window.workbench-tools-side-docked > summary > span:first-child,
+  .workbench-workspace .workbench-dock-right > .workbench-tools-window.workbench-tools-side-docked > summary > span:first-child {
+    min-width: 0;
+    overflow: hidden;
+    color: #e9f4ff;
+    font-size: var(--ui-title-font-size);
+    font-weight: var(--ui-title-font-weight);
+    line-height: 1.1;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .workbench-workspace .workbench-dock-left > .workbench-tools-window.workbench-tools-side-docked > summary .workbench-window-actions,
+  .workbench-workspace .workbench-dock-right > .workbench-tools-window.workbench-tools-side-docked > summary .workbench-window-actions {
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .workbench-workspace .workbench-dock-left > .workbench-tools-window.workbench-tools-side-docked > summary .workbench-window-dock-select,
+  .workbench-workspace .workbench-dock-right > .workbench-tools-window.workbench-tools-side-docked > summary .workbench-window-dock-select {
+    width: min(8.5rem, 45%);
+    min-width: 4.5rem;
+    max-width: 8.5rem;
+  }
+
+  .workbench-workspace .workbench-dock-left > .workbench-tools-window.workbench-tools-side-docked .workbench-tools-content,
+  .workbench-workspace .workbench-dock-right > .workbench-tools-window.workbench-tools-side-docked .workbench-tools-content {
+    order: initial;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+    align-content: start;
+    align-items: start;
+    width: auto;
+    min-width: 0;
+    min-height: 0;
+    max-width: none;
+    overflow-x: hidden;
+    overflow-y: auto;
+    gap: 0.35rem 0.45rem;
+    padding: 0.45rem;
+    border: 1px solid #33425d;
+    border-top: 0;
+    border-radius: 0 0 0.35rem 0.35rem;
+  }
+
+  .workbench-workspace .workbench-dock-left > .workbench-tools-window.workbench-tools-side-docked .workbench-tools-content > .check-control,
+  .workbench-workspace .workbench-dock-right > .workbench-tools-window.workbench-tools-side-docked .workbench-tools-content > .check-control {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    gap: 0.35rem;
+    padding: 0.18rem 0.1rem;
+    text-align: left;
+  }
+
+  .workbench-workspace .workbench-dock-left > .workbench-tools-window.workbench-tools-side-docked .workbench-tools-content > .check-control span,
+  .workbench-workspace .workbench-dock-right > .workbench-tools-window.workbench-tools-side-docked .workbench-tools-content > .check-control span {
+    display: inline;
+    max-width: 100%;
+    overflow: hidden;
+    writing-mode: horizontal-tb;
+    transform: none;
+    font-size: var(--ui-label-font-size);
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: normal;
+  }
+
+  .workbench-workspace .workbench-dock-left > .workbench-tools-window.workbench-tools-side-docked .workbench-tools-content > :not(.tools-zoom-controls):not(.tools-option-zoom):not(.tools-option-pan):not(.tools-option-hide):not(.tools-option-cell):not(.tools-option-pixel),
+  .workbench-workspace .workbench-dock-right > .workbench-tools-window.workbench-tools-side-docked .workbench-tools-content > :not(.tools-zoom-controls):not(.tools-option-zoom):not(.tools-option-pan):not(.tools-option-hide):not(.tools-option-cell):not(.tools-option-pixel) {
+    order: initial;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    gap: 0.35rem;
+  }
+
+  .workbench-workspace .workbench-dock-left > .workbench-tools-window.workbench-tools-side-docked .workbench-tools-content > :not(.tools-zoom-controls):not(.tools-option-zoom):not(.tools-option-pan):not(.tools-option-hide):not(.tools-option-cell):not(.tools-option-pixel) > span,
+  .workbench-workspace .workbench-dock-right > .workbench-tools-window.workbench-tools-side-docked .workbench-tools-content > :not(.tools-zoom-controls):not(.tools-option-zoom):not(.tools-option-pan):not(.tools-option-hide):not(.tools-option-cell):not(.tools-option-pixel) > span {
+    writing-mode: horizontal-tb;
+    transform: none;
+    font-size: var(--ui-label-font-size);
+    white-space: normal;
+  }
+
+  .workbench-workspace .workbench-dock-left > .workbench-tools-window.workbench-tools-side-docked .workbench-tools-content select,
+  .workbench-workspace .workbench-dock-right > .workbench-tools-window.workbench-tools-side-docked .workbench-tools-content select,
+  .workbench-workspace .workbench-dock-left > .workbench-tools-window.workbench-tools-side-docked .workbench-tools-content button,
+  .workbench-workspace .workbench-dock-right > .workbench-tools-window.workbench-tools-side-docked .workbench-tools-content button {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    font-size: var(--ui-label-font-size);
+  }
+
+  .workbench-workspace .workbench-dock-left > .workbench-tools-window.workbench-tools-side-docked .workbench-tools-content > .tools-zoom-controls,
+  .workbench-workspace .workbench-dock-right > .workbench-tools-window.workbench-tools-side-docked .workbench-tools-content > .tools-zoom-controls {
+    order: initial;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    width: auto;
+    gap: 0.18rem;
+  }
+
+  .workbench-workspace .workbench-dock-left > .workbench-tools-window.workbench-tools-side-docked .tools-zoom-pad,
+  .workbench-workspace .workbench-dock-right > .workbench-tools-window.workbench-tools-side-docked .tools-zoom-pad {
+    flex-direction: row;
+  }
+
+  .workbench-workspace .workbench-dock-left > .workbench-tools-window.workbench-tools-side-docked .tools-zoom-pad button,
+  .workbench-workspace .workbench-dock-right > .workbench-tools-window.workbench-tools-side-docked .tools-zoom-pad button {
+    width: 1.45rem;
+    min-width: 1.45rem;
+    max-width: 1.45rem;
+    padding: 0;
+    font-size: var(--ui-control-font-size);
+  }
+}
+
+/* User-configurable UI typography. The preview and the application shell use
+   the same variables so Settings can show the exact draft values before save. */
+.shell {
+  font-family: var(--ui-font-family);
+  font-size: var(--ui-body-font-size);
+  font-weight: var(--ui-body-font-weight);
+}
+
+.shell button,
+.shell input,
+.shell select,
+.shell textarea {
+  font-family: inherit;
+}
+
+.shell button,
+.shell select,
+.shell input[type="text"],
+.shell input[type="number"],
+.shell input[type="search"],
+.shell input[type="email"],
+.shell textarea,
+.shell label,
+.shell legend {
+  font-size: var(--ui-label-font-size);
+  font-weight: var(--ui-label-font-weight);
+}
+
+.shell .workbench-window-titlebar,
+.shell .workbench-window-title,
+.shell .workbench-window-actions,
+.shell .preview-panel-title,
+.shell .workbench-settings-section > summary,
+.shell .workbench-tools-window > summary {
+  font-size: var(--ui-title-font-size);
+  font-weight: var(--ui-title-font-weight);
+}
+
+.shell .control-help,
+.shell .status,
+.shell .settings-result-count,
+.shell .settings-modal-header p,
+.shell .settings-modal-content fieldset > div > p {
+  font-size: var(--ui-body-font-size);
+  font-weight: var(--ui-body-font-weight);
+}
+
+/* Keep capability-specific body copy on the same configurable scale. These
+   components historically used fixed rem sizes, which made Palette appear
+   larger or smaller than the adjacent Attributes and Dithering sections. */
+.shell .palette-subcard .subcard-help,
+.shell .palette-subcard .palette-screen-heading,
+.shell .palette-summary-screen,
+.shell .attributes-subcard > .control-help,
+.shell .dithering-group .control-help {
+  font-size: var(--ui-body-font-size);
+  font-weight: var(--ui-body-font-weight);
+}
+
+.shell .palette-subcard h3,
+.shell .attributes-subcard h3,
+.shell .palette-control > summary,
+.shell .palette-control > .palette-summary-heading {
+  font-size: var(--ui-label-font-size);
+  font-weight: var(--ui-label-font-weight);
+}
+
+.shell .palette-subcard .palette-screen-heading strong {
+  font-weight: var(--ui-label-font-weight);
+}
+
+.settings-typography-preview {
+  display: grid;
+  grid-template-columns: minmax(10rem, 1.15fr) repeat(3, minmax(0, 1fr));
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0.5rem 1.25rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid #52627d;
+  border-radius: 0.45rem;
+  background: #111824;
+  color: #e8edf5;
+  font-family: var(--ui-font-family);
+}
+
+.settings-typography-preview-heading {
+  grid-column: 1 / -1;
+  color: #9ab7de;
+  font-size: var(--ui-label-font-size);
+  font-weight: var(--ui-label-font-weight);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.typography-preview-window-title {
+  padding: 0.45rem 0.6rem;
+  border-radius: 0.3rem;
+  background: #553878;
+  color: #fff;
+  font-size: var(--ui-title-font-size);
+  font-weight: var(--ui-title-font-weight);
+}
+
+.typography-preview-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  color: #c4d0e2;
+  font-size: var(--ui-label-font-size);
+  font-weight: var(--ui-label-font-weight);
+}
+
+.typography-preview-label strong {
+  color: #fff;
+  font-weight: inherit;
+}
+
+.typography-preview-body {
+  margin: 0;
+  color: #c4d0e2;
+  font-size: var(--ui-body-font-size);
+  font-weight: var(--ui-body-font-weight);
+}
+
+.typography-preview-monospace {
+  color: #9ab7de;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--ui-body-font-size);
+  font-weight: var(--ui-body-font-weight);
+}
+
+@media (max-width: 760px) {
+  .settings-typography-preview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.workbench-dock-region {
+  display: contents;
 }
 
 @media (min-width: 760px) and (max-width: 1279px) {
@@ -42,8 +348,8 @@
   .workbench-workspace .preview-panel-floating {
     position: absolute;
     z-index: 14;
-    top: var(--workbench-source-floating-y);
-    left: var(--workbench-source-floating-x);
+    top: max(0.5rem, min(var(--workbench-source-floating-y), calc(100% - var(--workbench-source-floating-height) - 0.5rem)));
+    left: max(0.5rem, min(var(--workbench-source-floating-x), calc(100% - var(--workbench-source-floating-width) - 0.5rem)));
     width: min(var(--workbench-source-floating-width), calc(100% - 1rem));
     height: min(var(--workbench-source-floating-height), calc(100% - 1rem));
     min-width: 320px;
@@ -58,8 +364,8 @@
   }
 
   .workbench-workspace .preview-result-window {
-    top: var(--workbench-result-floating-y);
-    left: var(--workbench-result-floating-x);
+    top: max(0.5rem, min(var(--workbench-result-floating-y), calc(100% - var(--workbench-result-floating-height) - 0.5rem)));
+    left: max(0.5rem, min(var(--workbench-result-floating-x), calc(100% - var(--workbench-result-floating-width) - 0.5rem)));
     width: min(var(--workbench-result-floating-width), calc(100% - 1rem));
     height: min(var(--workbench-result-floating-height), calc(100% - 1rem));
   }
@@ -537,6 +843,28 @@ h1 {
 .pan-up { order: 3; }
 .pan-right { order: 4; }
 .pan-center { order: 5; }
+
+.tools-zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.tools-zoom-controls > span {
+  color: #d6deea;
+  font-size: var(--ui-label-font-size);
+  font-weight: var(--ui-label-font-weight);
+}
+
+.tools-zoom-pad button {
+  width: 1.45rem;
+  height: var(--workbench-compact-control-height);
+  min-width: 0;
+  padding: 0;
+  font-size: var(--ui-control-font-size);
+  line-height: 1;
+}
 
 .pan-edge-control {
   display: grid;
@@ -1424,7 +1752,6 @@ input[type="range"] {
   font-size: 0.72rem;
 }
 
-.inspection-actions,
 .inspection-controls {
   display: flex;
   align-items: end;
@@ -1450,7 +1777,6 @@ input[type="range"] {
   color: #f2cf83;
 }
 
-.inspection-actions label,
 .inspection-controls > label:not(.check-control) {
   display: grid;
   min-width: 7.5rem;
@@ -2420,8 +2746,7 @@ input[type="range"] {
   }
 
   .controls label,
-  .inspection-controls > label:not(.check-control),
-  .inspection-actions label {
+  .inspection-controls > label:not(.check-control) {
     font-size: 0.62rem;
   }
 
@@ -2536,9 +2861,7 @@ input[type="range"] {
     grid-column: 1 / -1;
     grid-template-columns:
       minmax(0, 1fr)
-      3.4rem
       minmax(0, 1fr)
-      9.75rem
       9.75rem;
     grid-template-rows: minmax(0, 1fr) auto;
     grid-row: 3;
@@ -2552,9 +2875,7 @@ input[type="range"] {
   body:has(.tilemap-charset-panel) .inspection-workspace {
     grid-template-columns:
       minmax(0, 1fr)
-      3.4rem
       minmax(0, 1fr)
-      9.75rem
       12rem;
   }
 
@@ -2574,68 +2895,13 @@ input[type="range"] {
   }
 
   .result-panel {
-    grid-column: 3;
-    grid-row: 1;
-    min-height: 0;
-  }
-
-  .inspection-actions {
     grid-column: 2;
     grid-row: 1;
-    display: flex;
-    align-items: center;
-    align-self: stretch;
-    flex-direction: column;
-    justify-content: center;
-    gap: 0.3rem;
-    min-width: 0;
     min-height: 0;
-    border: 1px solid #33425d;
-    border-radius: 0.45rem;
-    padding: 0.3rem;
-    background: #111824;
-  }
-
-  .zoom-title {
-    color: #9eabbd;
-    font-size: 0.62rem;
-    font-weight: 800;
-    text-transform: uppercase;
-  }
-
-  .inspection-actions .zoom-slider {
-    display: flex;
-    min-width: 0;
-    align-items: center;
-    flex: 1;
-    flex-direction: column;
-    gap: 0.25rem;
-    font-size: 0.68rem;
-  }
-
-  .zoom-slider input[type="range"] {
-    width: 1.8rem;
-    min-height: 6rem;
-    flex: 1;
-    writing-mode: vertical-lr;
-  }
-
-  .zoom-step {
-    width: 2rem;
-    min-height: 2rem;
-    padding: 0;
-    font-size: 1.15rem;
-    line-height: 1;
-  }
-
-  .zoom-reset {
-    width: 100%;
-    padding-inline: 0.15rem;
-    font-size: 0.62rem;
   }
 
   .inspection-controls {
-    grid-column: 4;
+    grid-column: 3;
     grid-row: 1;
     display: grid;
     align-content: start;
@@ -2651,7 +2917,7 @@ input[type="range"] {
   }
 
   .preview-palette-panel {
-    grid-column: 5;
+    grid-column: 3;
     grid-row: 1;
     display: grid;
     min-width: 0;
@@ -2661,7 +2927,7 @@ input[type="range"] {
   }
 
   .tilemap-charset-panel {
-    grid-column: 5;
+    grid-column: 3;
     grid-row: 1;
     height: 100%;
     min-height: 0;
@@ -3510,7 +3776,7 @@ input[type="range"] {
   width: min(48rem, 100%);
   max-height: min(46rem, 92vh);
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
   overflow: hidden;
   padding: 0;
   color: var(--text, #eef4ff);
@@ -4304,7 +4570,7 @@ input[type="range"] {
   .workbench-workspace .inspection-workspace {
     grid-column: 1;
     grid-row: 3;
-    grid-template-columns: minmax(0, 1fr) 3rem minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr) auto auto;
     min-width: 0;
     min-height: 0;
@@ -4325,13 +4591,6 @@ input[type="range"] {
     grid-row: 1;
   }
 
-  .workbench-workspace .inspection-actions {
-    grid-column: 2;
-    grid-row: 2;
-    min-width: 0;
-    min-height: 0;
-  }
-
   .workbench-workspace .source-panel {
     grid-column: 1;
     grid-row: 2;
@@ -4340,7 +4599,7 @@ input[type="range"] {
   }
 
   .workbench-workspace .result-panel {
-    grid-column: 3;
+    grid-column: 2;
     grid-row: 2;
     min-width: 0;
     min-height: 0;
@@ -4364,12 +4623,12 @@ input[type="range"] {
   }
 
   .workbench-workspace:has(.tilemap-charset-panel) .inspection-workspace {
-    grid-template-columns: minmax(0, 1fr) 3rem minmax(0, 1fr) 14rem;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 14rem;
   }
 
   .workbench-workspace .tilemap-charset-panel {
     display: grid;
-    grid-column: 4;
+    grid-column: 3;
     grid-row: 2;
     min-width: 0;
     min-height: 0;
@@ -5082,31 +5341,6 @@ input[type="range"] {
     white-space: nowrap;
   }
 
-  .workbench-tools-float-action {
-    flex: 0 0 auto;
-    width: 1.45rem;
-    min-height: 1.35rem;
-    border: 1px solid #52627d;
-    border-radius: 0.2rem;
-    color: #e9f4ff;
-    background: transparent;
-    cursor: pointer;
-    font-size: 0.7rem;
-    font-weight: 800;
-    line-height: 1;
-  }
-
-  .workbench-tools-float-action:hover,
-  .workbench-tools-float-action:focus-visible {
-    border-color: #79b7ff;
-    background: #245b7b;
-  }
-
-  .workbench-tools-float-action:focus-visible {
-    outline: 2px solid #ffdc6a;
-    outline-offset: 1px;
-  }
-
   .workbench-section-float-action {
     flex: 0 0 auto;
     width: 1.45rem;
@@ -5175,15 +5409,6 @@ input[type="range"] {
     min-width: max-content;
   }
 
-  .workbench-tools-dock-select {
-    flex: 0 0 auto;
-    min-width: 6rem;
-    max-width: 8rem;
-    border-color: #52627d;
-    padding: 0.12rem 0.25rem;
-    font-size: 0.62rem;
-  }
-
   /* Side-docked Tools is a narrow, always-available vertical rail. The
      controls stay in the rail so the side layout remains predictable and
      does not open a wide flyout over the previews. */
@@ -5234,30 +5459,6 @@ input[type="range"] {
     font-size: 0.52rem;
     line-height: 1;
     white-space: nowrap;
-  }
-
-  .workbench-tools-side-docked .workbench-tools-dock-select {
-    position: relative;
-    right: auto;
-    bottom: auto;
-    flex: 0 0 auto;
-    width: 1.45rem;
-    min-width: 1.45rem;
-    height: 1.4rem;
-    padding: 0;
-    writing-mode: initial;
-    transform: rotate(90deg);
-  }
-
-  .workbench-tools-side-docked .workbench-tools-float-action {
-    position: relative;
-    right: auto;
-    bottom: auto;
-    flex: 0 0 auto;
-    width: 1.35rem;
-    min-height: 1.25rem;
-    writing-mode: initial;
-    transform: rotate(90deg);
   }
 
   .workbench-tools-side-docked[data-dock="left"] {
@@ -5321,7 +5522,7 @@ input[type="range"] {
   .workbench-tools-side-docked .tools-option-cell { order: 4; }
   .workbench-tools-side-docked .tools-option-pixel { order: 5; }
 
-  .workbench-tools-side-docked .workbench-tools-content > :not(.tools-option-zoom):not(.tools-option-pan):not(.tools-option-hide):not(.tools-option-cell):not(.tools-option-pixel) {
+  .workbench-tools-side-docked .workbench-tools-content > :not(.tools-zoom-controls):not(.tools-option-zoom):not(.tools-option-pan):not(.tools-option-hide):not(.tools-option-cell):not(.tools-option-pixel) {
     order: 6;
     display: flex;
     flex: 0 0 auto;
@@ -5333,7 +5534,7 @@ input[type="range"] {
     gap: 0.15rem;
   }
 
-  .workbench-tools-side-docked .workbench-tools-content > :not(.tools-option-zoom):not(.tools-option-pan):not(.tools-option-hide):not(.tools-option-cell):not(.tools-option-pixel) > span {
+  .workbench-tools-side-docked .workbench-tools-content > :not(.tools-zoom-controls):not(.tools-option-zoom):not(.tools-option-pan):not(.tools-option-hide):not(.tools-option-cell):not(.tools-option-pixel) > span {
     writing-mode: vertical-rl;
     transform: rotate(180deg);
     white-space: nowrap;
@@ -5353,6 +5554,27 @@ input[type="range"] {
     min-width: 1.45rem;
     padding-inline: 0.1rem;
     font-size: 0.55rem;
+  }
+
+  .workbench-tools-side-docked .workbench-tools-content > .tools-zoom-controls {
+    order: 0;
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    gap: 0.18rem;
+  }
+
+  .workbench-tools-side-docked .tools-zoom-controls > span {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    white-space: nowrap;
+    font-size: 0.55rem;
+  }
+
+  .workbench-tools-side-docked .tools-zoom-pad {
+    flex-direction: column;
   }
 
   .workbench-tools-content > label,
@@ -5462,8 +5684,8 @@ input[type="range"] {
   .workbench-workspace .preview-panel-floating {
     position: absolute;
     z-index: 14;
-    top: var(--workbench-source-floating-y);
-    left: var(--workbench-source-floating-x);
+    top: max(0.5rem, min(var(--workbench-source-floating-y), calc(100% - var(--workbench-source-floating-height) - 0.5rem)));
+    left: max(0.5rem, min(var(--workbench-source-floating-x), calc(100% - var(--workbench-source-floating-width) - 0.5rem)));
     width: min(var(--workbench-source-floating-width), calc(100% - 1rem));
     height: min(var(--workbench-source-floating-height), calc(100% - 1rem));
     min-width: 320px;
@@ -5478,8 +5700,8 @@ input[type="range"] {
   }
 
   .workbench-workspace .preview-result-window {
-    top: var(--workbench-result-floating-y);
-    left: var(--workbench-result-floating-x);
+    top: max(0.5rem, min(var(--workbench-result-floating-y), calc(100% - var(--workbench-result-floating-height) - 0.5rem)));
+    left: max(0.5rem, min(var(--workbench-result-floating-x), calc(100% - var(--workbench-result-floating-width) - 0.5rem)));
     width: min(var(--workbench-result-floating-width), calc(100% - 1rem));
     height: min(var(--workbench-result-floating-height), calc(100% - 1rem));
   }
@@ -5646,7 +5868,7 @@ input[type="range"] {
 
   .workbench-workspace .inspection-workspace.preview-source-floating:not(.preview-result-floating),
   .workbench-workspace .inspection-workspace.preview-result-floating:not(.preview-source-floating) {
-    grid-template-columns: minmax(240px, 1fr) 3rem;
+    grid-template-columns: minmax(240px, 1fr);
   }
 
   .workbench-workspace .inspection-workspace.preview-source-floating:not(.preview-result-floating) .result-panel,
@@ -5654,34 +5876,319 @@ input[type="range"] {
     grid-column: 1;
   }
 
-  .workbench-workspace .inspection-workspace.preview-source-floating:not(.preview-result-floating) .inspection-actions,
-  .workbench-workspace .inspection-workspace.preview-result-floating:not(.preview-source-floating) .inspection-actions {
-    grid-column: 2;
-  }
-
   .workbench-workspace .inspection-workspace.preview-source-floating.preview-result-floating {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .workbench-workspace .inspection-workspace.preview-source-floating.preview-result-floating .inspection-actions {
-    grid-column: 1;
-    grid-row: 2;
-    align-self: center;
-    justify-self: center;
-    flex-direction: row;
-    min-height: 2.5rem;
-  }
-
-  .workbench-workspace .inspection-workspace.preview-source-floating.preview-result-floating .inspection-actions-hidden-when-floating {
-    display: none;
-  }
-
-  .workbench-workspace .inspection-workspace.preview-source-floating.preview-result-floating .inspection-actions .zoom-slider {
-    width: 12rem;
-  }
-
   .workbench-workspace .inspection-workspace.preview-source-floating.preview-result-floating .preview-docked-resize-handle {
     display: none;
+  }
+
+  /* The Conversion settings host is intentionally no longer a visible
+     window. Its promoted child windows are portaled into these regions. */
+  .workbench-workspace .workbench-settings-window {
+    display: none !important;
+  }
+
+  .workbench-workspace {
+    grid-template-columns: var(--workbench-left-dock-width) minmax(0, 1fr) var(--workbench-right-dock-width);
+    grid-template-rows: auto auto minmax(28rem, 1fr) var(--workbench-bottom-height) auto auto auto;
+  }
+
+  .workbench-workspace .workspace-heading,
+  .workbench-workspace .profile-control,
+  .workbench-workspace .inspection-drawer,
+  .workbench-workspace > .conversion-form > .field-error,
+  .workbench-workspace > .conversion-form > .form-actions,
+  .workbench-workspace > .conversion-form > .conversion-footer {
+    grid-column: 1 / -1;
+  }
+
+  .workbench-workspace .inspection-workspace {
+    grid-column: 2;
+    grid-row: 3;
+  }
+
+  .workbench-workspace .workbench-dock-region {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    gap: 0.35rem;
+    overflow: auto;
+    scrollbar-gutter: stable;
+  }
+
+  /* A zero-sized dock remains addressable through its resize handle, while
+     its window content is removed from the layout so the dock is completely
+     collapsed rather than leaving a sliver or clipped title. */
+  .workbench-workspace[data-left-dock-collapsed="true"] .workbench-dock-left,
+  .workbench-workspace[data-right-dock-collapsed="true"] .workbench-dock-right,
+  .workbench-workspace[data-bottom-dock-collapsed="true"] .workbench-dock-bottom {
+    overflow: visible;
+    scrollbar-gutter: auto;
+  }
+
+  .workbench-workspace[data-left-dock-collapsed="true"] .workbench-dock-left > :not(.workbench-dock-resize-handle),
+  .workbench-workspace[data-right-dock-collapsed="true"] .workbench-dock-right > :not(.workbench-dock-resize-handle),
+  .workbench-workspace[data-bottom-dock-collapsed="true"] .workbench-dock-bottom > :not(.workbench-dock-resize-handle) {
+    display: none;
+  }
+
+  .workbench-workspace .workbench-dock-left {
+    grid-column: 1;
+    grid-row: 3;
+    flex-direction: column;
+  }
+
+  .workbench-workspace .workbench-dock-right {
+    grid-column: 3;
+    grid-row: 3;
+    flex-direction: column;
+  }
+
+  .workbench-workspace .workbench-dock-bottom {
+    grid-column: 1 / -1;
+    grid-row: 4;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+    align-items: stretch;
+    overflow: auto;
+  }
+
+  .workbench-dock-region > .workbench-window,
+  .workbench-dock-region > .preview-panel {
+    position: relative;
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    max-width: none;
+    max-height: none;
+    overflow: auto;
+    border: 1px solid #33425d;
+    border-radius: 0.45rem;
+    background: #111824;
+  }
+
+  .workbench-dock-region > .source-panel,
+  .workbench-dock-region > .result-panel,
+  .workbench-dock-region > .inspection-controls {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .workbench-dock-region > .workbench-settings-section {
+    display: block;
+  }
+
+  .workbench-dock-region > .workbench-settings-section > summary,
+  .workbench-dock-region > .workbench-tools-window > summary,
+  .workbench-dock-region > .preview-panel .preview-panel-heading,
+  .workbench-preview-layer > .workbench-settings-section > summary {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.35rem;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    cursor: pointer;
+    list-style: none;
+    padding: 0.22rem 0.35rem;
+    color: #dce7f7;
+    font-size: 0.72rem;
+    font-weight: 800;
+    background: #172b43;
+  }
+
+  .workbench-dock-region > .workbench-settings-section > summary::-webkit-details-marker,
+  .workbench-dock-region > .workbench-tools-window > summary::-webkit-details-marker,
+  .workbench-preview-layer > .workbench-settings-section > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .workbench-dock-region > .workbench-settings-section > summary::before,
+  .workbench-dock-region > .workbench-tools-window > summary::before,
+  .workbench-preview-layer > .workbench-settings-section > summary::before {
+    flex: 0 0 auto;
+    content: "▸";
+    color: #79b7ff;
+  }
+
+  .workbench-dock-region > .workbench-settings-section[open] > summary::before,
+  .workbench-dock-region > .workbench-tools-window[open] > summary::before,
+  .workbench-preview-layer > .workbench-settings-section[open] > summary::before {
+    content: "▾";
+  }
+
+  .workbench-dock-region > .workbench-settings-section > summary:focus-visible,
+  .workbench-dock-region > .workbench-tools-window > summary:focus-visible,
+  .workbench-dock-region > .preview-panel .preview-panel-heading:focus-visible,
+  .workbench-preview-layer > .workbench-settings-section > summary:focus-visible {
+    outline: 2px solid #ffdc6a;
+    outline-offset: -2px;
+  }
+
+  .workbench-dock-region .workbench-settings-section > fieldset,
+  .workbench-dock-region .workbench-tools-content,
+  .workbench-preview-layer > .workbench-settings-section > fieldset {
+    min-width: 0;
+    border: 0;
+    border-top: 1px solid #33425d;
+    border-radius: 0;
+    padding: 0.28rem;
+  }
+
+  .workbench-dock-bottom > .workbench-window,
+  .workbench-dock-bottom > .preview-panel {
+    height: 100%;
+  }
+
+  .workbench-dock-resize-handle {
+    position: absolute;
+    /* Docked windows, including Tools, use a higher stacking layer. Keep the
+       resize affordance above them so the shared edge remains draggable. */
+    z-index: 30;
+    display: block;
+    background: transparent;
+    touch-action: none;
+  }
+
+  .workbench-dock-resize-left,
+  .workbench-dock-resize-right {
+    top: 0;
+    bottom: 0;
+    width: 0.55rem;
+    cursor: ew-resize;
+  }
+
+  .workbench-dock-resize-left {
+    right: -0.28rem;
+  }
+
+  .workbench-dock-resize-right {
+    left: -0.28rem;
+  }
+
+  .workbench-dock-resize-bottom {
+    top: -0.28rem;
+    right: 0;
+    left: 0;
+    height: 0.55rem;
+    cursor: ns-resize;
+  }
+
+  .workbench-dock-resize-handle::after {
+    position: absolute;
+    content: "";
+    background: #52627d;
+  }
+
+  .workbench-dock-resize-left::after,
+  .workbench-dock-resize-right::after {
+    top: 35%;
+    bottom: 35%;
+    left: 0.25rem;
+    width: 2px;
+  }
+
+  .workbench-dock-resize-bottom::after {
+    top: 0.25rem;
+    right: 35%;
+    left: 35%;
+    height: 2px;
+  }
+
+  .workbench-dock-resize-handle:hover::after,
+  .workbench-dock-resize-handle:focus-visible::after {
+    background: #79b7ff;
+  }
+
+  .workbench-dock-resize-handle:focus-visible {
+    outline: 2px solid #ffdc6a;
+    outline-offset: -1px;
+  }
+
+  .workbench-dock-left > .workbench-window,
+  .workbench-dock-right > .workbench-window {
+    width: 100%;
+  }
+
+  .workbench-workspace .workbench-preview-layer > .workbench-section-floating {
+    position: absolute;
+    z-index: 14;
+    top: 1rem;
+    left: 1rem;
+    width: min(36rem, calc(100% - 2rem));
+    max-height: calc(100% - 2rem);
+    overflow: auto;
+    pointer-events: auto;
+    border: 1px solid #52627d;
+    border-radius: 0.45rem;
+    background: #111824;
+    box-shadow: 0 0.8rem 2.4rem rgb(0 0 0 / 48%);
+  }
+
+  .workbench-workspace .workbench-preview-layer > .workbench-tools-window {
+    pointer-events: auto;
+  }
+
+  .workbench-workspace .workbench-preview-layer > .workbench-geometry-floating {
+    top: min(var(--workbench-geometry-floating-y), calc(100% - 2rem));
+    left: min(var(--workbench-geometry-floating-x), calc(100% - 2rem));
+    width: min(var(--workbench-geometry-floating-width), calc(100% - 2rem));
+    height: min(var(--workbench-geometry-floating-height), calc(100% - 2rem));
+  }
+
+  .workbench-workspace .workbench-preview-layer > .workbench-adjustments-floating {
+    top: min(var(--workbench-adjustments-floating-y), calc(100% - 2rem));
+    left: min(var(--workbench-adjustments-floating-x), calc(100% - 2rem));
+    width: min(var(--workbench-adjustments-floating-width), calc(100% - 2rem));
+    height: min(var(--workbench-adjustments-floating-height), calc(100% - 2rem));
+  }
+
+  .workbench-workspace .workbench-preview-layer > .workbench-palette-floating {
+    top: min(var(--workbench-palette-floating-y), calc(100% - 2rem));
+    left: min(var(--workbench-palette-floating-x), calc(100% - 2rem));
+    width: min(var(--workbench-palette-floating-width), calc(100% - 2rem));
+    height: min(var(--workbench-palette-floating-height), calc(100% - 2rem));
+  }
+
+  .workbench-workspace .workbench-preview-layer > .workbench-dithering-floating {
+    top: min(var(--workbench-dithering-floating-y), calc(100% - 2rem));
+    left: min(var(--workbench-dithering-floating-x), calc(100% - 2rem));
+    width: min(var(--workbench-dithering-floating-width), calc(100% - 2rem));
+    height: min(var(--workbench-dithering-floating-height), calc(100% - 2rem));
+  }
+
+  .workbench-workspace .workbench-preview-layer > .workbench-tilemap-floating {
+    top: min(var(--workbench-tilemap-floating-y), calc(100% - 2rem));
+    left: min(var(--workbench-tilemap-floating-x), calc(100% - 2rem));
+    width: min(var(--workbench-tilemap-floating-width), calc(100% - 2rem));
+    height: min(var(--workbench-tilemap-floating-height), calc(100% - 2rem));
+  }
+
+  .workbench-workspace [data-minimized="true"] > :not(summary):not(.preview-panel-heading),
+  .workbench-workspace [data-minimized="true"] > .workbench-tools-content,
+  .workbench-workspace [data-minimized="true"] > .preview-frame,
+  .workbench-workspace [data-minimized="true"] > .pmd-tv-note {
+    display: none;
+  }
+
+  .workbench-workspace .workbench-window-actions {
+    display: inline-flex;
+    flex: 0 0 auto;
+    gap: 0.15rem;
+    align-items: center;
+    margin-left: auto;
+  }
+
+  .workbench-workspace .workbench-window-actions button,
+  .workbench-workspace .workbench-window-actions select {
+    min-height: 1.35rem;
+    padding: 0.05rem 0.25rem;
+    font-size: 0.68rem;
   }
 
 }

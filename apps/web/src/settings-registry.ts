@@ -1,5 +1,11 @@
 import type { ApplicationSettings } from "./application-settings.js";
 import type { WorkspaceLayoutId } from "./workspace-preferences.js";
+import {
+  DEFAULT_UI_TYPOGRAPHY,
+  UI_FONT_FAMILY_OPTIONS,
+  UI_FONT_SIZE_MAX,
+  UI_FONT_SIZE_MIN,
+} from "./ui-typography.js";
 import { ATTRIBUTE_OPTIMIZERS, DEFAULT_CONVERSION_SETTINGS, DITHER_ENGINES } from "@retro-converter/conversion-core";
 
 export type SettingCategory =
@@ -10,7 +16,8 @@ export type SettingCategory =
   | "geometry"
   | "adjustments"
   | "palette"
-  | "editor";
+  | "editor"
+  | "appearance";
 
 export type SettingScope = "application" | "conversion" | "project";
 export type SettingPresetId =
@@ -88,6 +95,7 @@ const orderedMatrixOptions = [
 const categories: Record<SettingCategory, string> = {
   startup: "Startup", workspace: "Workspace", mouse: "Mouse behavior", dithering: "Dithering",
   geometry: "Geometry", adjustments: "Image adjustments", palette: "Palette and attributes", editor: "Editor",
+  appearance: "Appearance",
 };
 
 export const SETTING_CATEGORIES = categories;
@@ -101,6 +109,13 @@ export const SETTINGS_REGISTRY: readonly SettingDefinition[] = [
   { id: "synchronizePan", category: "workspace", label: "Synchronize PAN", description: "Keep source and result preview scrolling aligned.", scope: "application", control: { kind: "boolean" }, defaultValue: true, validate: bool },
   { id: "synchronizeZoom", category: "workspace", label: "Synchronize zoom", description: "Keep source and result preview zoom levels aligned.", scope: "application", control: { kind: "boolean" }, defaultValue: true, validate: bool },
   { id: "developmentMode", category: "workspace", label: "Development mode", description: "Expose benchmarking, comparison, result inspection, and diagnostic export tools.", scope: "application", control: { kind: "boolean" }, defaultValue: false, validate: bool, keywords: ["developer", "benchmark", "comparison", "diagnostics"] },
+  { id: "uiFontFamily", category: "appearance", label: "UI font family", description: "Choose the curated font family used by the application interface.", scope: "application", control: { kind: "select", options: UI_FONT_FAMILY_OPTIONS }, defaultValue: DEFAULT_UI_TYPOGRAPHY.uiFontFamily, validate: oneOf(UI_FONT_FAMILY_OPTIONS.map(({ value }) => value), DEFAULT_UI_TYPOGRAPHY.uiFontFamily), keywords: ["font", "typography", "typeface"] },
+  { id: "windowTitleFontSize", category: "appearance", label: "Window title size", description: "Font size for dockable window title bars.", scope: "application", control: { kind: "slider", min: UI_FONT_SIZE_MIN, max: UI_FONT_SIZE_MAX, step: 1, unit: "px" }, defaultValue: DEFAULT_UI_TYPOGRAPHY.windowTitleFontSize, validate: integerNumber(UI_FONT_SIZE_MIN, UI_FONT_SIZE_MAX), keywords: ["font", "title", "size"] },
+  { id: "windowTitleFontWeight", category: "appearance", label: "Window title weight", description: "Text thickness for dockable window title bars.", scope: "application", control: { kind: "select", options: [{ value: "normal", label: "Normal" }, { value: "bold", label: "Bold" }] }, defaultValue: DEFAULT_UI_TYPOGRAPHY.windowTitleFontWeight, validate: oneOf(["normal", "bold"] as const, DEFAULT_UI_TYPOGRAPHY.windowTitleFontWeight), keywords: ["font", "title", "weight", "bold"] },
+  { id: "uiLabelFontSize", category: "appearance", label: "UI label size", description: "Font size for labels and compact control text.", scope: "application", control: { kind: "slider", min: UI_FONT_SIZE_MIN, max: UI_FONT_SIZE_MAX, step: 1, unit: "px" }, defaultValue: DEFAULT_UI_TYPOGRAPHY.uiLabelFontSize, validate: integerNumber(UI_FONT_SIZE_MIN, UI_FONT_SIZE_MAX), keywords: ["font", "label", "size"] },
+  { id: "uiLabelFontWeight", category: "appearance", label: "UI label weight", description: "Text thickness for labels and compact control text.", scope: "application", control: { kind: "select", options: [{ value: "normal", label: "Normal" }, { value: "bold", label: "Bold" }] }, defaultValue: DEFAULT_UI_TYPOGRAPHY.uiLabelFontWeight, validate: oneOf(["normal", "bold"] as const, DEFAULT_UI_TYPOGRAPHY.uiLabelFontWeight), keywords: ["font", "label", "weight", "bold"] },
+  { id: "uiBodyFontSize", category: "appearance", label: "Body text size", description: "Font size for body text in Palette, Attributes, Dithering, status text, and readouts.", scope: "application", control: { kind: "slider", min: UI_FONT_SIZE_MIN, max: UI_FONT_SIZE_MAX, step: 1, unit: "px" }, defaultValue: DEFAULT_UI_TYPOGRAPHY.uiBodyFontSize, validate: integerNumber(UI_FONT_SIZE_MIN, UI_FONT_SIZE_MAX), keywords: ["font", "body", "text", "size", "palette", "attributes", "dithering"] },
+  { id: "uiBodyFontWeight", category: "appearance", label: "Body text weight", description: "Text thickness for body text in Palette, Attributes, Dithering, status text, and readouts.", scope: "application", control: { kind: "select", options: [{ value: "normal", label: "Normal" }, { value: "bold", label: "Bold" }] }, defaultValue: DEFAULT_UI_TYPOGRAPHY.uiBodyFontWeight, validate: oneOf(["normal", "bold"] as const, DEFAULT_UI_TYPOGRAPHY.uiBodyFontWeight), keywords: ["font", "body", "text", "weight", "bold", "palette", "attributes", "dithering"] },
   { id: "mouseWheelZoom", category: "mouse", label: "Mouse-wheel zoom", description: "Zoom previews with the mouse wheel.", scope: "application", control: { kind: "boolean" }, defaultValue: true, validate: bool, keywords: ["scroll", "zoom"] },
   { id: "dithering", category: "dithering", label: "Dithering mode", description: "The method used to distribute palette error.", scope: "conversion", control: { kind: "select", options: [{ value: "none", label: "None" }, { value: "ordered", label: "Ordered" }, { value: "error-diffusion", label: "Error diffusion" }] }, defaultValue: "none", validate: oneOf(["none", "ordered", "error-diffusion"] as const, "none"), keywords: ["quality", "pattern"], presets: ["conversion-quality"] },
   { id: "ditheringAmount", category: "dithering", label: "Dithering amount", description: "Strength of the selected dithering method (0–100%).", scope: "conversion", control: { kind: "slider", min: 0, max: 100, step: 1, unit: "%" }, defaultValue: 100, validate: finiteNumber(0, 100), presets: ["conversion-quality"] },

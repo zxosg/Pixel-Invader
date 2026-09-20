@@ -1,6 +1,8 @@
 export type WorkbenchDock = "bottom" | "left" | "right" | "floating";
+export type WorkbenchWindowDock = WorkbenchDock | "center";
 export type WorkbenchToolsDock = WorkbenchDock;
 export type WorkbenchWindowId = "settings" | "tools" | "geometry" | "adjustments" | "palette" | "dithering" | "tilemap" | "source" | "result";
+export type ActiveWorkbenchWindowId = Exclude<WorkbenchWindowId, "settings">;
 
 export type WorkbenchSettingsSection =
   | "geometry"
@@ -8,6 +10,20 @@ export type WorkbenchSettingsSection =
   | "palette"
   | "dithering"
   | "tilemap";
+
+export interface WorkbenchWindowLayout {
+  readonly dock: WorkbenchWindowDock;
+  readonly minimized: boolean;
+  readonly open: boolean;
+  readonly dockSize: number;
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+  readonly autoHeight: boolean;
+}
+
+export type WorkbenchWindowLayouts = Readonly<Record<ActiveWorkbenchWindowId, WorkbenchWindowLayout>>;
 
 export interface WorkbenchPreferences {
   readonly dock: WorkbenchDock;
@@ -72,6 +88,8 @@ export interface WorkbenchPreferences {
   readonly resultDockedWidth: number;
   readonly toolsOpen: boolean;
   readonly sectionsOpen: Readonly<Record<WorkbenchSettingsSection, boolean>>;
+  /** Normalized per-window layout. Older fields remain accepted for migration. */
+  readonly windowLayouts: WorkbenchWindowLayouts;
 }
 
 export const WORKBENCH_PREFERENCES_KEY = "retro-converter.workbench-preferences.v1";
@@ -143,6 +161,96 @@ export const DEFAULT_WORKBENCH_PREFERENCES: WorkbenchPreferences = {
     dithering: true,
     tilemap: true,
   },
+  windowLayouts: {
+    tools: {
+      dock: "bottom",
+      minimized: true,
+      open: false,
+      dockSize: 260,
+      x: 780,
+      y: 96,
+      width: 360,
+      height: 220,
+      autoHeight: false,
+    },
+    geometry: {
+      dock: "bottom",
+      minimized: true,
+      open: true,
+      dockSize: 260,
+      x: 360,
+      y: 96,
+      width: 520,
+      height: 360,
+      autoHeight: true,
+    },
+    adjustments: {
+      dock: "bottom",
+      minimized: true,
+      open: true,
+      dockSize: 260,
+      x: 520,
+      y: 128,
+      width: 520,
+      height: 300,
+      autoHeight: true,
+    },
+    palette: {
+      dock: "bottom",
+      minimized: true,
+      open: true,
+      dockSize: 260,
+      x: 360,
+      y: 96,
+      width: 560,
+      height: 360,
+      autoHeight: true,
+    },
+    dithering: {
+      dock: "bottom",
+      minimized: true,
+      open: true,
+      dockSize: 260,
+      x: 720,
+      y: 96,
+      width: 520,
+      height: 360,
+      autoHeight: true,
+    },
+    tilemap: {
+      dock: "bottom",
+      minimized: true,
+      open: true,
+      dockSize: 260,
+      x: 520,
+      y: 96,
+      width: 720,
+      height: 420,
+      autoHeight: true,
+    },
+    source: {
+      dock: "center",
+      minimized: false,
+      open: true,
+      dockSize: 260,
+      x: 64,
+      y: 64,
+      width: 640,
+      height: 420,
+      autoHeight: true,
+    },
+    result: {
+      dock: "center",
+      minimized: false,
+      open: true,
+      dockSize: 260,
+      x: 760,
+      y: 64,
+      width: 760,
+      height: 420,
+      autoHeight: true,
+    },
+  },
 };
 
 const DOCKS = new Set<WorkbenchDock>(["bottom", "left", "right", "floating"]);
@@ -157,6 +265,8 @@ const SECTIONS: readonly WorkbenchSettingsSection[] = [
   "dithering",
   "tilemap",
 ];
+const ACTIVE_WINDOWS: readonly ActiveWorkbenchWindowId[] = ["tools", "geometry", "adjustments", "palette", "dithering", "tilemap", "source", "result"];
+const WINDOW_DOCKS = new Set<WorkbenchWindowDock>(["bottom", "left", "right", "floating", "center"]);
 
 interface PreferenceStorage {
   getItem(key: string): string | null;
@@ -179,6 +289,118 @@ function loadSections(value: unknown): Readonly<Record<WorkbenchSettingsSection,
     sections[section] = value[section];
   }
   return sections;
+}
+
+function loadWindowLayouts(value: unknown, legacy: Record<string, unknown> | null = null): WorkbenchWindowLayouts | null {
+  if (value === undefined) {
+    if (legacy === null) return DEFAULT_WORKBENCH_PREFERENCES.windowLayouts;
+    const numberOr = (candidate: unknown, fallback: number): number =>
+      typeof candidate === "number" && Number.isFinite(candidate) ? candidate : fallback;
+    const boolOr = (candidate: unknown, fallback: boolean): boolean =>
+      typeof candidate === "boolean" ? candidate : fallback;
+    const legacyDock = legacy.dock === "left" || legacy.dock === "right" || legacy.dock === "bottom" || legacy.dock === "floating"
+      ? legacy.dock as WorkbenchDock
+      : "bottom";
+    const legacySideWidth = numberOr(legacy.sideWidth, DEFAULT_WORKBENCH_PREFERENCES.sideWidth);
+    const legacyBottomHeight = numberOr(legacy.bottomHeight, DEFAULT_WORKBENCH_PREFERENCES.bottomHeight);
+    const promotedDock = legacyDock === "floating" ? "bottom" : legacyDock;
+    const sectionLayout = (
+      section: WorkbenchSettingsSection,
+      floating: unknown,
+      x: unknown,
+      y: unknown,
+      width: unknown,
+      height: unknown,
+      autoHeight: unknown,
+    ): WorkbenchWindowLayout => ({
+      dock: boolOr(floating, false) ? "floating" : promotedDock,
+      minimized: boolOr(legacy.minimized, DEFAULT_WORKBENCH_PREFERENCES.minimized),
+      open: boolOr((legacy.sectionsOpen as Record<string, unknown> | undefined)?.[section], true),
+      dockSize: promotedDock === "bottom" ? legacyBottomHeight : legacySideWidth,
+      x: numberOr(x, DEFAULT_WORKBENCH_PREFERENCES.windowLayouts[section].x),
+      y: numberOr(y, DEFAULT_WORKBENCH_PREFERENCES.windowLayouts[section].y),
+      width: numberOr(width, DEFAULT_WORKBENCH_PREFERENCES.windowLayouts[section].width),
+      height: numberOr(height, DEFAULT_WORKBENCH_PREFERENCES.windowLayouts[section].height),
+      autoHeight: boolOr(autoHeight, DEFAULT_WORKBENCH_PREFERENCES.windowLayouts[section].autoHeight),
+    });
+    return {
+      tools: {
+        dock: legacy.toolsDock === "left" || legacy.toolsDock === "right" || legacy.toolsDock === "bottom" || legacy.toolsDock === "floating"
+          ? legacy.toolsDock as WorkbenchDock
+          : boolOr(legacy.toolsFloating, false) ? "floating" : "bottom",
+        minimized: !boolOr(legacy.toolsOpen, false),
+        open: boolOr(legacy.toolsOpen, false),
+        dockSize: legacyBottomHeight,
+        x: numberOr(legacy.toolsFloatingX, DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.tools.x),
+        y: numberOr(legacy.toolsFloatingY, DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.tools.y),
+        width: numberOr(legacy.toolsFloatingWidth, DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.tools.width),
+        height: numberOr(legacy.toolsFloatingHeight, DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.tools.height),
+        autoHeight: false,
+      },
+      geometry: sectionLayout("geometry", legacy.geometryFloating, legacy.geometryFloatingX, legacy.geometryFloatingY, legacy.geometryFloatingWidth, legacy.geometryFloatingHeight, legacy.geometryFloatingAutoHeight),
+      adjustments: sectionLayout("adjustments", legacy.adjustmentsFloating, legacy.adjustmentsFloatingX, legacy.adjustmentsFloatingY, legacy.adjustmentsFloatingWidth, legacy.adjustmentsFloatingHeight, legacy.adjustmentsFloatingAutoHeight),
+      palette: sectionLayout("palette", legacy.paletteFloating, legacy.paletteFloatingX, legacy.paletteFloatingY, legacy.paletteFloatingWidth, legacy.paletteFloatingHeight, legacy.paletteFloatingAutoHeight),
+      dithering: sectionLayout("dithering", legacy.ditheringFloating, legacy.ditheringFloatingX, legacy.ditheringFloatingY, legacy.ditheringFloatingWidth, legacy.ditheringFloatingHeight, legacy.ditheringFloatingAutoHeight),
+      tilemap: sectionLayout("tilemap", legacy.tilemapFloating, legacy.tilemapFloatingX, legacy.tilemapFloatingY, legacy.tilemapFloatingWidth, legacy.tilemapFloatingHeight, legacy.tilemapFloatingAutoHeight),
+      source: {
+        dock: boolOr(legacy.sourceFloating, false) ? "floating" : "center",
+        minimized: false,
+        open: true,
+        dockSize: legacyBottomHeight,
+        x: numberOr(legacy.sourceFloatingX, DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.source.x),
+        y: numberOr(legacy.sourceFloatingY, DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.source.y),
+        width: numberOr(legacy.sourceFloatingWidth, DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.source.width),
+        height: numberOr(legacy.sourceFloatingHeight, DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.source.height),
+        autoHeight: boolOr(legacy.sourceFloatingAutoHeight, true),
+      },
+      result: {
+        dock: boolOr(legacy.resultFloating, false) ? "floating" : "center",
+        minimized: false,
+        open: true,
+        dockSize: legacyBottomHeight,
+        x: numberOr(legacy.resultFloatingX, DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.result.x),
+        y: numberOr(legacy.resultFloatingY, DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.result.y),
+        width: numberOr(legacy.resultFloatingWidth, DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.result.width),
+        height: numberOr(legacy.resultFloatingHeight, DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.result.height),
+        autoHeight: boolOr(legacy.resultFloatingAutoHeight, true),
+      },
+    };
+  }
+  if (!isRecord(value)) return null;
+  const layouts = {} as Record<ActiveWorkbenchWindowId, WorkbenchWindowLayout>;
+  for (const window of ACTIVE_WINDOWS) {
+    const candidate = value[window];
+    if (!isRecord(candidate) ||
+        typeof candidate.dock !== "string" || !WINDOW_DOCKS.has(candidate.dock as WorkbenchWindowDock) ||
+        typeof candidate.minimized !== "boolean" ||
+        typeof candidate.open !== "boolean" ||
+        !isFiniteNumberInRange(candidate.dockSize, 0, 1200) ||
+        !isFiniteNumberInRange(candidate.x, 0, 10000) ||
+        !isFiniteNumberInRange(candidate.y, 0, 10000) ||
+        !isFiniteNumberInRange(candidate.width, 240, 1600) ||
+        !isFiniteNumberInRange(candidate.height, 160, 900) ||
+        typeof candidate.autoHeight !== "boolean") {
+      return null;
+    }
+    if ((window === "source" || window === "result")
+        ? candidate.dock === "center" || candidate.dock === "bottom" || candidate.dock === "left" || candidate.dock === "right" || candidate.dock === "floating"
+        : candidate.dock !== "center") {
+      layouts[window] = {
+        dock: candidate.dock as WorkbenchWindowDock,
+        minimized: candidate.minimized,
+        open: candidate.open,
+        dockSize: candidate.dockSize,
+        x: candidate.x,
+        y: candidate.y,
+        width: candidate.width,
+        height: candidate.height,
+        autoHeight: candidate.autoHeight,
+      };
+    } else {
+      return null;
+    }
+  }
+  return layouts;
 }
 
 function loadWindowOrder(value: unknown): readonly WorkbenchWindowId[] | null {
@@ -224,12 +446,13 @@ export function loadWorkbenchPreferences(
     );
     if (!isRecord(parsed)) return DEFAULT_WORKBENCH_PREFERENCES;
     const sectionsOpen = loadSections(parsed.sectionsOpen);
+    const windowLayouts = loadWindowLayouts(parsed.windowLayouts, parsed);
     const windowOrder = loadWindowOrder(parsed.windowOrder);
     if (
       typeof parsed.dock !== "string" || !DOCKS.has(parsed.dock as WorkbenchDock) ||
       typeof parsed.minimized !== "boolean" ||
-      !isFiniteNumberInRange(parsed.sideWidth, 280, 560) ||
-      !isFiniteNumberInRange(parsed.bottomHeight, 160, 480) ||
+      !isFiniteNumberInRange(parsed.sideWidth, 0, 560) ||
+      !isFiniteNumberInRange(parsed.bottomHeight, 0, 480) ||
       !isFiniteNumberInRange(parsed.floatingX, 0, 10000) ||
       !isFiniteNumberInRange(parsed.floatingY, 0, 10000) ||
       (parsed.settingsFloatingWidth !== undefined && !isFiniteNumberInRange(parsed.settingsFloatingWidth, 420, 1000)) ||
@@ -287,7 +510,8 @@ export function loadWorkbenchPreferences(
       (parsed.sourceDockedWidth !== undefined && !isFiniteNumberInRange(parsed.sourceDockedWidth, 0.25, 10)) ||
       (parsed.resultDockedWidth !== undefined && !isFiniteNumberInRange(parsed.resultDockedWidth, 0.25, 10)) ||
       typeof parsed.toolsOpen !== "boolean" ||
-      sectionsOpen === null
+      sectionsOpen === null ||
+      windowLayouts === null
     ) {
       return DEFAULT_WORKBENCH_PREFERENCES;
     }
@@ -354,6 +578,7 @@ export function loadWorkbenchPreferences(
       resultDockedWidth: parsed.resultDockedWidth ?? 1,
       toolsOpen: parsed.toolsOpen,
       sectionsOpen,
+      windowLayouts,
     };
   } catch {
     return DEFAULT_WORKBENCH_PREFERENCES;

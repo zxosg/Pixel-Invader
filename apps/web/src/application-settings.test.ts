@@ -37,6 +37,34 @@ describe("application settings", () => {
     expect(validateApplicationSettings({ ...DEFAULT_APPLICATION_SETTINGS, framing: "bad" })).toBeNull();
   });
 
+  it("keeps older saved settings compatible with typography defaults", () => {
+    const legacy = { ...DEFAULT_APPLICATION_SETTINGS } as Record<string, unknown>;
+    delete legacy.uiFontFamily;
+    delete legacy.windowTitleFontSize;
+    delete legacy.windowTitleFontWeight;
+    delete legacy.uiLabelFontSize;
+    delete legacy.uiLabelFontWeight;
+    delete legacy.uiBodyFontSize;
+    delete legacy.uiBodyFontWeight;
+    expect(validateApplicationSettings(legacy)).toMatchObject(DEFAULT_APPLICATION_SETTINGS);
+  });
+
+  it("normalizes invalid typography fields independently", () => {
+    const result = validateApplicationSettings({
+      ...DEFAULT_APPLICATION_SETTINGS,
+      uiFontFamily: "missing",
+      windowTitleFontSize: 99,
+      uiLabelFontWeight: "heavy",
+      uiBodyFontSize: 16,
+    });
+    expect(result).toMatchObject({
+      uiFontFamily: DEFAULT_APPLICATION_SETTINGS.uiFontFamily,
+      windowTitleFontSize: DEFAULT_APPLICATION_SETTINGS.windowTitleFontSize,
+      uiLabelFontWeight: DEFAULT_APPLICATION_SETTINGS.uiLabelFontWeight,
+      uiBodyFontSize: 16,
+    });
+  });
+
   it("normalizes legacy Custom startup layouts to Conversion", () => {
     expect(validateApplicationSettings({
       ...DEFAULT_APPLICATION_SETTINGS,

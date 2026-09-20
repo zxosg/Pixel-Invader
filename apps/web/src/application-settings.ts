@@ -1,9 +1,14 @@
 import type { TargetModeId } from "@retro-converter/conversion-core";
 import type { WorkspaceLayoutId } from "./workspace-preferences.js";
+import {
+  DEFAULT_UI_TYPOGRAPHY,
+  loadUiTypographySettings,
+  type UiTypographySettings,
+} from "./ui-typography.js";
 
 export const APPLICATION_SETTINGS_KEY = "retro-converter.application-settings.v1";
 
-export interface ApplicationSettings {
+export interface ApplicationSettings extends UiTypographySettings {
   readonly profileId: string;
   readonly presetId: string;
   readonly modeId: TargetModeId;
@@ -26,6 +31,7 @@ export interface ApplicationSettingsCatalog {
 }
 
 export const DEFAULT_APPLICATION_SETTINGS: ApplicationSettings = {
+  ...DEFAULT_UI_TYPOGRAPHY,
   profileId: "org.retroconverter.zx48.default",
   presetId: "default",
   modeId: "zx48-standard-256x192",
@@ -64,6 +70,7 @@ export function validateApplicationSettings(value: unknown): ApplicationSettings
     return null;
   }
   return {
+    ...loadUiTypographySettings(value),
     profileId: value.profileId,
     presetId: value.presetId,
     modeId: value.modeId as TargetModeId,
@@ -112,6 +119,13 @@ export function saveApplicationSettings(storage: Storage, settings: ApplicationS
       synchronizePan: settings.synchronizePan,
       synchronizeZoom: settings.synchronizeZoom,
       developmentMode: settings.developmentMode,
+      uiFontFamily: settings.uiFontFamily,
+      windowTitleFontSize: settings.windowTitleFontSize,
+      windowTitleFontWeight: settings.windowTitleFontWeight,
+      uiLabelFontSize: settings.uiLabelFontSize,
+      uiLabelFontWeight: settings.uiLabelFontWeight,
+      uiBodyFontSize: settings.uiBodyFontSize,
+      uiBodyFontWeight: settings.uiBodyFontWeight,
     }));
   } catch {
     // Preferences are optional; the application remains usable without storage.

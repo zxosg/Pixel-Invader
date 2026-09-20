@@ -12,7 +12,7 @@ import {
   type PaletteSelection,
   type TargetModeId,
 } from "@retro-converter/conversion-core";
-import { resolveApplicationSettings, type ApplicationSettings } from "./application-settings.js";
+import { DEFAULT_APPLICATION_SETTINGS, resolveApplicationSettings, type ApplicationSettings } from "./application-settings.js";
 import type { ConversionProfile } from "./profiles.js";
 
 export interface SettingsSaveInput {
@@ -142,6 +142,13 @@ export function canonicalizeSettingsForSave({ draft, current, profiles }: Settin
     synchronizePan: booleanValue(draft, "synchronizePan", true),
     synchronizeZoom: booleanValue(draft, "synchronizeZoom", true),
     developmentMode: booleanValue(draft, "developmentMode", false),
+    uiFontFamily: stringValue(draft, "uiFontFamily", DEFAULT_APPLICATION_SETTINGS.uiFontFamily) as ApplicationSettings["uiFontFamily"],
+    windowTitleFontSize: numberValue(draft, "windowTitleFontSize", DEFAULT_APPLICATION_SETTINGS.windowTitleFontSize),
+    windowTitleFontWeight: stringValue(draft, "windowTitleFontWeight", DEFAULT_APPLICATION_SETTINGS.windowTitleFontWeight) as ApplicationSettings["windowTitleFontWeight"],
+    uiLabelFontSize: numberValue(draft, "uiLabelFontSize", DEFAULT_APPLICATION_SETTINGS.uiLabelFontSize),
+    uiLabelFontWeight: stringValue(draft, "uiLabelFontWeight", DEFAULT_APPLICATION_SETTINGS.uiLabelFontWeight) as ApplicationSettings["uiLabelFontWeight"],
+    uiBodyFontSize: numberValue(draft, "uiBodyFontSize", DEFAULT_APPLICATION_SETTINGS.uiBodyFontSize),
+    uiBodyFontWeight: stringValue(draft, "uiBodyFontWeight", DEFAULT_APPLICATION_SETTINGS.uiBodyFontWeight) as ApplicationSettings["uiBodyFontWeight"],
   }, {
     profiles: profileIds,
     compatibleModeIds: Object.keys(profile.palette.modes),
