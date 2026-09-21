@@ -3,6 +3,7 @@ export type WorkbenchWindowDock = WorkbenchDock | "center";
 export type WorkbenchToolsDock = WorkbenchDock;
 export type WorkbenchWindowId = "settings" | "tools" | "geometry" | "adjustments" | "palette" | "dithering" | "tilemap" | "source" | "result";
 export type ActiveWorkbenchWindowId = Exclude<WorkbenchWindowId, "settings">;
+export type WorkbenchTileDropPosition = "before" | "after" | "append";
 
 export type WorkbenchSettingsSection =
   | "geometry"
@@ -16,6 +17,8 @@ export interface WorkbenchWindowLayout {
   readonly minimized: boolean;
   readonly open: boolean;
   readonly dockSize: number;
+  /** Relative share used when this window is tiled with siblings in a dock. */
+  readonly dockRatio: number;
   readonly x: number;
   readonly y: number;
   readonly width: number;
@@ -25,10 +28,33 @@ export interface WorkbenchWindowLayout {
 
 export type WorkbenchWindowLayouts = Readonly<Record<ActiveWorkbenchWindowId, WorkbenchWindowLayout>>;
 
+export function reorderWorkbenchWindowOrder(
+  order: readonly WorkbenchWindowId[],
+  window: WorkbenchWindowId,
+  target: WorkbenchWindowId | null,
+  position: WorkbenchTileDropPosition,
+): readonly WorkbenchWindowId[] {
+  if (!order.includes(window)) return order;
+  const withoutWindow = order.filter((candidate) => candidate !== window);
+  if (target === null || position === "append") {
+    return [...withoutWindow, window];
+  }
+  const targetIndex = withoutWindow.indexOf(target);
+  if (targetIndex < 0) return order;
+  const insertionIndex = position === "before" ? targetIndex : targetIndex + 1;
+  return [
+    ...withoutWindow.slice(0, insertionIndex),
+    window,
+    ...withoutWindow.slice(insertionIndex),
+  ];
+}
+
 export interface WorkbenchPreferences {
   readonly dock: WorkbenchDock;
   readonly minimized: boolean;
   readonly sideWidth: number;
+  readonly leftWidth: number;
+  readonly rightWidth: number;
   readonly bottomHeight: number;
   readonly floatingX: number;
   readonly floatingY: number;
@@ -98,6 +124,8 @@ export const DEFAULT_WORKBENCH_PREFERENCES: WorkbenchPreferences = {
   dock: "bottom",
   minimized: true,
   sideWidth: 360,
+  leftWidth: 360,
+  rightWidth: 360,
   bottomHeight: 260,
   floatingX: 420,
   floatingY: 96,
@@ -167,6 +195,7 @@ export const DEFAULT_WORKBENCH_PREFERENCES: WorkbenchPreferences = {
       minimized: true,
       open: false,
       dockSize: 260,
+      dockRatio: 1,
       x: 780,
       y: 96,
       width: 360,
@@ -178,6 +207,7 @@ export const DEFAULT_WORKBENCH_PREFERENCES: WorkbenchPreferences = {
       minimized: true,
       open: true,
       dockSize: 260,
+      dockRatio: 1,
       x: 360,
       y: 96,
       width: 520,
@@ -189,6 +219,7 @@ export const DEFAULT_WORKBENCH_PREFERENCES: WorkbenchPreferences = {
       minimized: true,
       open: true,
       dockSize: 260,
+      dockRatio: 1,
       x: 520,
       y: 128,
       width: 520,
@@ -200,6 +231,7 @@ export const DEFAULT_WORKBENCH_PREFERENCES: WorkbenchPreferences = {
       minimized: true,
       open: true,
       dockSize: 260,
+      dockRatio: 1,
       x: 360,
       y: 96,
       width: 560,
@@ -211,6 +243,7 @@ export const DEFAULT_WORKBENCH_PREFERENCES: WorkbenchPreferences = {
       minimized: true,
       open: true,
       dockSize: 260,
+      dockRatio: 1,
       x: 720,
       y: 96,
       width: 520,
@@ -222,6 +255,7 @@ export const DEFAULT_WORKBENCH_PREFERENCES: WorkbenchPreferences = {
       minimized: true,
       open: true,
       dockSize: 260,
+      dockRatio: 1,
       x: 520,
       y: 96,
       width: 720,
@@ -233,6 +267,7 @@ export const DEFAULT_WORKBENCH_PREFERENCES: WorkbenchPreferences = {
       minimized: false,
       open: true,
       dockSize: 260,
+      dockRatio: 1,
       x: 64,
       y: 64,
       width: 640,
@@ -244,6 +279,7 @@ export const DEFAULT_WORKBENCH_PREFERENCES: WorkbenchPreferences = {
       minimized: false,
       open: true,
       dockSize: 260,
+      dockRatio: 1,
       x: 760,
       y: 64,
       width: 760,
@@ -317,6 +353,7 @@ function loadWindowLayouts(value: unknown, legacy: Record<string, unknown> | nul
       minimized: boolOr(legacy.minimized, DEFAULT_WORKBENCH_PREFERENCES.minimized),
       open: boolOr((legacy.sectionsOpen as Record<string, unknown> | undefined)?.[section], true),
       dockSize: promotedDock === "bottom" ? legacyBottomHeight : legacySideWidth,
+      dockRatio: 1,
       x: numberOr(x, DEFAULT_WORKBENCH_PREFERENCES.windowLayouts[section].x),
       y: numberOr(y, DEFAULT_WORKBENCH_PREFERENCES.windowLayouts[section].y),
       width: numberOr(width, DEFAULT_WORKBENCH_PREFERENCES.windowLayouts[section].width),
@@ -331,6 +368,7 @@ function loadWindowLayouts(value: unknown, legacy: Record<string, unknown> | nul
         minimized: !boolOr(legacy.toolsOpen, false),
         open: boolOr(legacy.toolsOpen, false),
         dockSize: legacyBottomHeight,
+        dockRatio: 1,
         x: numberOr(legacy.toolsFloatingX, DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.tools.x),
         y: numberOr(legacy.toolsFloatingY, DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.tools.y),
         width: numberOr(legacy.toolsFloatingWidth, DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.tools.width),
@@ -347,6 +385,7 @@ function loadWindowLayouts(value: unknown, legacy: Record<string, unknown> | nul
         minimized: false,
         open: true,
         dockSize: legacyBottomHeight,
+        dockRatio: 1,
         x: numberOr(legacy.sourceFloatingX, DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.source.x),
         y: numberOr(legacy.sourceFloatingY, DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.source.y),
         width: numberOr(legacy.sourceFloatingWidth, DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.source.width),
@@ -358,6 +397,7 @@ function loadWindowLayouts(value: unknown, legacy: Record<string, unknown> | nul
         minimized: false,
         open: true,
         dockSize: legacyBottomHeight,
+        dockRatio: 1,
         x: numberOr(legacy.resultFloatingX, DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.result.x),
         y: numberOr(legacy.resultFloatingY, DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.result.y),
         width: numberOr(legacy.resultFloatingWidth, DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.result.width),
@@ -375,6 +415,7 @@ function loadWindowLayouts(value: unknown, legacy: Record<string, unknown> | nul
         typeof candidate.minimized !== "boolean" ||
         typeof candidate.open !== "boolean" ||
         !isFiniteNumberInRange(candidate.dockSize, 0, 1200) ||
+        (candidate.dockRatio !== undefined && !isFiniteNumberInRange(candidate.dockRatio, 0.15, 20)) ||
         !isFiniteNumberInRange(candidate.x, 0, 10000) ||
         !isFiniteNumberInRange(candidate.y, 0, 10000) ||
         !isFiniteNumberInRange(candidate.width, 240, 1600) ||
@@ -390,6 +431,7 @@ function loadWindowLayouts(value: unknown, legacy: Record<string, unknown> | nul
         minimized: candidate.minimized,
         open: candidate.open,
         dockSize: candidate.dockSize,
+        dockRatio: candidate.dockRatio ?? 1,
         x: candidate.x,
         y: candidate.y,
         width: candidate.width,
@@ -452,6 +494,8 @@ export function loadWorkbenchPreferences(
       typeof parsed.dock !== "string" || !DOCKS.has(parsed.dock as WorkbenchDock) ||
       typeof parsed.minimized !== "boolean" ||
       !isFiniteNumberInRange(parsed.sideWidth, 0, 560) ||
+      (parsed.leftWidth !== undefined && !isFiniteNumberInRange(parsed.leftWidth, 0, 560)) ||
+      (parsed.rightWidth !== undefined && !isFiniteNumberInRange(parsed.rightWidth, 0, 560)) ||
       !isFiniteNumberInRange(parsed.bottomHeight, 0, 480) ||
       !isFiniteNumberInRange(parsed.floatingX, 0, 10000) ||
       !isFiniteNumberInRange(parsed.floatingY, 0, 10000) ||
@@ -519,6 +563,8 @@ export function loadWorkbenchPreferences(
       dock: parsed.dock as WorkbenchDock,
       minimized: parsed.minimized,
       sideWidth: parsed.sideWidth,
+      leftWidth: parsed.leftWidth ?? parsed.sideWidth,
+      rightWidth: parsed.rightWidth ?? parsed.sideWidth,
       bottomHeight: parsed.bottomHeight,
       floatingX: parsed.floatingX,
       floatingY: parsed.floatingY,

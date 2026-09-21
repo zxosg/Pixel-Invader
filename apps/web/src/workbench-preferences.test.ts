@@ -3,6 +3,7 @@ import {
   DEFAULT_WORKBENCH_PREFERENCES,
   WORKBENCH_PREFERENCES_KEY,
   loadWorkbenchPreferences,
+  reorderWorkbenchWindowOrder,
   saveWorkbenchPreferences,
 } from "./workbench-preferences.js";
 
@@ -17,6 +18,26 @@ function memoryStorage(initial: string | null = null) {
 }
 
 describe("workbench preferences", () => {
+  it("reorders tiled windows before and after a target", () => {
+    const order = ["settings", "tools", "geometry", "adjustments", "dithering"] as const;
+    expect(reorderWorkbenchWindowOrder(order, "dithering", "tools", "before"))
+      .toEqual(["settings", "dithering", "tools", "geometry", "adjustments"]);
+    expect(reorderWorkbenchWindowOrder(order, "tools", "dithering", "after"))
+      .toEqual(["settings", "geometry", "adjustments", "dithering", "tools"]);
+  });
+
+  it("appends a window when the destination dock has no target", () => {
+    const order = ["settings", "tools", "geometry", "adjustments"] as const;
+    expect(reorderWorkbenchWindowOrder(order, "tools", null, "append"))
+      .toEqual(["settings", "geometry", "adjustments", "tools"]);
+  });
+
+  it("leaves the order unchanged for an unknown target", () => {
+    const order = ["settings", "tools", "geometry"] as const;
+    expect(reorderWorkbenchWindowOrder(order, "tools", "result", "before"))
+      .toEqual(order);
+  });
+
   it("falls back safely for missing or malformed preferences", () => {
     expect(loadWorkbenchPreferences(memoryStorage("{broken")))
       .toEqual(DEFAULT_WORKBENCH_PREFERENCES);
@@ -68,6 +89,13 @@ describe("workbench preferences", () => {
       resultFloatingAutoHeight: false,
       sourceDockedWidth: 1.2,
       resultDockedWidth: 0.8,
+      windowLayouts: {
+        ...DEFAULT_WORKBENCH_PREFERENCES.windowLayouts,
+        source: {
+          ...DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.source,
+          dockRatio: 1.75,
+        },
+      },
       toolsOpen: true,
       sectionsOpen: {
         ...DEFAULT_WORKBENCH_PREFERENCES.sectionsOpen,
@@ -191,6 +219,25 @@ describe("workbench preferences", () => {
     const storage = memoryStorage();
     saveWorkbenchPreferences(storage, preferences);
     expect(loadWorkbenchPreferences(storage)).toEqual(preferences);
+  });
+
+  it("migrates tiled window ratios when older layouts omit them", () => {
+    const legacy = JSON.parse(JSON.stringify(DEFAULT_WORKBENCH_PREFERENCES)) as Record<string, unknown>;
+    const layouts = legacy.windowLayouts as Record<string, Record<string, unknown>>;
+    const source = layouts.source;
+    if (source === undefined) throw new Error("source layout missing");
+    delete source.dockRatio;
+    const loaded = loadWorkbenchPreferences(memoryStorage(JSON.stringify(legacy)));
+    expect(loaded.windowLayouts.source.dockRatio).toBe(1);
+  });
+
+  it("rejects invalid tiled window ratios", () => {
+    const invalid = JSON.parse(JSON.stringify(DEFAULT_WORKBENCH_PREFERENCES)) as Record<string, unknown>;
+    const layouts = invalid.windowLayouts as Record<string, Record<string, unknown>>;
+    const source = layouts.source;
+    if (source === undefined) throw new Error("source layout missing");
+    source.dockRatio = 0;
+    expect(loadWorkbenchPreferences(memoryStorage(JSON.stringify(invalid)))).toEqual(DEFAULT_WORKBENCH_PREFERENCES);
   });
 
   it("migrates the current eight-window order by inserting Tilemap before previews", () => {

@@ -16,165 +16,292 @@
   text-rendering: optimizeLegibility;
 }
 
-/* Side-docked Tools is a normal workbench window. Keep it inside the dock
-   bounds instead of rendering the old narrow vertical rail over the dock. */
-@media (min-width: 1280px) {
-  .workbench-workspace .workbench-dock-left > .workbench-tools-window.workbench-tools-side-docked,
-  .workbench-workspace .workbench-dock-right > .workbench-tools-window.workbench-tools-side-docked {
-    position: relative;
-    inset: auto;
-    display: grid;
-    grid-template-rows: auto minmax(0, 1fr);
-    flex: 1 1 auto;
-    width: 100%;
-    height: 100%;
-    min-width: 0;
-    min-height: 0;
-    max-width: none;
-    max-height: none;
-    overflow: hidden;
+/* The preview wrapper is display: contents in the tiled workbench, so the
+   inspection workspace owns the container query used for Source/Result. */
+@container preview-workspace (max-width: 42rem) {
+  .workbench-workspace .inspection-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr) auto auto;
   }
 
-  .workbench-workspace .workbench-dock-left > .workbench-tools-window.workbench-tools-side-docked > summary,
-  .workbench-workspace .workbench-dock-right > .workbench-tools-window.workbench-tools-side-docked > summary {
-    order: initial;
-    min-height: 1.55rem;
-    width: auto;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0.25rem 0.35rem;
-    border: 1px solid #33425d;
-    border-radius: 0.35rem 0.35rem 0 0;
-    writing-mode: horizontal-tb;
-    transform: none;
-    overflow: hidden;
+  .workbench-workspace .source-panel {
+    grid-column: 1;
+    grid-row: 2;
   }
 
-  .workbench-workspace .workbench-dock-left > .workbench-tools-window.workbench-tools-side-docked > summary > span:first-child,
-  .workbench-workspace .workbench-dock-right > .workbench-tools-window.workbench-tools-side-docked > summary > span:first-child {
-    min-width: 0;
-    overflow: hidden;
-    color: #e9f4ff;
-    font-size: var(--ui-title-font-size);
-    font-weight: var(--ui-title-font-weight);
-    line-height: 1.1;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .workbench-workspace .result-panel {
+    grid-column: 1;
+    grid-row: 3;
   }
 
-  .workbench-workspace .workbench-dock-left > .workbench-tools-window.workbench-tools-side-docked > summary .workbench-window-actions,
-  .workbench-workspace .workbench-dock-right > .workbench-tools-window.workbench-tools-side-docked > summary .workbench-window-actions {
-    min-width: 0;
-    overflow: hidden;
+  .workbench-workspace .inspection-controls {
+    grid-column: 1;
+    grid-row: 4;
   }
 
-  .workbench-workspace .workbench-dock-left > .workbench-tools-window.workbench-tools-side-docked > summary .workbench-window-dock-select,
-  .workbench-workspace .workbench-dock-right > .workbench-tools-window.workbench-tools-side-docked > summary .workbench-window-dock-select {
-    width: min(8.5rem, 45%);
-    min-width: 4.5rem;
-    max-width: 8.5rem;
+  .workbench-workspace .inspection-drawer {
+    grid-column: 1;
+    grid-row: 5;
   }
 
-  .workbench-workspace .workbench-dock-left > .workbench-tools-window.workbench-tools-side-docked .workbench-tools-content,
-  .workbench-workspace .workbench-dock-right > .workbench-tools-window.workbench-tools-side-docked .workbench-tools-content {
-    order: initial;
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
-    align-content: start;
-    align-items: start;
-    width: auto;
-    min-width: 0;
-    min-height: 0;
-    max-width: none;
-    overflow-x: hidden;
-    overflow-y: auto;
-    gap: 0.35rem 0.45rem;
-    padding: 0.45rem;
-    border: 1px solid #33425d;
-    border-top: 0;
-    border-radius: 0 0 0.35rem 0.35rem;
+  .workbench-workspace:has(.tilemap-charset-panel) .inspection-workspace {
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .workbench-workspace .workbench-dock-left > .workbench-tools-window.workbench-tools-side-docked .workbench-tools-content > .check-control,
-  .workbench-workspace .workbench-dock-right > .workbench-tools-window.workbench-tools-side-docked .workbench-tools-content > .check-control {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    justify-content: flex-start;
-    width: auto;
-    min-width: 0;
-    max-width: none;
-    gap: 0.35rem;
-    padding: 0.18rem 0.1rem;
-    text-align: left;
+  .workbench-workspace .tilemap-charset-panel {
+    grid-column: 1;
+    grid-row: 4;
+  }
+}
+
+/* Shared aligned control rows. Each row owns its column count so labels and
+   controls stay aligned without allowing intrinsic control widths to force
+   overlap. Subgrid makes the tallest label in a row determine the control
+   baseline for every cell in that row. */
+.workbench-workspace .control-row {
+  --control-columns: 1;
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(var(--control-columns), minmax(0, 1fr));
+  gap: 0.35rem 0.55rem;
+  align-items: start;
+}
+
+.workbench-workspace .control-row-2 { --control-columns: 2; }
+.workbench-workspace .control-row-3 { --control-columns: 3; }
+.workbench-workspace .control-row-4 { --control-columns: 4; }
+.workbench-workspace .control-row-5 { --control-columns: 5; }
+
+.workbench-workspace .control-row > label,
+.workbench-workspace .control-row > fieldset,
+.workbench-workspace .control-row > .dithering-parameter,
+.workbench-workspace .control-row > .dithering-composer-save-row,
+.workbench-workspace .control-row > .dithering-composer-spacer {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.workbench-workspace .control-row > label,
+.workbench-workspace .control-row > fieldset,
+.workbench-workspace .control-row > .dithering-parameter {
+  display: grid;
+  grid-template-rows: subgrid;
+  grid-row: span 2;
+  align-content: start;
+}
+
+.workbench-workspace .control-row > label:not(.check-control) > select,
+.workbench-workspace .control-row > label:not(.check-control) > input,
+.workbench-workspace .control-row > label > textarea,
+.workbench-workspace .control-row > fieldset select,
+.workbench-workspace .control-row > fieldset input,
+.workbench-workspace .control-row .filter-inputs,
+.workbench-workspace .control-row .amount-inputs {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.workbench-workspace .adjustment-control {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.workbench-workspace .adjustment-control > .control-row,
+.workbench-workspace .tilemap-primary-controls,
+.workbench-workspace .geometry-primary-row,
+.workbench-workspace .framing-detail,
+.workbench-workspace .orientation-actions {
+  grid-column: 1 / -1;
+}
+
+.workbench-workspace .tools-control-row {
+  align-content: start;
+}
+
+.workbench-workspace .tools-control-row > .tools-zoom-controls,
+.workbench-workspace .tools-control-row > .check-control {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.workbench-workspace .tools-control-row > .tools-zoom-controls {
+  display: grid;
+  grid-template-rows: auto auto;
+  align-content: start;
+}
+
+.workbench-workspace .tools-control-row > .check-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  grid-row: auto;
+  grid-template-rows: none;
+  gap: 0.35rem;
+  overflow: hidden;
+  padding: 0.15rem 0.1rem;
+  text-align: left;
+}
+
+.workbench-workspace .tools-control-row > .check-control input {
+  flex: 0 0 auto;
+}
+
+.workbench-workspace .tools-control-row > .check-control span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: normal;
+}
+
+.workbench-workspace .dithering-composer-grid {
+  display: grid;
+  min-width: 0;
+  gap: 0.35rem;
+}
+
+.workbench-workspace .dithering-composer-grid > .control-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.workbench-workspace .dithering-composer-grid .control-row-heading {
+  align-items: end;
+}
+
+.workbench-workspace .dithering-composer-grid .control-row-heading h3 {
+  margin: 0;
+  color: #d6deea;
+  font-size: var(--ui-label-font-size);
+  font-weight: 750;
+}
+
+.workbench-workspace .dithering-composer-grid .dithering-composer-save-row {
+  display: flex;
+  min-width: 0;
+  align-items: end;
+}
+
+.workbench-workspace .dithering-composer-grid .dithering-composer-save-row > button {
+  width: 100%;
+  min-width: 0;
+}
+
+.workbench-workspace .dithering-composer-grid .dithering-composer-error {
+  grid-column: 1 / -1;
+}
+
+.workbench-workspace .dithering-composer-grid small {
+  display: block;
+  color: #9eabbd;
+  line-height: 1.2;
+}
+
+.workbench-workspace .dithering-composer-grid .control-cell-body {
+  display: grid;
+  min-width: 0;
+  gap: 0.18rem;
+}
+
+.workbench-workspace .dithering-row-paired {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@container workbench-window (max-width: 55.99rem) {
+  .workbench-workspace .control-row-5,
+  .workbench-workspace .control-row-4 {
+    --control-columns: 3;
+  }
+}
+
+@container workbench-window (max-width: 41.99rem) {
+  .workbench-workspace .control-row-5,
+  .workbench-workspace .control-row-4,
+  .workbench-workspace .control-row-3 {
+    --control-columns: 2;
   }
 
-  .workbench-workspace .workbench-dock-left > .workbench-tools-window.workbench-tools-side-docked .workbench-tools-content > .check-control span,
-  .workbench-workspace .workbench-dock-right > .workbench-tools-window.workbench-tools-side-docked .workbench-tools-content > .check-control span {
-    display: inline;
-    max-width: 100%;
-    overflow: hidden;
-    writing-mode: horizontal-tb;
-    transform: none;
-    font-size: var(--ui-label-font-size);
-    line-height: 1.2;
-    text-overflow: ellipsis;
-    white-space: normal;
+  .workbench-workspace .dithering-composer-grid > .control-row,
+  .workbench-workspace .dithering-row-paired {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
 
-  .workbench-workspace .workbench-dock-left > .workbench-tools-window.workbench-tools-side-docked .workbench-tools-content > :not(.tools-zoom-controls):not(.tools-option-zoom):not(.tools-option-pan):not(.tools-option-hide):not(.tools-option-cell):not(.tools-option-pixel),
-  .workbench-workspace .workbench-dock-right > .workbench-tools-window.workbench-tools-side-docked .workbench-tools-content > :not(.tools-zoom-controls):not(.tools-option-zoom):not(.tools-option-pan):not(.tools-option-hide):not(.tools-option-cell):not(.tools-option-pixel) {
-    order: initial;
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    width: auto;
-    min-width: 0;
-    max-width: none;
-    gap: 0.35rem;
+@container workbench-window (max-width: 27.99rem) {
+  .workbench-workspace .control-row-5,
+  .workbench-workspace .control-row-4,
+  .workbench-workspace .control-row-3,
+  .workbench-workspace .control-row-2,
+  .workbench-workspace .dithering-composer-grid > .control-row,
+  .workbench-workspace .dithering-row-paired {
+    --control-columns: 1;
+    grid-template-columns: minmax(0, 1fr);
   }
+}
 
-  .workbench-workspace .workbench-dock-left > .workbench-tools-window.workbench-tools-side-docked .workbench-tools-content > :not(.tools-zoom-controls):not(.tools-option-zoom):not(.tools-option-pan):not(.tools-option-hide):not(.tools-option-cell):not(.tools-option-pixel) > span,
-  .workbench-workspace .workbench-dock-right > .workbench-tools-window.workbench-tools-side-docked .workbench-tools-content > :not(.tools-zoom-controls):not(.tools-option-zoom):not(.tools-option-pan):not(.tools-option-hide):not(.tools-option-cell):not(.tools-option-pixel) > span {
-    writing-mode: horizontal-tb;
-    transform: none;
-    font-size: var(--ui-label-font-size);
-    white-space: normal;
-  }
+/* Tiled title dragging uses the same focusable title surface as the existing
+   floating drag. Keep the source tile in place while showing a drop target. */
+.workbench-workspace [data-workbench-dragging="true"] {
+  opacity: 0.72;
+  cursor: grabbing;
+}
 
-  .workbench-workspace .workbench-dock-left > .workbench-tools-window.workbench-tools-side-docked .workbench-tools-content select,
-  .workbench-workspace .workbench-dock-right > .workbench-tools-window.workbench-tools-side-docked .workbench-tools-content select,
-  .workbench-workspace .workbench-dock-left > .workbench-tools-window.workbench-tools-side-docked .workbench-tools-content button,
-  .workbench-workspace .workbench-dock-right > .workbench-tools-window.workbench-tools-side-docked .workbench-tools-content button {
-    width: 100%;
-    min-width: 0;
-    max-width: 100%;
-    font-size: var(--ui-label-font-size);
-  }
+.workbench-workspace [data-workbench-drop-position="before"],
+.workbench-workspace [data-workbench-drop-position="after"] {
+  position: relative;
+}
 
-  .workbench-workspace .workbench-dock-left > .workbench-tools-window.workbench-tools-side-docked .workbench-tools-content > .tools-zoom-controls,
-  .workbench-workspace .workbench-dock-right > .workbench-tools-window.workbench-tools-side-docked .workbench-tools-content > .tools-zoom-controls {
-    order: initial;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    width: auto;
-    gap: 0.18rem;
-  }
+.workbench-workspace .workbench-dock-left [data-workbench-drop-position="before"]::before,
+.workbench-workspace .workbench-dock-right [data-workbench-drop-position="before"]::before,
+.workbench-workspace .workbench-dock-left [data-workbench-drop-position="after"]::after,
+.workbench-workspace .workbench-dock-right [data-workbench-drop-position="after"]::after {
+  position: absolute;
+  right: 0;
+  left: 0;
+  z-index: 32;
+  height: 3px;
+  content: "";
+  background: #79b7ff;
+  pointer-events: none;
+}
 
-  .workbench-workspace .workbench-dock-left > .workbench-tools-window.workbench-tools-side-docked .tools-zoom-pad,
-  .workbench-workspace .workbench-dock-right > .workbench-tools-window.workbench-tools-side-docked .tools-zoom-pad {
-    flex-direction: row;
-  }
+.workbench-workspace .workbench-dock-left [data-workbench-drop-position="before"]::before,
+.workbench-workspace .workbench-dock-right [data-workbench-drop-position="before"]::before {
+  top: -2px;
+}
 
-  .workbench-workspace .workbench-dock-left > .workbench-tools-window.workbench-tools-side-docked .tools-zoom-pad button,
-  .workbench-workspace .workbench-dock-right > .workbench-tools-window.workbench-tools-side-docked .tools-zoom-pad button {
-    width: 1.45rem;
-    min-width: 1.45rem;
-    max-width: 1.45rem;
-    padding: 0;
-    font-size: var(--ui-control-font-size);
-  }
+.workbench-workspace .workbench-dock-left [data-workbench-drop-position="after"]::after,
+.workbench-workspace .workbench-dock-right [data-workbench-drop-position="after"]::after {
+  bottom: -2px;
+}
+
+.workbench-workspace .workbench-dock-bottom [data-workbench-drop-position="before"]::before,
+.workbench-workspace .workbench-preview-dock [data-workbench-drop-position="before"]::before,
+.workbench-workspace .workbench-dock-bottom [data-workbench-drop-position="after"]::after,
+.workbench-workspace .workbench-preview-dock [data-workbench-drop-position="after"]::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 32;
+  width: 3px;
+  content: "";
+  background: #79b7ff;
+  pointer-events: none;
+}
+
+.workbench-workspace .workbench-dock-bottom [data-workbench-drop-position="before"]::before,
+.workbench-workspace .workbench-preview-dock [data-workbench-drop-position="before"]::before {
+  left: -2px;
+}
+
+.workbench-workspace .workbench-dock-bottom [data-workbench-drop-position="after"]::after,
+.workbench-workspace .workbench-preview-dock [data-workbench-drop-position="after"]::after {
+  right: -2px;
+}
+
+.workbench-workspace [data-workbench-drop-append="true"] {
+  outline: 2px dashed #79b7ff;
+  outline-offset: -3px;
 }
 
 /* User-configurable UI typography. The preview and the application shell use
@@ -209,8 +336,7 @@
 .shell .workbench-window-title,
 .shell .workbench-window-actions,
 .shell .preview-panel-title,
-.shell .workbench-settings-section > summary,
-.shell .workbench-tools-window > summary {
+.shell .workbench-settings-section > summary {
   font-size: var(--ui-title-font-size);
   font-weight: var(--ui-title-font-weight);
 }
@@ -430,7 +556,6 @@
   }
 
   .workbench-workspace.workbench-settings-floating .workbench-window-titlebar,
-  .workbench-workspace .workbench-tools-window.workbench-tools-floating > summary,
   .workbench-workspace .workbench-settings-section.workbench-section-floating > summary,
   .workbench-workspace .preview-panel-floating .preview-panel-heading {
     border-bottom-color: #d28be4;
@@ -1594,10 +1719,21 @@ h1 {
   grid-template-columns: minmax(11rem, 2fr) minmax(8rem, 1fr) repeat(3, auto);
   align-items: end;
   gap: 0.4rem;
+  min-width: 0;
   margin: 0;
   border: 0;
   padding: 0;
   color: #d6deea;
+}
+
+.profile-control > label {
+  min-width: 0;
+}
+
+.profile-control > label > select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .profile-control legend {
@@ -2447,30 +2583,6 @@ input[type="range"] {
   text-align: center;
 }
 
-/* Keep the desktop Tools dock compact even before the full workstation
-   layout breakpoint. The title/actions and one-line control strip share the
-   available width instead of creating a second wrapped row. */
-@media (min-width: 760px) {
-  .workbench-tools-window:not(.workbench-tools-floating):not(.workbench-tools-side-docked) {
-    display: flex;
-    min-width: 0;
-    align-items: stretch;
-  }
-
-  .workbench-tools-window:not(.workbench-tools-floating):not(.workbench-tools-side-docked) > summary {
-    flex: 0 0 auto;
-    min-width: 0;
-    max-width: none;
-  }
-
-  .workbench-tools-window:not(.workbench-tools-floating):not(.workbench-tools-side-docked) > .workbench-tools-content {
-    flex: 1 1 0;
-    min-width: 0;
-    overflow-x: auto;
-    overflow-y: hidden;
-  }
-}
-
 /* Desktop workstation layout: matched previews first, compact controls below. */
 @media (min-width: 1280px) {
   .shell {
@@ -2805,9 +2917,14 @@ input[type="range"] {
   .profile-control .file-picker,
   .profile-control > button {
     width: 7.5rem;
+    min-width: 0;
+    max-width: 100%;
     min-height: 1.75rem;
     align-self: end;
     justify-content: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .profile-control .file-picker {
@@ -4781,8 +4898,7 @@ input[type="range"] {
     display: none;
   }
 
-  .workbench-settings-window .workbench-settings-section > summary,
-  .workbench-tools-window > summary {
+  .workbench-settings-window .workbench-settings-section > summary {
     display: flex;
     min-width: 0;
     align-items: center;
@@ -4795,36 +4911,29 @@ input[type="range"] {
     font-weight: 800;
   }
 
-  .workbench-settings-window .workbench-settings-section > summary::-webkit-details-marker,
-  .workbench-tools-window > summary::-webkit-details-marker {
+  .workbench-settings-window .workbench-settings-section > summary::-webkit-details-marker {
     display: none;
   }
 
-  .workbench-settings-window .workbench-settings-section > summary::before,
-  .workbench-tools-window > summary::before {
+  .workbench-settings-window .workbench-settings-section > summary::before {
     flex: 0 0 auto;
     content: "▸";
     color: #79b7ff;
   }
 
-  .workbench-settings-window .workbench-settings-section[open] > summary::before,
-  .workbench-tools-window[open] > summary::before {
+  .workbench-settings-window .workbench-settings-section[open] > summary::before {
     content: "▾";
   }
 
   .workbench-settings-window .workbench-settings-section > summary:hover,
-  .workbench-settings-window .workbench-settings-section > summary:focus-visible,
-  .workbench-tools-window > summary:hover,
-  .workbench-tools-window > summary:focus-visible {
+  .workbench-settings-window .workbench-settings-section > summary:focus-visible {
     background: #172b43;
   }
 
-  .workbench-settings-window .workbench-settings-section > summary:focus-visible,
-  .workbench-tools-window > summary:focus-visible {
+  .workbench-settings-window .workbench-settings-section > summary:focus-visible {
     outline: 2px solid #ffdc6a;
     outline-offset: -2px;
   }
-
   .workbench-settings-window .workbench-settings-section > fieldset {
     min-width: 0;
     border: 0;
@@ -5269,317 +5378,86 @@ input[type="range"] {
     display: none;
   }
 
-  .workbench-tools-window {
-    display: block;
-    max-height: none;
-    overflow: hidden;
-    padding: 0;
-  }
-
-  /* Bottom and side docks share the same toolbar structure. The bottom dock
-     keeps the title/actions and controls on one compact row. */
-  .workbench-tools-window:not(.workbench-tools-floating):not(.workbench-tools-side-docked) {
-    display: flex;
-    align-items: stretch;
+  .workbench-tools-content {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-content: start;
+    align-items: start;
+    gap: 0.35rem;
     min-width: 0;
-  }
-
-  .workbench-tools-window:not(.workbench-tools-floating):not(.workbench-tools-side-docked) > summary {
-    flex: 0 0 auto;
-    min-width: 0;
-    max-width: none;
-    border-right: 0;
-    border-radius: 0.35rem 0 0 0.35rem;
-  }
-
-  .workbench-tools-window:not(.workbench-tools-floating):not(.workbench-tools-side-docked) > .workbench-tools-content {
-    flex: 1 1 0;
-    min-width: 0;
-    border-top: 1px solid #33425d;
-    border-left: 0;
-    border-radius: 0 0.35rem 0.35rem 0;
-  }
-
-  .workbench-workspace .workbench-tools-window.workbench-tools-floating {
-    position: absolute;
-    z-index: 11;
-    grid-column: auto;
-    grid-row: auto;
-    top: min(var(--workbench-tools-floating-y), calc(100% - 2rem));
-    left: min(var(--workbench-tools-floating-x), calc(100% - 2rem));
-    width: min(var(--workbench-tools-floating-width), calc(100% - 1rem));
-    height: min(var(--workbench-tools-floating-height), calc(100% - 1rem));
-    max-width: calc(100% - 1rem);
-    max-height: calc(100% - 1rem);
-    overflow: hidden;
-    box-shadow: 0 0.7rem 2rem rgb(0 0 0 / 38%);
-  }
-
-  .workbench-tools-floating .workbench-tools-content {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    height: calc(100% - 1.55rem);
-    max-height: none;
+    min-height: 0;
+    max-width: 100%;
+    padding: 0.35rem;
     overflow-x: hidden;
     overflow-y: auto;
     scrollbar-gutter: stable;
   }
 
-  .workbench-tools-window > summary {
-    min-height: 1.55rem;
-    border: 1px solid #33425d;
-    border-radius: 0.35rem;
-    background: #111824;
-  }
-
-  .workbench-tools-summary {
-    min-width: 0;
-    overflow: hidden;
-    color: #9fb0c9;
-    font-size: 0.65rem;
-    font-weight: 600;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .workbench-section-float-action {
-    flex: 0 0 auto;
-    width: 1.45rem;
-    min-height: 1.35rem;
-    border: 1px solid #52627d;
-    border-radius: 0.2rem;
-    color: #e9f4ff;
-    background: transparent;
-    cursor: pointer;
-    font-size: 0.7rem;
-    font-weight: 800;
-    line-height: 1;
-  }
-
-  .workbench-section-float-action:hover,
-  .workbench-section-float-action:focus-visible {
-    border-color: #79b7ff;
-    background: #245b7b;
-  }
-
-  .workbench-section-float-action:focus-visible {
-    outline: 2px solid #ffdc6a;
-    outline-offset: 1px;
-  }
-
-  .workbench-tools-content {
+  .workbench-tools-content > .tools-control-row {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
-    gap: 0.25rem 0.45rem;
-    min-width: 0;
-    padding: 0.35rem;
-    border: 1px solid #33425d;
-    border-top: 0;
-    border-radius: 0 0 0.35rem 0.35rem;
-    background: #111824;
-  }
-
-  .workbench-tools-window:not(.workbench-tools-floating):not(.workbench-tools-side-docked) .workbench-tools-content {
-    display: flex;
-    flex-wrap: nowrap;
-    align-items: end;
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: thin;
-  }
-
-  .workbench-tools-window:not(.workbench-tools-floating):not(.workbench-tools-side-docked) .workbench-tools-content > label,
-  .workbench-tools-window:not(.workbench-tools-floating):not(.workbench-tools-side-docked) .workbench-tools-content > fieldset,
-  .workbench-tools-window:not(.workbench-tools-floating):not(.workbench-tools-side-docked) .workbench-tools-content > button {
-    flex: 0 0 auto;
-    width: auto;
-    max-width: 14rem;
-  }
-
-  .workbench-tools-window:not(.workbench-tools-floating):not(.workbench-tools-side-docked) .workbench-tools-content > label:not(.check-control) {
-    min-width: 9rem;
-  }
-
-  .workbench-tools-window:not(.workbench-tools-floating):not(.workbench-tools-side-docked) .workbench-tools-content > .check-control {
-    align-self: center;
-    min-width: max-content;
-    padding-inline: 0.2rem;
-  }
-
-  .workbench-tools-window:not(.workbench-tools-floating):not(.workbench-tools-side-docked) .workbench-tools-content > .inspector-toggle {
-    min-width: max-content;
-  }
-
-  /* Side-docked Tools is a narrow, always-available vertical rail. The
-     controls stay in the rail so the side layout remains predictable and
-     does not open a wide flyout over the previews. */
-  .workbench-workspace .workbench-tools-window.workbench-tools-side-docked {
-    position: absolute;
-    z-index: 13;
-    top: 4rem;
-    bottom: 2.5rem;
-    display: flex;
-    flex-direction: column;
-    width: 2.45rem;
-    min-width: 2.45rem;
-    max-height: none;
-    overflow: hidden;
-    border: 1px solid #33425d;
-    border-radius: 0.35rem;
-    background: #111824;
-  }
-
-  .workbench-tools-side-docked > summary {
-    position: relative;
-    inset: auto;
-    order: 2;
-    flex: 0 0 auto;
-    min-height: 8.4rem;
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(var(--control-columns), minmax(0, 1fr));
+    align-items: start;
     width: 100%;
-    justify-content: flex-end;
-    align-items: center;
-    gap: 0.28rem;
-    padding: 0.35rem 0.18rem;
-    border-color: #3d5575;
-    background: #172b43;
-    writing-mode: vertical-rl;
-    transform: rotate(180deg);
+    min-width: 0;
+    max-width: 100%;
+    gap: 0.35rem 0.45rem;
   }
 
-  .workbench-tools-side-docked > summary > span:first-child {
-    flex: 0 0 auto;
-    color: #e9f4ff;
-    font-size: 0.72rem;
-    line-height: 1;
+  .workbench-tools-content > .tools-control-row > .tools-zoom-controls,
+  .workbench-tools-content > .tools-control-row > .check-control {
+    min-width: 0;
+    max-width: 100%;
   }
 
-  .workbench-tools-side-docked .workbench-tools-summary {
-    display: block;
-    flex: 0 0 auto;
-    color: #aab9cf;
-    font-size: 0.52rem;
-    line-height: 1;
-    white-space: nowrap;
-  }
-
-  .workbench-tools-side-docked[data-dock="left"] {
-    left: 0.2rem;
-  }
-
-  .workbench-tools-side-docked[data-dock="right"] {
-    right: 0.2rem;
-  }
-
-  .workbench-tools-side-docked[data-dock="left"] .workbench-tools-content,
-  .workbench-tools-side-docked[data-dock="right"] .workbench-tools-content {
-    position: relative;
-    order: 1;
-    flex: 1 1 auto;
+  .workbench-tools-content > .tools-control-row > .check-control {
     display: flex;
-    flex-direction: column;
     align-items: center;
     justify-content: flex-start;
-    width: 100%;
+    gap: 0.35rem;
+    overflow: hidden;
+    padding: 0.15rem 0.1rem;
+    text-align: left;
+  }
+
+  .workbench-tools-content > .tools-control-row > .check-control input {
+    flex: 0 0 auto;
+  }
+
+  .workbench-tools-content > .tools-control-row > .check-control span {
+    display: block;
     min-width: 0;
-    min-height: 0;
-    max-width: none;
-    overflow-x: hidden;
-    overflow-y: auto;
-    gap: 0.18rem;
-    padding: 0.3rem 0.12rem;
-    border: 0;
-    border-radius: 0;
-    box-shadow: none;
+    flex: 1 1 auto;
+    overflow: hidden;
+    color: #d6deea;
+    text-overflow: ellipsis;
+    writing-mode: horizontal-tb;
+    transform: none;
     white-space: normal;
   }
 
-  .workbench-tools-side-docked .workbench-tools-content > .check-control {
+  .workbench-tools-content > .tools-control-row > .tools-zoom-controls {
     display: flex;
-    flex: 0 0 auto;
     flex-direction: column;
-    align-items: center;
-    justify-content: flex-start;
-    width: 100%;
-    min-width: 0;
-    max-width: none;
-    gap: 0.18rem;
-    padding: 0.12rem 0;
-    text-align: center;
-  }
-
-  .workbench-tools-side-docked .workbench-tools-content > .check-control span {
-    display: block;
-    max-width: none;
-    writing-mode: vertical-rl;
-    transform: rotate(180deg);
-    white-space: nowrap;
-    font-size: 0.55rem;
-    line-height: 1;
-  }
-
-  .workbench-tools-side-docked .tools-option-zoom { order: 1; }
-  .workbench-tools-side-docked .tools-option-pan { order: 2; }
-  .workbench-tools-side-docked .tools-option-hide { order: 3; }
-  .workbench-tools-side-docked .tools-option-cell { order: 4; }
-  .workbench-tools-side-docked .tools-option-pixel { order: 5; }
-
-  .workbench-tools-side-docked .workbench-tools-content > :not(.tools-zoom-controls):not(.tools-option-zoom):not(.tools-option-pan):not(.tools-option-hide):not(.tools-option-cell):not(.tools-option-pixel) {
-    order: 6;
-    display: flex;
-    flex: 0 0 auto;
-    flex-direction: column;
-    align-items: center;
-    width: 100%;
-    min-width: 0;
-    max-width: none;
-    gap: 0.15rem;
-  }
-
-  .workbench-tools-side-docked .workbench-tools-content > :not(.tools-zoom-controls):not(.tools-option-zoom):not(.tools-option-pan):not(.tools-option-hide):not(.tools-option-cell):not(.tools-option-pixel) > span {
-    writing-mode: vertical-rl;
-    transform: rotate(180deg);
-    white-space: nowrap;
-    font-size: 0.55rem;
-  }
-
-  .workbench-tools-side-docked .workbench-tools-content select {
-    width: 1.45rem;
-    min-width: 1.45rem;
-    max-width: 1.45rem;
-    padding: 0.1rem;
-    font-size: 0.55rem;
-  }
-
-  .workbench-tools-side-docked .workbench-tools-content button {
-    width: 1.45rem;
-    min-width: 1.45rem;
-    padding-inline: 0.1rem;
-    font-size: 0.55rem;
-  }
-
-  .workbench-tools-side-docked .workbench-tools-content > .tools-zoom-controls {
-    order: 0;
-    display: flex;
-    flex: 0 0 auto;
-    flex-direction: column;
-    align-items: center;
-    width: 100%;
+    align-items: flex-start;
     gap: 0.18rem;
   }
 
-  .workbench-tools-side-docked .tools-zoom-controls > span {
-    writing-mode: vertical-rl;
-    transform: rotate(180deg);
+  .workbench-tools-content > .tools-control-row > .tools-zoom-controls > span {
+    writing-mode: horizontal-tb;
+    transform: none;
     white-space: nowrap;
-    font-size: 0.55rem;
   }
 
-  .workbench-tools-side-docked .tools-zoom-pad {
-    flex-direction: column;
-  }
-
-  .workbench-tools-content > label,
-  .workbench-tools-content > button {
+  .workbench-tools-content > .tools-control-row > label:not(.check-control) {
     min-width: 0;
+    max-width: 100%;
+  }
+
+  .workbench-tools-content select,
+  .workbench-tools-content button {
+    min-width: 0;
+    max-width: 100%;
   }
 
   .workbench-tools-content .saved-layout-controls {
@@ -5629,18 +5507,25 @@ input[type="range"] {
     position: static;
     width: 100%;
     justify-self: stretch;
-    overflow: visible;
+    overflow: hidden;
+  }
+
+  .workbench-workspace[data-preview-layout="both-docked"] .inspection-workspace {
     grid-template-columns:
       minmax(240px, var(--workbench-source-docked-width))
-      3rem
       minmax(240px, var(--workbench-result-docked-width));
+  }
+
+  .workbench-workspace[data-preview-layout="source-floating"] .inspection-workspace,
+  .workbench-workspace[data-preview-layout="result-floating"] .inspection-workspace,
+  .workbench-workspace[data-preview-layout="both-floating"] .inspection-workspace {
+    grid-template-columns: minmax(240px, 1fr);
   }
 
   /* Reserve a fourth column for the tile set panel in Tilemap mode. */
   body:has(.tilemap-charset-panel) .workbench-workspace[data-preview-layout="both-docked"] .inspection-workspace {
     grid-template-columns:
       minmax(240px, var(--workbench-source-docked-width))
-      3rem
       minmax(240px, var(--workbench-result-docked-width))
       14rem;
   }
@@ -5648,7 +5533,6 @@ input[type="range"] {
   .workbench-workspace:has(.tilemap-charset-panel) .inspection-workspace {
     grid-template-columns:
       minmax(240px, var(--workbench-source-docked-width))
-      3rem
       minmax(240px, var(--workbench-result-docked-width))
       14rem;
   }
@@ -5802,7 +5686,6 @@ input[type="range"] {
   /* Floating windows get a dedicated plum title treatment so they remain
      easy to locate above the preview and other workbench surfaces. */
   .workbench-workspace.workbench-settings-floating .workbench-window-titlebar,
-  .workbench-workspace .workbench-tools-window.workbench-tools-floating > summary,
   .workbench-workspace .workbench-settings-section.workbench-section-floating > summary,
   .workbench-workspace .preview-panel-floating .preview-panel-heading {
     border-bottom-color: #d28be4;
@@ -5814,7 +5697,6 @@ input[type="range"] {
     box-shadow: inset 0 0.16rem 0 #e5a2f1;
   }
 
-  .workbench-workspace .workbench-tools-window.workbench-tools-floating > summary,
   .workbench-workspace .workbench-settings-section.workbench-section-floating > summary,
   .workbench-workspace .preview-panel-floating .preview-panel-heading {
     box-shadow: inset 0 0.12rem 0 #d994e9;
@@ -5940,21 +5822,26 @@ input[type="range"] {
     grid-column: 1;
     grid-row: 3;
     flex-direction: column;
+    overflow-x: hidden;
+    overflow-y: auto;
   }
 
   .workbench-workspace .workbench-dock-right {
     grid-column: 3;
     grid-row: 3;
     flex-direction: column;
+    overflow-x: hidden;
+    overflow-y: auto;
   }
 
   .workbench-workspace .workbench-dock-bottom {
     grid-column: 1 / -1;
     grid-row: 4;
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+    display: flex;
+    flex-direction: row;
     align-items: stretch;
-    overflow: auto;
+    overflow-x: hidden;
+    overflow-y: auto;
   }
 
   .workbench-dock-region > .workbench-window,
@@ -5971,6 +5858,33 @@ input[type="range"] {
     background: #111824;
   }
 
+  .workbench-workspace .workbench-dock-left > .workbench-window,
+  .workbench-workspace .workbench-dock-right > .workbench-window {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .workbench-workspace .workbench-dock-left > .workbench-window > .workbench-window-content,
+  .workbench-workspace .workbench-dock-right > .workbench-window > .workbench-window-content {
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  /* Several windows can share a side dock. Use equal flex tracks so a
+     side-docked preview does not consume the whole dock height. */
+  .workbench-workspace .workbench-dock-left > .preview-panel,
+  .workbench-workspace .workbench-dock-right > .preview-panel {
+    flex: 1 1 0;
+    height: auto;
+  }
+
+  .workbench-workspace .workbench-dock-left > [data-minimized="true"],
+  .workbench-workspace .workbench-dock-right > [data-minimized="true"] {
+    flex: 0 0 auto;
+    height: auto;
+  }
+
   .workbench-dock-region > .source-panel,
   .workbench-dock-region > .result-panel,
   .workbench-dock-region > .inspection-controls {
@@ -5983,7 +5897,6 @@ input[type="range"] {
   }
 
   .workbench-dock-region > .workbench-settings-section > summary,
-  .workbench-dock-region > .workbench-tools-window > summary,
   .workbench-dock-region > .preview-panel .preview-panel-heading,
   .workbench-preview-layer > .workbench-settings-section > summary {
     display: flex;
@@ -6003,13 +5916,11 @@ input[type="range"] {
   }
 
   .workbench-dock-region > .workbench-settings-section > summary::-webkit-details-marker,
-  .workbench-dock-region > .workbench-tools-window > summary::-webkit-details-marker,
   .workbench-preview-layer > .workbench-settings-section > summary::-webkit-details-marker {
     display: none;
   }
 
   .workbench-dock-region > .workbench-settings-section > summary::before,
-  .workbench-dock-region > .workbench-tools-window > summary::before,
   .workbench-preview-layer > .workbench-settings-section > summary::before {
     flex: 0 0 auto;
     content: "▸";
@@ -6017,19 +5928,16 @@ input[type="range"] {
   }
 
   .workbench-dock-region > .workbench-settings-section[open] > summary::before,
-  .workbench-dock-region > .workbench-tools-window[open] > summary::before,
   .workbench-preview-layer > .workbench-settings-section[open] > summary::before {
     content: "▾";
   }
 
   .workbench-dock-region > .workbench-settings-section > summary:focus-visible,
-  .workbench-dock-region > .workbench-tools-window > summary:focus-visible,
   .workbench-dock-region > .preview-panel .preview-panel-heading:focus-visible,
   .workbench-preview-layer > .workbench-settings-section > summary:focus-visible {
     outline: 2px solid #ffdc6a;
     outline-offset: -2px;
   }
-
   .workbench-dock-region .workbench-settings-section > fieldset,
   .workbench-dock-region .workbench-tools-content,
   .workbench-preview-layer > .workbench-settings-section > fieldset {
@@ -6043,6 +5951,73 @@ input[type="range"] {
   .workbench-dock-bottom > .workbench-window,
   .workbench-dock-bottom > .preview-panel {
     height: 100%;
+  }
+
+  .workbench-dock-bottom > .workbench-window,
+  .workbench-dock-bottom > .preview-panel {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .workbench-dock-split-handle {
+    position: absolute;
+    z-index: 31;
+    display: block;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    touch-action: none;
+  }
+
+  .workbench-dock-split-left,
+  .workbench-dock-split-right {
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 0.55rem;
+    cursor: ns-resize;
+  }
+
+  .workbench-dock-split-bottom {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 0.55rem;
+    cursor: ew-resize;
+  }
+
+  .workbench-dock-split-handle::after {
+    position: absolute;
+    content: "";
+    background: #52627d;
+  }
+
+  .workbench-dock-split-left::after,
+  .workbench-dock-split-right::after {
+    right: 35%;
+    bottom: 0.25rem;
+    left: 35%;
+    height: 2px;
+  }
+
+  .workbench-dock-split-bottom::after {
+    top: 35%;
+    right: 0.25rem;
+    bottom: 35%;
+    left: auto;
+    width: 2px;
+  }
+
+  .workbench-dock-split-handle:hover::after,
+  .workbench-dock-split-handle:focus-visible::after {
+    background: #79b7ff;
+  }
+
+  .workbench-dock-split-handle:focus-visible {
+    outline: 2px solid #ffdc6a;
+    outline-offset: -1px;
   }
 
   .workbench-dock-resize-handle {
@@ -6130,10 +6105,6 @@ input[type="range"] {
     box-shadow: 0 0.8rem 2.4rem rgb(0 0 0 / 48%);
   }
 
-  .workbench-workspace .workbench-preview-layer > .workbench-tools-window {
-    pointer-events: auto;
-  }
-
   .workbench-workspace .workbench-preview-layer > .workbench-geometry-floating {
     top: min(var(--workbench-geometry-floating-y), calc(100% - 2rem));
     left: min(var(--workbench-geometry-floating-x), calc(100% - 2rem));
@@ -6169,6 +6140,13 @@ input[type="range"] {
     height: min(var(--workbench-tilemap-floating-height), calc(100% - 2rem));
   }
 
+  .workbench-workspace .workbench-preview-layer > .workbench-tools-floating {
+    top: min(var(--workbench-tools-floating-y), calc(100% - 2rem));
+    left: min(var(--workbench-tools-floating-x), calc(100% - 2rem));
+    width: min(var(--workbench-tools-floating-width), calc(100% - 2rem));
+    height: min(var(--workbench-tools-floating-height), calc(100% - 2rem));
+  }
+
   .workbench-workspace [data-minimized="true"] > :not(summary):not(.preview-panel-heading),
   .workbench-workspace [data-minimized="true"] > .workbench-tools-content,
   .workbench-workspace [data-minimized="true"] > .preview-frame,
@@ -6191,4 +6169,406 @@ input[type="range"] {
     font-size: 0.68rem;
   }
 
+}
+
+/* Portal-mounted workbench windows need a final container-query pass after
+   the legacy viewport rules above. */
+.workbench-workspace .workbench-dock-region > .workbench-window,
+.workbench-workspace .workbench-dock-region > .preview-panel {
+  container: workbench-window / inline-size;
+}
+
+.workbench-workspace .inspection-workspace {
+  container: preview-workspace / inline-size;
+}
+
+.workbench-workspace .workbench-dock-left,
+.workbench-workspace .workbench-dock-right,
+.workbench-workspace .workbench-dock-bottom {
+  scrollbar-gutter: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* Bottom-dock minimized windows form a fixed-width ladder on the left. They
+   are removed from the flexible row so expanded windows reclaim their space. */
+.workbench-workspace .workbench-dock-bottom > .workbench-dock-minimized-stack {
+  order: -1;
+  display: flex;
+  flex: 0 0 14rem;
+  flex-direction: column;
+  width: 14rem;
+  min-width: 14rem;
+  min-height: 0;
+  gap: 0.35rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: auto;
+}
+
+.workbench-workspace .workbench-dock-bottom > .workbench-dock-minimized-stack:empty {
+  display: none;
+}
+
+.workbench-workspace .workbench-dock-bottom > .workbench-dock-minimized-stack > .workbench-window {
+  position: relative;
+  flex: 0 0 auto;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  max-width: none;
+  max-height: none;
+  overflow: hidden;
+}
+
+.workbench-workspace .workbench-dock-bottom > .workbench-dock-minimized-stack > .workbench-window > summary {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 0.35rem;
+  position: relative;
+  z-index: 1;
+  cursor: pointer;
+  list-style: none;
+  padding: 0.22rem 0.35rem;
+  color: #dce7f7;
+  font-size: 0.72rem;
+  font-weight: 800;
+  background: #172b43;
+}
+
+.workbench-workspace .workbench-dock-bottom > .workbench-dock-minimized-stack > .workbench-window > summary::-webkit-details-marker {
+  display: none;
+}
+
+.workbench-workspace .workbench-dock-bottom > .workbench-dock-minimized-stack > .workbench-window > summary::before {
+  flex: 0 0 auto;
+  content: "▸";
+  color: #79b7ff;
+}
+
+.workbench-workspace .workbench-dock-bottom > .workbench-dock-minimized-stack > .workbench-window[open] > summary::before {
+  content: "▾";
+}
+
+.workbench-workspace .workbench-dock-bottom > .workbench-dock-minimized-stack > .workbench-window > summary > span:first-child {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-workspace .workbench-dock-bottom > .workbench-dock-minimized-stack > .workbench-window > summary .workbench-window-actions {
+  min-width: 0;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+}
+
+.workbench-workspace .workbench-dock-region > .workbench-window,
+.workbench-workspace .workbench-dock-region > .preview-panel,
+.workbench-workspace .workbench-dock-region > .workbench-window > .workbench-window-content,
+.workbench-workspace .workbench-window-content,
+.workbench-workspace .workbench-settings-section > fieldset,
+.workbench-workspace .workbench-tools-content,
+.workbench-workspace .control-group,
+.workbench-workspace .dithering-group,
+.workbench-workspace .palette-attributes-grid,
+.workbench-workspace .adjustment-control,
+.workbench-workspace .geometry-group {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.workbench-workspace .workbench-dock-region > .workbench-window > summary,
+.workbench-workspace .workbench-dock-region > .preview-panel > .preview-panel-heading,
+.workbench-workspace .workbench-preview-dock > .preview-panel > .preview-panel-heading {
+  min-width: 0;
+  flex-wrap: wrap;
+  touch-action: none;
+  user-select: none;
+}
+
+.workbench-workspace .workbench-dock-region > .workbench-window > summary > span:first-child,
+.workbench-workspace .workbench-dock-region > .preview-panel > .preview-panel-heading > h3,
+.workbench-workspace .workbench-preview-dock > .preview-panel > .preview-panel-heading > h3 {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-workspace .workbench-window-actions {
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
+}
+
+.workbench-workspace .workbench-window-location-menu {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.workbench-workspace .workbench-window-location-button {
+  width: 1.55rem;
+  min-width: 1.55rem;
+  padding: 0;
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
+.workbench-workspace .workbench-window-location-popover {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  right: 0;
+  z-index: 100;
+  display: grid;
+  min-width: 9.5rem;
+  padding: 0.2rem;
+  gap: 0.12rem;
+  border: 1px solid #52627d;
+  border-radius: 0.35rem;
+  background: #111824;
+  box-shadow: 0 0.7rem 1.5rem rgb(0 0 0 / 42%);
+}
+
+.workbench-workspace .workbench-window-location-popover button {
+  display: flex;
+  width: 100%;
+  min-height: 1.55rem;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.45rem;
+  padding: 0.18rem 0.35rem;
+  border-color: transparent;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.workbench-workspace .workbench-window-location-popover button > span {
+  width: 1rem;
+  flex: 0 0 1rem;
+  text-align: center;
+}
+
+.workbench-workspace .workbench-window-location-popover button:hover,
+.workbench-workspace .workbench-window-location-popover button:focus-visible,
+.workbench-workspace .workbench-window-location-popover button.active {
+  border-color: #79b7ff;
+  background: #245b7b;
+}
+
+.workbench-workspace .workbench-window:has(.workbench-window-location-popover) {
+  overflow: visible;
+  z-index: 50;
+}
+
+/* A minimized ladder is scrollable during normal use, but an open control
+   menu must be allowed to escape the ladder and paint above neighboring
+   title bars. */
+.workbench-workspace .workbench-dock-minimized-stack:has(.workbench-window-location-popover) {
+  position: relative;
+  z-index: 50;
+  overflow: visible;
+}
+
+@container workbench-window (max-width: 29.99rem) {
+  .workbench-workspace .geometry-group,
+  .workbench-workspace .dithering-group,
+  .workbench-workspace .adjustment-control {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .workbench-workspace .geometry-primary-row,
+  .workbench-workspace .framing-detail {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .workbench-workspace .palette-attributes-grid,
+  .workbench-workspace .dithering-row-paired,
+  .workbench-workspace .dithering-row-action,
+  .workbench-workspace .dithering-pair-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@container workbench-window (max-width: 19.99rem) {
+  .workbench-workspace .workbench-dock-region > .workbench-window > summary,
+  .workbench-workspace .workbench-dock-region > .preview-panel > .preview-panel-heading {
+    display: flex;
+    grid-template-columns: none;
+    min-width: 0;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .workbench-workspace .workbench-dock-region > .workbench-window > summary > span:first-child,
+  .workbench-workspace .workbench-dock-region > .preview-panel > .preview-panel-heading > h3 {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .workbench-workspace .workbench-dock-region > .workbench-window > summary .workbench-window-actions,
+  .workbench-workspace .workbench-dock-region > .preview-panel > .preview-panel-heading .workbench-window-actions {
+    width: auto;
+    min-width: 0;
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+    margin-left: auto;
+  }
+
+  .workbench-workspace .workbench-dock-region > .preview-panel > .preview-panel-heading .preview-content-selector {
+    width: auto;
+    min-width: 0;
+    flex: 0 1 auto;
+    margin-left: auto;
+  }
+
+  .workbench-workspace .preview-content-selector,
+  .workbench-workspace .preview-content-selector select {
+    width: 100%;
+  }
+
+  .workbench-workspace .geometry-group,
+  .workbench-workspace .geometry-primary-row,
+  .workbench-workspace .framing-detail,
+  .workbench-workspace .dithering-group,
+  .workbench-workspace .adjustment-control,
+  .workbench-workspace .palette-attributes-grid,
+  .workbench-workspace .dithering-row-paired,
+  .workbench-workspace .dithering-row-action,
+  .workbench-workspace .dithering-pair-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+}
+
+@container preview-workspace (max-width: 42rem) {
+  .workbench-workspace .inspection-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr) auto auto;
+  }
+
+  .workbench-workspace .source-panel {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .workbench-workspace .result-panel {
+    grid-column: 1;
+    grid-row: 3;
+  }
+
+  .workbench-workspace .inspection-controls {
+    grid-column: 1;
+    grid-row: 4;
+  }
+
+  .workbench-workspace .inspection-drawer {
+    grid-column: 1;
+    grid-row: 5;
+  }
+
+  .workbench-workspace .workbench-preview-dock > .preview-panel > .preview-panel-heading {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workbench-workspace .workbench-preview-dock > .preview-panel > .preview-panel-heading .workbench-window-actions,
+  .workbench-workspace .workbench-preview-dock > .preview-panel > .preview-panel-heading .preview-content-selector {
+    width: 100%;
+    margin-left: 0;
+  }
+}
+
+/* Final Geometry row override after the legacy viewport rules. */
+.workbench-workspace .geometry-primary-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@container workbench-window (max-width: 27.99rem) {
+  .workbench-workspace .geometry-primary-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container workbench-window (max-width: 19.99rem) {
+  .workbench-workspace .geometry-primary-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Tools owns two explicit logical rows. Keep the content wrapper a single
+   full-width track so each row remains independent in every dock. */
+.workbench-workspace .workbench-tools-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  align-items: start;
+}
+
+.workbench-workspace .workbench-tools-content > .tools-control-row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(var(--control-columns), minmax(0, 1fr));
+  align-items: start;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.workbench-workspace .workbench-tools-content > .tools-control-row > .check-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-width: 0;
+  max-width: 100%;
+  gap: 0.35rem;
+  overflow: hidden;
+  padding: 0.15rem 0.1rem;
+  text-align: left;
+}
+
+.workbench-workspace .workbench-tools-content > .tools-control-row > .check-control input {
+  flex: 0 0 auto;
+}
+
+.workbench-workspace .workbench-tools-content > .tools-control-row > .check-control span {
+  display: block;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: #d6deea;
+  text-overflow: ellipsis;
+  writing-mode: horizontal-tb;
+  transform: none;
+  white-space: normal;
+}
+
+.workbench-workspace .workbench-tools-content > .tools-control-row > label:not(.check-control) {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Side docks can be narrower than the window container's query context while
+   the dock itself is being resized. Keep Tools usable during that transition
+   by switching to one readable control column instead of compressing labels
+   down to checkbox-sized cells. */
+.workbench-workspace .workbench-dock-left > .workbench-window .workbench-tools-content > .tools-control-row,
+.workbench-workspace .workbench-dock-right > .workbench-window .workbench-tools-content > .tools-control-row {
+  --control-columns: 1;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.workbench-workspace .workbench-dock-left > .workbench-window .workbench-tools-content > .tools-control-row > .check-control,
+.workbench-workspace .workbench-dock-right > .workbench-window .workbench-tools-content > .tools-control-row > .check-control {
+  width: 100%;
 }
