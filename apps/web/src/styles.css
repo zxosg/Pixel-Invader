@@ -157,11 +157,16 @@
 
 .workbench-workspace .dithering-composer-grid {
   display: grid;
+  grid-column: 1 / -1;
+  width: 100%;
   min-width: 0;
+  max-width: 100%;
   gap: 0.35rem;
 }
 
 .workbench-workspace .dithering-composer-grid > .control-row {
+  width: 100%;
+  min-width: 0;
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
@@ -1644,7 +1649,7 @@ h1 {
 .tilemap-source-inline {
   display: grid;
   grid-column: 1 / -1;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   align-items: end;
   gap: 0.5rem;
   border-bottom: 1px solid #33425d;
@@ -1652,18 +1657,18 @@ h1 {
 }
 
 .tilemap-source-inline .tilemap-source-summary {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--control-columns, 5), minmax(0, 1fr));
 }
 
 .tilemap-source-inline .tilemap-source-summary > div {
   grid-template-columns: 1fr;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .tilemap-primary-controls {
-  display: grid;
   grid-column: 1 / -1;
-  grid-template-columns: repeat(4, minmax(7rem, 1fr));
-  gap: 0.4rem;
 }
 
 .tilemap-primary-controls label {
@@ -1678,16 +1683,28 @@ h1 {
 }
 
 .tilemap-options-row {
-  display: flex;
   grid-column: 1 / -1;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.35rem 0.8rem;
 }
 
-.tilemap-options-row .check-control {
+.workbench-workspace .tilemap-options-row > .check-control {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  grid-row: auto;
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   white-space: normal;
+}
+
+.workbench-workspace .tilemap-options-row > .check-control input {
+  flex: 0 0 auto;
+}
+
+.workbench-workspace .tilemap-options-row > .check-control span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .tilemap-mapping-help {
@@ -3445,15 +3462,6 @@ input[type="range"] {
     grid-template-columns: 1fr 1fr;
   }
 
-  .tilemap-source-inline,
-  .tilemap-primary-controls {
-    grid-template-columns: 1fr;
-  }
-
-  .tilemap-source-inline .tilemap-source-summary {
-    grid-template-columns: 1fr 1fr;
-  }
-
   .tilemap-charset-panel {
     max-height: 10rem;
   }
@@ -4618,9 +4626,6 @@ input[type="range"] {
     grid-template-columns: repeat(2, minmax(8rem, 1fr));
   }
 
-  .tilemap-primary-controls {
-    grid-template-columns: repeat(2, minmax(8rem, 1fr));
-  }
 }
 
 @media (max-width: 760px) {
@@ -4632,9 +4637,6 @@ input[type="range"] {
     display: inline;
   }
 
-  .tilemap-primary-controls {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 1023px) {
@@ -6282,11 +6284,21 @@ input[type="range"] {
   box-sizing: border-box;
 }
 
+/* Standard floating windows reflow their controls; a narrow internal grid
+   must not create a cosmetic horizontal scrollbar on the outer window. */
+.workbench-workspace .workbench-preview-layer > .workbench-section-floating,
+.workbench-workspace .workbench-dock-region > .workbench-window {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 .workbench-workspace .workbench-dock-region > .workbench-window > summary,
 .workbench-workspace .workbench-dock-region > .preview-panel > .preview-panel-heading,
 .workbench-workspace .workbench-preview-dock > .preview-panel > .preview-panel-heading {
   min-width: 0;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   touch-action: none;
   user-select: none;
 }
@@ -6304,7 +6316,8 @@ input[type="range"] {
 .workbench-workspace .workbench-window-actions {
   min-width: 0;
   max-width: 100%;
-  flex-wrap: wrap;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
 }
 
 .workbench-workspace .workbench-window-location-menu {
@@ -6556,19 +6569,4 @@ input[type="range"] {
 .workbench-workspace .workbench-tools-content > .tools-control-row > label:not(.check-control) {
   min-width: 0;
   max-width: 100%;
-}
-
-/* Side docks can be narrower than the window container's query context while
-   the dock itself is being resized. Keep Tools usable during that transition
-   by switching to one readable control column instead of compressing labels
-   down to checkbox-sized cells. */
-.workbench-workspace .workbench-dock-left > .workbench-window .workbench-tools-content > .tools-control-row,
-.workbench-workspace .workbench-dock-right > .workbench-window .workbench-tools-content > .tools-control-row {
-  --control-columns: 1;
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.workbench-workspace .workbench-dock-left > .workbench-window .workbench-tools-content > .tools-control-row > .check-control,
-.workbench-workspace .workbench-dock-right > .workbench-window .workbench-tools-content > .tools-control-row > .check-control {
-  width: 100%;
 }

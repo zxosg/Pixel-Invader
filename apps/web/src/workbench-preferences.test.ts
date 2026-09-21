@@ -3,6 +3,7 @@ import {
   DEFAULT_WORKBENCH_PREFERENCES,
   WORKBENCH_PREFERENCES_KEY,
   loadWorkbenchPreferences,
+  moveWorkbenchWindowDock,
   reorderWorkbenchWindowOrder,
   saveWorkbenchPreferences,
 } from "./workbench-preferences.js";
@@ -30,6 +31,46 @@ describe("workbench preferences", () => {
     const order = ["settings", "tools", "geometry", "adjustments"] as const;
     expect(reorderWorkbenchWindowOrder(order, "tools", null, "append"))
       .toEqual(["settings", "geometry", "adjustments", "tools"]);
+  });
+
+  it("preserves destination proportions and normalizes both docks on a cross-dock move", () => {
+    const layouts = {
+      ...DEFAULT_WORKBENCH_PREFERENCES.windowLayouts,
+      tools: { ...DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.tools, dock: "left" as const, dockRatio: 2, minimized: false },
+      geometry: { ...DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.geometry, dock: "left" as const, dockRatio: 1, minimized: false },
+      adjustments: { ...DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.adjustments, dock: "right" as const, dockRatio: 3, minimized: false },
+      palette: { ...DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.palette, dock: "right" as const, dockRatio: 1, minimized: false },
+    };
+    const moved = moveWorkbenchWindowDock(layouts, "tools", "right", false);
+    expect(moved.tools.dock).toBe("right");
+    expect(moved.tools.dockRatio).toBeCloseTo(3 / 5);
+    expect(moved.adjustments.dockRatio).toBeCloseTo(3 / 5 * 3);
+    expect(moved.palette.dockRatio).toBeCloseTo(1 / 5 * 3);
+    expect(moved.geometry.dockRatio).toBeCloseTo(1);
+  });
+
+  it("does not allocate a minimized moved window into active dock ratios", () => {
+    const layouts = {
+      ...DEFAULT_WORKBENCH_PREFERENCES.windowLayouts,
+      tools: { ...DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.tools, dock: "left" as const, dockRatio: 2 },
+      geometry: { ...DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.geometry, dock: "right" as const, dockRatio: 2 },
+    };
+    const moved = moveWorkbenchWindowDock(layouts, "tools", "right", true);
+    expect(moved.tools.minimized).toBe(true);
+    expect(moved.tools.dockRatio).toBe(2);
+    expect(moved.geometry.dockRatio).toBe(2);
+  });
+
+  it("keeps same-dock proportions when only the minimized state changes", () => {
+    const layouts = {
+      ...DEFAULT_WORKBENCH_PREFERENCES.windowLayouts,
+      tools: { ...DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.tools, dock: "bottom" as const, dockRatio: 2 },
+      geometry: { ...DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.geometry, dock: "bottom" as const, dockRatio: 1 },
+    };
+    const moved = moveWorkbenchWindowDock(layouts, "tools", "bottom", true);
+    expect(moved.tools.minimized).toBe(true);
+    expect(moved.tools.dockRatio).toBe(2);
+    expect(moved.geometry.dockRatio).toBe(1);
   });
 
   it("leaves the order unchanged for an unknown target", () => {

@@ -28,6 +28,70 @@ export interface WorkbenchWindowLayout {
 
 export type WorkbenchWindowLayouts = Readonly<Record<ActiveWorkbenchWindowId, WorkbenchWindowLayout>>;
 
+const TILED_DOCKS: readonly WorkbenchDock[] = ["bottom", "left", "right"];
+const ACTIVE_WORKBENCH_WINDOWS: readonly ActiveWorkbenchWindowId[] = [
+  "tools", "geometry", "adjustments", "palette", "dithering", "tilemap", "source", "result",
+];
+
+function isTiledDock(dock: WorkbenchWindowDock): dock is WorkbenchDock {
+  return TILED_DOCKS.includes(dock as WorkbenchDock);
+}
+
+function normalizeDockRatios(
+  layouts: Record<ActiveWorkbenchWindowId, WorkbenchWindowLayout>,
+  dock: WorkbenchDock,
+): void {
+  const windows = ACTIVE_WORKBENCH_WINDOWS.filter((window) =>
+    layouts[window].dock === dock && !layouts[window].minimized,
+  );
+  if (windows.length === 0) return;
+  const total = windows.reduce((sum, window) => sum + Math.max(0.15, layouts[window].dockRatio), 0);
+  if (total <= 0) return;
+  const scale = windows.length / total;
+  for (const window of windows) {
+    layouts[window] = {
+      ...layouts[window],
+      dockRatio: Math.max(0.15, layouts[window].dockRatio * scale),
+    };
+  }
+}
+
+/**
+ * Moves a tiled window between docks while keeping existing destination
+ * proportions. The moved window receives a default share of 1, and minimized
+ * windows remain outside the active flex-ratio calculation.
+ */
+export function moveWorkbenchWindowDock(
+  sourceLayouts: WorkbenchWindowLayouts,
+  window: ActiveWorkbenchWindowId,
+  destinationDock: WorkbenchWindowDock,
+  destinationMinimized = sourceLayouts[window].minimized,
+): WorkbenchWindowLayouts {
+  const sourceDock = sourceLayouts[window].dock;
+  if (sourceDock === destinationDock) {
+    if (sourceLayouts[window].minimized === destinationMinimized) return sourceLayouts;
+    const layouts = { ...sourceLayouts } as Record<ActiveWorkbenchWindowId, WorkbenchWindowLayout>;
+    layouts[window] = { ...layouts[window], minimized: destinationMinimized };
+    if (isTiledDock(destinationDock)) normalizeDockRatios(layouts, destinationDock);
+    return layouts;
+  }
+
+  const layouts = { ...sourceLayouts } as Record<ActiveWorkbenchWindowId, WorkbenchWindowLayout>;
+  layouts[window] = {
+    ...layouts[window],
+    dock: destinationDock,
+    dockRatio: destinationMinimized ? layouts[window].dockRatio : 1,
+    minimized: destinationMinimized,
+  };
+
+  if (isTiledDock(sourceDock)) normalizeDockRatios(layouts, sourceDock);
+  if (isTiledDock(destinationDock) && !destinationMinimized) {
+    normalizeDockRatios(layouts, destinationDock);
+  }
+
+  return layouts;
+}
+
 export function reorderWorkbenchWindowOrder(
   order: readonly WorkbenchWindowId[],
   window: WorkbenchWindowId,

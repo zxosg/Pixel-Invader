@@ -230,6 +230,7 @@ import {
 import {
   DEFAULT_WORKBENCH_PREFERENCES,
   loadWorkbenchPreferences,
+  moveWorkbenchWindowDock,
   saveWorkbenchPreferences,
   reorderWorkbenchWindowOrder,
   type WorkbenchDock,
@@ -1755,9 +1756,22 @@ export function App() {
     }));
   }
 
-  function setWorkbenchWindowDock(window: ActiveWorkbenchWindowId, dock: WorkbenchWindowDock): void {
+  function setWorkbenchWindowDock(
+    window: ActiveWorkbenchWindowId,
+    dock: WorkbenchWindowDock,
+    destinationMinimized = workbenchWindowLayout(window).minimized,
+  ): void {
     if (!workbenchWindowCanDock(window, dock)) return;
-    updateWorkbenchWindowLayout(window, (layout) => ({ ...layout, dock }));
+    setWorkbenchWindowLayouts((current) => {
+      const next = moveWorkbenchWindowDock(current, window, dock, destinationMinimized);
+      return {
+        ...next,
+        [window]: {
+          ...next[window],
+          open: destinationMinimized ? next[window].open : true,
+        },
+      };
+    });
     if (window === "geometry") setWorkbenchGeometryFloating(dock === "floating");
     if (window === "adjustments") setWorkbenchAdjustmentsFloating(dock === "floating");
     if (window === "palette") setWorkbenchPaletteFloating(dock === "floating");
@@ -2467,12 +2481,7 @@ export function App() {
   function commitWorkbenchTileDrop(drag: WorkbenchTileDrag): void {
     const drop = drag.drop;
     if (!drag.moved || drop === null) return;
-    setWorkbenchWindowDock(drag.window, drop.dock);
-    updateWorkbenchWindowLayout(drag.window, (layout) => ({
-      ...layout,
-      minimized: drop.destination === "minimized",
-      open: drop.destination === "minimized" ? layout.open : true,
-    }));
+    setWorkbenchWindowDock(drag.window, drop.dock, drop.destination === "minimized");
     setWorkbenchWindowOrder((current) => reorderWorkbenchWindowOrder(
       current,
       drag.window,
@@ -5636,6 +5645,23 @@ export function App() {
       : "merged");
     setInspection(null);
     if (next === "tilemap") {
+      // Entering Tilemap mode directly from the conversion-mode selector must
+      // reveal the existing Tilemap settings window. The workspace preset
+      // already does this, but a direct mode switch otherwise leaves the
+      // persisted minimized/closed state showing an empty shell.
+      setWorkbenchWindowLayouts((current) => ({
+        ...current,
+        tilemap: {
+          ...current.tilemap,
+          minimized: false,
+          open: true,
+        },
+      }));
+      setWorkbenchSectionsOpen((current) => ({
+        ...current,
+        tilemap: true,
+      }));
+      setWorkbenchSettingsMinimized(false);
       if (selectedPlatformId !== "zx-spectrum") {
         const cached = lastZxSettingsRef.current;
         const cachedProfile = profiles.find((profile) =>
@@ -10997,7 +11023,7 @@ export function App() {
           <fieldset id="settings-tilemap" className={`control-group tilemap-settings-group${settingsSection === "tilemap" ? " settings-focused" : ""}`}>
             <legend>Tilemap conversion</legend>
             <div className="tilemap-source-inline">
-            <div className="tilemap-source-summary">
+            <div className="tilemap-source-summary control-row control-row-5">
               <div>
                 <span>Optimizer</span>
                 <strong>
@@ -11026,15 +11052,8 @@ export function App() {
               </div>
               <div><span>Target</span><strong>ZX 256×192 · 8×8</strong></div>
             </div>
-            <button
-              className="secondary compact"
-              type="button"
-              onClick={() => switchWorkspaceConversionMode("palette")}
-            >
-              Edit palette conversion
-            </button>
             </div>
-            <div className="tilemap-primary-controls control-row control-row-4">
+            <div className={`tilemap-primary-controls control-row control-row-${charsetSource === "derived" ? 5 : 4}`}>
             <label>
               <span>Charset source</span>
               <select
@@ -11276,7 +11295,7 @@ export function App() {
               </select>
             </label> : null}
             </div>
-            <div className="tilemap-options-row">
+            <div className="tilemap-options-row control-row control-row-3">
             <label className="check-control">
               <input
                 type="checkbox"
