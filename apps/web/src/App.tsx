@@ -116,6 +116,7 @@ import {
   defineCustomDiffusionKernel,
   defineCustomOrderedMatrix,
   ORDERED_MATRICES,
+  ditherEngineSelectionGroupForTarget,
   ditherMethodForEngine,
   isCompatibleEnginePair,
   isDitherEngineAvailableForSelection,
@@ -10554,12 +10555,23 @@ export function App() {
                     </optgroup>
                     <optgroup label="Alternatives and historical engines">
                       {compatible.filter((engine) =>
-                        !recommended.has(engine.id) && engine.lifecycle !== "experimental"
+                        !recommended.has(engine.id) &&
+                        ditherEngineSelectionGroupForTarget(engine.id, targetModeId) !== "to-be-hidden" &&
+                        engine.lifecycle !== "experimental"
                       ).map((engine) =>
                         <option key={engine.id} value={engine.id}>{engine.name}</option>)}
                     </optgroup>
                     <optgroup label="Experimental engines">
-                      {compatible.filter((engine) => engine.lifecycle === "experimental").map((engine) =>
+                      {compatible.filter((engine) =>
+                        ditherEngineSelectionGroupForTarget(engine.id, targetModeId) !== "to-be-hidden" &&
+                        engine.lifecycle === "experimental"
+                      ).map((engine) =>
+                        <option key={engine.id} value={engine.id}>{engine.name}</option>)}
+                    </optgroup>
+                    <optgroup label="To be hidden">
+                      {compatible.filter((engine) =>
+                        ditherEngineSelectionGroupForTarget(engine.id, targetModeId) === "to-be-hidden"
+                      ).map((engine) =>
                         <option key={engine.id} value={engine.id}>{engine.name}</option>)}
                     </optgroup>
                   </>;
@@ -10801,13 +10813,23 @@ export function App() {
                     </optgroup>
                     <optgroup label="Alternatives and historical engines">
                       {compatible.filter((engine) =>
-                        !recommended.has(engine.id) && engine.lifecycle !== "experimental"
+                        !recommended.has(engine.id) &&
+                        ditherEngineSelectionGroupForTarget(engine.id, targetModeId) !== "to-be-hidden" &&
+                        engine.lifecycle !== "experimental"
                       ).map((engine) =>
                         <option key={engine.id} value={engine.id}>{engine.name}</option>)}
                     </optgroup>
                     <optgroup label="Experimental engines">
                       {compatible.filter((engine) =>
-                        !recommended.has(engine.id) && engine.lifecycle === "experimental"
+                        !recommended.has(engine.id) &&
+                        ditherEngineSelectionGroupForTarget(engine.id, targetModeId) !== "to-be-hidden" &&
+                        engine.lifecycle === "experimental"
+                      ).map((engine) =>
+                        <option key={engine.id} value={engine.id}>{engine.name}</option>)}
+                    </optgroup>
+                    <optgroup label="To be hidden">
+                      {compatible.filter((engine) =>
+                        ditherEngineSelectionGroupForTarget(engine.id, targetModeId) === "to-be-hidden"
                       ).map((engine) =>
                         <option key={engine.id} value={engine.id}>{engine.name}</option>)}
                     </optgroup>

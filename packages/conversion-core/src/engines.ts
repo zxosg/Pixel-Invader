@@ -43,7 +43,11 @@ export interface DitherEngineDescriptor {
   readonly targetModeIds?: readonly TargetModeId[];
   readonly effectiveParameterIds?: readonly EffectiveEngineParameter[];
   readonly equivalenceGroupByTarget?: Readonly<Partial<Record<TargetModeId, string>>>;
+  readonly selectionGroup?: DitherEngineSelectionGroup;
+  readonly selectionGroupByTarget?: Readonly<Partial<Record<TargetModeId, DitherEngineSelectionGroup>>>;
 }
+
+export type DitherEngineSelectionGroup = "to-be-hidden";
 
 export const ATTRIBUTE_OPTIMIZERS: readonly AttributeOptimizerDescriptor[] = [
   {
@@ -320,6 +324,7 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
     version: 1,
     method: "none",
     platforms: ["zx-spectrum", "sinclair-ql"],
+    selectionGroup: "to-be-hidden",
     equivalenceGroupByTarget: {
       "mode8-256x256": "ql-none-nearest",
       "mode4-512x256": "ql-none-nearest",
@@ -348,6 +353,7 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
     version: 1,
     method: "ordered",
     platforms: ["zx-spectrum", "sinclair-ql"],
+    selectionGroup: "to-be-hidden",
     equivalenceGroupByTarget: {
       "mode8-256x256": "ql-ordered-osg-unrestricted",
       "mode4-512x256": "ql-ordered-osg-unrestricted",
@@ -376,6 +382,7 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
     version: 3,
     method: "ordered",
     platforms: ["zx-spectrum", "sinclair-ql"],
+    selectionGroup: "to-be-hidden",
     equivalenceGroupByTarget: {
       "mode8-256x256": "ql-ordered-local-strict",
       "mode4-512x256": "ql-ordered-local-strict",
@@ -390,6 +397,7 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
     version: 4,
     method: "ordered",
     platforms: ["zx-spectrum", "sinclair-ql"],
+    selectionGroup: "to-be-hidden",
   },
   {
     id: "ordered-baseline-additive-v5",
@@ -397,6 +405,9 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
     version: 5,
     method: "ordered",
     platforms: ["zx-spectrum", "sinclair-ql"],
+    selectionGroupByTarget: {
+      "mode8-mode4-mixed-512x256": "to-be-hidden",
+    },
   },
   {
     id: "ordered-strict-matrix-v6",
@@ -426,6 +437,9 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
       "checkerboard-2x1", "bayer-2x2", "bayer-4x4", "bayer-8x8",
     ],
     lifecycle: "experimental",
+    selectionGroupByTarget: {
+      "mode8-mode4-mixed-512x256": "to-be-hidden",
+    },
     effectiveParameterIds: ["ordered-matrix", "dithering-amount"],
   },
   {
@@ -453,6 +467,9 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
       "clustered-dot-4x4", "clustered-dot-8x8", "void-cluster-8x8",
     ],
     lifecycle: "experimental",
+    selectionGroupByTarget: {
+      "zx48-mixed-256x192": "to-be-hidden",
+    },
     effectiveParameterIds: ["ordered-matrix", "dithering-amount"],
   },
   {
@@ -463,6 +480,7 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
     platforms: ["zx-spectrum", "sinclair-ql"],
     orderedMatrixIds: ["clustered-dot-4x4", "clustered-dot-8x8"],
     lifecycle: "experimental",
+    selectionGroup: "to-be-hidden",
   },
   {
     id: "ordered-void-cluster-v1",
@@ -472,6 +490,9 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
     platforms: ["zx-spectrum", "sinclair-ql", "pmd-85"],
     orderedMatrixIds: ["void-cluster-8x8"],
     lifecycle: "experimental",
+    selectionGroupByTarget: {
+      "mode8-mode4-mixed-512x256": "to-be-hidden",
+    },
   },
   {
     id: "ordered-cell-pattern-v1",
@@ -595,6 +616,7 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
     version: 1,
     method: "error-diffusion",
     platforms: ["zx-spectrum", "sinclair-ql"],
+    selectionGroup: "to-be-hidden",
   },
   {
     id: "error-diffusion-unrestricted-v2",
@@ -610,6 +632,10 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
     method: "error-diffusion",
     platforms: ["zx-spectrum", "sinclair-ql"],
     lifecycle: "experimental",
+    selectionGroupByTarget: {
+      "mode8-mode4-mixed-512x256": "to-be-hidden",
+      "zx48-mixed-256x192": "to-be-hidden",
+    },
     effectiveParameterIds: [
       "dithering-amount", "error-randomization", "error-line-suppression",
     ],
@@ -621,6 +647,10 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
     method: "error-diffusion",
     platforms: ["zx-spectrum", "sinclair-ql"],
     lifecycle: "experimental",
+    selectionGroupByTarget: {
+      "mode8-mode4-mixed-512x256": "to-be-hidden",
+      "zx48-mixed-256x192": "to-be-hidden",
+    },
     effectiveParameterIds: [
       "dithering-amount", "error-randomization", "error-line-suppression",
     ],
@@ -632,6 +662,10 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
     method: "error-diffusion",
     platforms: ["zx-spectrum", "sinclair-ql"],
     lifecycle: "experimental",
+    selectionGroupByTarget: {
+      "mode8-mode4-mixed-512x256": "to-be-hidden",
+      "zx48-mixed-256x192": "to-be-hidden",
+    },
     effectiveParameterIds: [
       "dithering-amount", "error-randomization", "error-line-suppression",
     ],
@@ -665,6 +699,7 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
     method: "error-diffusion",
     platforms: ["zx-spectrum", "sinclair-ql", "pmd-85"],
     lifecycle: "experimental",
+    selectionGroup: "to-be-hidden",
     effectiveParameterIds: [
       "dithering-amount", "error-randomization", "error-line-suppression",
     ],
@@ -698,6 +733,9 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
     method: "error-diffusion",
     platforms: ["zx-spectrum", "sinclair-ql"],
     lifecycle: "experimental",
+    selectionGroupByTarget: {
+      "mode8-mode4-mixed-512x256": "to-be-hidden",
+    },
     effectiveParameterIds: ["dithering-amount", "error-randomization", "error-line-suppression"],
   },
   {
@@ -707,6 +745,9 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
     method: "error-diffusion",
     platforms: ["zx-spectrum"],
     lifecycle: "experimental",
+    selectionGroupByTarget: {
+      "zx48-mixed-256x192": "to-be-hidden",
+    },
     effectiveParameterIds: [
       "dithering-amount", "error-randomization", "error-line-suppression",
     ],
@@ -718,6 +759,9 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
     method: "error-diffusion",
     platforms: ["zx-spectrum"],
     lifecycle: "experimental",
+    selectionGroupByTarget: {
+      "zx48-mixed-256x192": "to-be-hidden",
+    },
     effectiveParameterIds: [
       "dithering-amount", "error-randomization", "error-line-suppression",
     ],
@@ -751,6 +795,12 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
     method: "error-diffusion",
     platforms: ["zx-spectrum", "sinclair-ql"],
     lifecycle: "experimental",
+    selectionGroupByTarget: {
+      "mode8-256x256": "to-be-hidden",
+      "mode4-512x256": "to-be-hidden",
+      "mode8-mode4-mixed-512x256": "to-be-hidden",
+      "zx48-mixed-256x192": "to-be-hidden",
+    },
     effectiveParameterIds: [
       "ordered-matrix", "dithering-amount", "error-randomization",
       "error-line-suppression",
@@ -794,6 +844,9 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
     method: "error-diffusion",
     platforms: ["zx-spectrum"],
     lifecycle: "experimental",
+    selectionGroupByTarget: {
+      "zx48-mixed-256x192": "to-be-hidden",
+    },
   },
 ] as const;
 
@@ -801,6 +854,14 @@ export function ditherMethodForEngine(id: DitherEngineId): DitheringMethod {
   const engine = DITHER_ENGINES.find((candidate) => candidate.id === id);
   if (!engine) throw new RangeError(`Unknown dither engine: ${id}.`);
   return engine.method;
+}
+
+export function ditherEngineSelectionGroupForTarget(
+  id: DitherEngineId,
+  targetModeId: TargetModeId,
+): DitherEngineSelectionGroup | undefined {
+  const engine = DITHER_ENGINES.find((candidate) => candidate.id === id);
+  return engine?.selectionGroupByTarget?.[targetModeId] ?? engine?.selectionGroup;
 }
 
 export function engineFallbackFor(
