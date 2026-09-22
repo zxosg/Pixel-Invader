@@ -69,6 +69,22 @@ cd /Users/jan/GitHub/OsgConvert
 
 The production files are written to `apps/web/dist`.
 
+### Share a test build via GitHub Pages
+
+The repository includes a GitHub Actions workflow at
+`.github/workflows/deploy-pages.yml`. After pushing it to the repository's
+`main` branch, open **Settings → Pages** on GitHub and select **GitHub Actions**
+as the source. Each subsequent push to `main` builds and publishes the web app.
+
+For the current `zxosg/Pixel-Invader` repository, the published address is:
+
+```text
+https://zxosg.github.io/Pixel-Invader/
+```
+
+The workflow obtains the Pages base path automatically, so local development
+continues to use `/` while the project site uses `/Pixel-Invader/`.
+
 ### Standard package-manager commands
 
 The project uses a pnpm workspace and requires a recent Node.js runtime. If Node.js and pnpm are installed normally, these commands are equivalent:
