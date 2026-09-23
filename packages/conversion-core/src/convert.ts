@@ -1,9 +1,12 @@
 import {
+  ZX_BITMAP_BYTES,
   ZX_ATTRIBUTE_COLUMNS,
   ZX_SCREEN_HEIGHT,
   ZX_SCREEN_WIDTH,
   assertValidScreen,
   serializeSoftwareScr,
+  zxBitmapOffset,
+  zxSoftwareScrBytes,
   type ZxScreen,
 } from "@retro-converter/zx-spectrum";
 import {
@@ -2753,6 +2756,40 @@ export function renderAttributeFrameRgba(
     }
   }
   return preview;
+}
+
+/** Render one static inspection phase of a native ZX FLASH screen. */
+export function renderZxFlashPreview(
+  encoded: Uint8Array,
+  attributeHeight: AttributeHeight,
+  invertedPhase: boolean,
+): Uint8Array {
+  const expectedBytes = zxSoftwareScrBytes(attributeHeight);
+  if (encoded.length !== expectedBytes) {
+    throw new RangeError(`ZX SCR must contain ${expectedBytes} bytes.`);
+  }
+  const pixels = new Uint8Array(ZX_SCREEN_WIDTH * ZX_SCREEN_HEIGHT);
+  for (let y = 0; y < ZX_SCREEN_HEIGHT; y += 1) {
+    for (let xByte = 0; xByte < ZX_ATTRIBUTE_COLUMNS; xByte += 1) {
+      const packed = encoded[zxBitmapOffset(xByte, y)] ?? 0;
+      for (let bit = 0; bit < 8; bit += 1) {
+        pixels[y * ZX_SCREEN_WIDTH + xByte * 8 + bit] =
+          (packed & (0x80 >> bit)) === 0 ? 0 : 1;
+      }
+    }
+  }
+  const attributes = encoded.subarray(ZX_BITMAP_BYTES).slice();
+  if (invertedPhase) {
+    for (let index = 0; index < attributes.length; index += 1) {
+      const attribute = attributes[index] ?? 0;
+      if ((attribute & 0x80) !== 0) {
+        attributes[index] = (attribute & ~0x3f) |
+          ((attribute & 0x07) << 3) |
+          ((attribute >> 3) & 0x07);
+      }
+    }
+  }
+  return renderAttributeFrameRgba(pixels, attributes, attributeHeight);
 }
 
 export function convertToZx(

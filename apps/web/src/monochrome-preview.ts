@@ -52,3 +52,21 @@ export function mergeMonochromeRgba(
   }
   return merged;
 }
+
+/** Average two decoded temporal frame previews channel-by-channel. */
+export function mergeTemporalRgba(
+  first: Uint8Array,
+  second: Uint8Array,
+): Uint8Array {
+  if (first.length !== second.length || first.length % 4 !== 0) {
+    throw new RangeError("Temporal previews must have matching RGBA lengths.");
+  }
+  const merged = new Uint8Array(first.length);
+  for (let offset = 0; offset < first.length; offset += 4) {
+    merged[offset] = Math.floor(((first[offset] ?? 0) + (second[offset] ?? 0)) / 2);
+    merged[offset + 1] = Math.floor(((first[offset + 1] ?? 0) + (second[offset + 1] ?? 0)) / 2);
+    merged[offset + 2] = Math.floor(((first[offset + 2] ?? 0) + (second[offset + 2] ?? 0)) / 2);
+    merged[offset + 3] = 255;
+  }
+  return merged;
+}

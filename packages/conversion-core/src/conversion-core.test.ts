@@ -838,6 +838,24 @@ describe("ordered matrices", () => {
 });
 
 describe("ZX conversion", () => {
+  it("keeps generated ZX frames FLASH-free for standard and mixed targets", () => {
+    const source = solid(1, 1, [96, 48, 24, 255]);
+    const standard = convertToZx(source, 1, 1, settings(), "draft");
+    const mixed = convertToZx(source, 1, 1, settings({
+      modeId: "zx48-mixed-256x192",
+      paletteSelections: [0, 1].map((screenIndex) => ({
+        screenIndex,
+        enabledColorIds: [0, 1, 2, 3, 4, 5, 6, 7],
+        brightMode: "auto" as const,
+      })),
+    }), "draft");
+    for (const result of [standard, mixed]) {
+      for (const frame of result.frames) {
+        expect(frame.encoded.subarray(6144).every((attribute) => (attribute & 0x80) === 0)).toBe(true);
+      }
+    }
+  });
+
   it("rejects an invalid preview border code", () => {
     expect(() => convertToZx(
       solid(1, 1, [0, 0, 0, 255]),

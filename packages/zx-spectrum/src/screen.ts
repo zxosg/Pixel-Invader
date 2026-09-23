@@ -13,8 +13,8 @@ export interface ZxScreen {
 export function createBlankScreen(
   attribute: number = ZX_DEFAULT_ATTRIBUTE,
 ): ZxScreen {
-  if (!Number.isInteger(attribute) || attribute < 0 || attribute > 0x7f) {
-    throw new RangeError("Attribute must be an integer from 0 through 127.");
+  if (!Number.isInteger(attribute) || attribute < 0 || attribute > 0xff) {
+    throw new RangeError("Attribute must be an integer from 0 through 255.");
   }
 
   const attributes = new Uint8Array(ZX_ATTRIBUTE_BYTES);
@@ -32,4 +32,3 @@ export function cloneScreen(screen: ZxScreen): ZxScreen {
     attributes: screen.attributes.slice(),
   };
 }
-

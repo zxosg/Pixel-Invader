@@ -1,7 +1,6 @@
 import {
   ZX_ATTRIBUTE_COLUMNS,
   ZX_BITMAP_BYTES,
-  ZX_FLASH_MASK,
   ZX_SCREEN_HEIGHT,
   ZX_SCREEN_WIDTH,
 } from "./constants.js";
@@ -51,16 +50,6 @@ export function validateSoftwareScreen(
       code: "SCREEN_ATTRIBUTE_LENGTH",
       message: `Expected ${expectedAttributes} attributes, received ${attributes.length}.`,
     });
-  }
-  for (let offset = 0; offset < Math.min(attributes.length, expectedAttributes); offset += 1) {
-    if (((attributes[offset] ?? 0) & ZX_FLASH_MASK) !== 0) {
-      issues.push({
-        code: "SCREEN_FLASH_SET",
-        message: `Attribute ${offset} has FLASH set.`,
-        offset,
-      });
-      break;
-    }
   }
   return issues;
 }
@@ -121,19 +110,7 @@ export function validateSoftware8x1Linear(bytes: Uint8Array): ZxValidationIssue[
       message: `Expected ${ZX_SOFTWARE_8X1_LINEAR_BYTES} bytes, received ${bytes.length}.`,
     }];
   }
-  const attributes = bytes.subarray(ZX_BITMAP_BYTES);
-  const issues: ZxValidationIssue[] = [];
-  for (let offset = 0; offset < attributes.length; offset += 1) {
-    if ((attributes[offset]! & ZX_FLASH_MASK) !== 0) {
-      issues.push({
-        code: "SCREEN_FLASH_SET",
-        message: `Attribute ${offset} has FLASH set.`,
-        offset,
-      });
-      break;
-    }
-  }
-  return issues;
+  return [];
 }
 
 export function assertValidSoftware8x1Linear(bytes: Uint8Array): void {
@@ -151,15 +128,6 @@ export function validateSoftwareScr(
       code: "SCR_LENGTH",
       message: `Expected ${expected} bytes, received ${bytes.length}.`,
     }];
-  }
-  for (let offset = ZX_BITMAP_BYTES; offset < bytes.length; offset += 1) {
-    if (((bytes[offset] ?? 0) & ZX_FLASH_MASK) !== 0) {
-      return [{
-        code: "SCR_FLASH_SET",
-        message: `Attribute byte ${offset - ZX_BITMAP_BYTES} has FLASH set.`,
-        offset,
-      }];
-    }
   }
   return [];
 }

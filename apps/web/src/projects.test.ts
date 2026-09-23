@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { unzipSync, zipSync } from "fflate";
 import { DEFAULT_CONVERSION_SETTINGS } from "@retro-converter/conversion-core";
 import { encodeRgbaPng } from "@retro-converter/image-codecs";
-import { createBlankScreen, serializeScr } from "@retro-converter/zx-spectrum";
+import { createBlankScreen, serializeScr, ZX_BITMAP_BYTES } from "@retro-converter/zx-spectrum";
 import { encodeQlScreen } from "@retro-converter/sinclair-ql";
 import { PMD85_VRAM_BYTES } from "@retro-converter/pmd-85";
 import { createCompletedProject, validateCompletedProject } from "./projects.js";
@@ -132,6 +132,20 @@ describe("completed project containers", () => {
     expect((await validateCompletedProject(edited)).resultEdited).toBe(true);
     const legacyCompatible = await createCompletedProject(projectInput());
     expect((await validateCompletedProject(legacyCompatible)).resultEdited).toBe(false);
+  });
+
+  it("preserves editor-set ZX FLASH bits in completed project frames", async () => {
+    const screen = serializeScr(createBlankScreen(0x80 | 0x47));
+    const project = await createCompletedProject({
+      ...projectInput(),
+      scr: screen,
+      frames: [screen],
+      resultEdited: true,
+    });
+    const validated = await validateCompletedProject(project);
+    expect(validated.resultEdited).toBe(true);
+    expect(validated.frames[0]).toEqual(screen);
+    expect(validated.frames[0]?.[ZX_BITMAP_BYTES]).toBe(0xc7);
   });
 
   it("round-trips an optional edited working source", async () => {

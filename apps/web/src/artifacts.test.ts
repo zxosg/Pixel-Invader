@@ -84,6 +84,7 @@ describe("artifact helpers", () => {
       .toBe("none-discrete-v2");
     expect(metadata.conversion.seed).toBe("none");
     expect(metadata.zx_spectrum?.attributes_hex).toHaveLength(768 * 2);
+    expect(metadata.zx_spectrum?.flash_enabled).toBe(false);
     expect(metadata.outputs.scr_sha256).toHaveLength(64);
     expect(JSON.stringify(metadata)).not.toContain("filename");
 
@@ -102,6 +103,23 @@ describe("artifact helpers", () => {
       completedAtUtc: "2026-07-23T00:00:00.000Z",
     });
     expect(randomizedMetadata.conversion.seed).toBe("rc-error-randomizer-1:seed-1");
+  });
+
+  it("reports editor-set ZX FLASH bits from the exported frame", async () => {
+    const screen = serializeScr(createBlankScreen(0x80 | 0x47));
+    const metadata = await buildConversionMetadata({
+      sourceSha256: "33".repeat(32),
+      sourceFormat: "png",
+      sourceWidth: 1,
+      sourceHeight: 1,
+      settings: DEFAULT_CONVERSION_SETTINGS,
+      scr: screen,
+      frames: [screen],
+      previewRgba: new Uint8Array(256 * 192 * 4),
+      score: 0,
+      completedAtUtc: "2026-07-23T00:00:00.000Z",
+    });
+    expect(metadata.zx_spectrum?.flash_enabled).toBe(true);
   });
 
   it("records plain QL conversion without screen mixing", async () => {

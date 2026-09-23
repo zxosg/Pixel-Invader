@@ -87,13 +87,21 @@ import {
   appendBlankTile,
   reorderCharsetTiles,
   type TileEditOperation,
+  transformTile,
 } from "@retro-converter/zx-charset";
-import type { TilemapEditorSnapshot } from "./tilemap-editor.js";
+import {
+  tileTransformLabel,
+  tileTransformToggleState,
+  toggleTileTransform,
+  type TilemapEditorSnapshot,
+  type TileTransformToggle,
+} from "./tilemap-editor.js";
 import {
   applyZxAttributeSelection,
   applyZxAttributeCellMaskOperation,
   cloneZxAttributeCell,
   readZxAttributeCell,
+  transformZxAttributeCell,
   type ZxAttributeCellSnapshot,
   type ZxAttributeSelection,
 } from "./bitmap-attribute-cell-editor.js";
@@ -116,6 +124,7 @@ import {
   defineCustomDiffusionKernel,
   defineCustomOrderedMatrix,
   ORDERED_MATRICES,
+  ditherEngineSelectionGroupForTarget,
   ditherMethodForEngine,
   isCompatibleEnginePair,
   isDitherEngineAvailableForSelection,
@@ -127,6 +136,7 @@ import {
   paletteSelectionsMatch,
   phaseBalancedDiffusionKernel,
   qlHardwareModesForTarget,
+  renderZxFlashPreview,
   type AttributeOptimizerId,
   type AttributeHaloRadius,
   type AttributeHeight,
@@ -275,6 +285,7 @@ import {
 } from "./settings-registry.js";
 import {
   mergeMonochromeRgba,
+  mergeTemporalRgba,
   zxBitmapToMonochromeRgba,
 } from "./monochrome-preview.js";
 import {
@@ -992,8 +1003,10 @@ export function App() {
   const pendingOpenedResultEditedRef = useRef(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const convertedCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const sourceConvertedCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const bitmapEditorSourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const bitmapEditorResultCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const bitmapEditorMergedFlashCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const pendingModeHighRef = useRef<WorkspaceConversionMode | null>(null);
   const workspaceModeRef = useRef<WorkspaceConversionMode>("palette");
   const lastZxSettingsRef = useRef<ConversionSettings>(
@@ -1059,6 +1072,8 @@ export function App() {
   const [tileEditorRedo, setTileEditorRedo] = useState<readonly TilemapEditorSnapshot[]>([]);
   const [tileEditorEdited, setTileEditorEdited] = useState(false);
   const [tilemapEditorCell, setTilemapEditorCell] = useState<number | null>(null);
+  const [tileEditorColorPickerActive, setTileEditorColorPickerActive] = useState(false);
+  const [highlightSelectedTileUses, setHighlightSelectedTileUses] = useState(false);
   const [bitmapEditorCell, setBitmapEditorCell] = useState<BitmapCell | null>(null);
   const [bitmapEditorUndo, setBitmapEditorUndo] = useState<readonly BitmapCell[]>([]);
   const [bitmapEditorRedo, setBitmapEditorRedo] = useState<readonly BitmapCell[]>([]);
@@ -1077,11 +1092,15 @@ export function App() {
   const [bitmapEditorPaperColor, setBitmapEditorPaperColor] = useState<number | null>(null);
   const [bitmapEditorBrightPolicy, setBitmapEditorBrightPolicy] = useState<boolean | null>(null);
   const [bitmapEditorFlashPolicy, setBitmapEditorFlashPolicy] = useState<boolean | null>(null);
+  const [bitmapEditorFlashPreviewMode, setBitmapEditorFlashPreviewMode] =
+    useState<"animate" | "normal" | "inverted">("normal");
+  const [bitmapEditorFlashPreviewPhase, setBitmapEditorFlashPreviewPhase] =
+    useState(false);
   const [bitmapEditorColorPickerActive, setBitmapEditorColorPickerActive] = useState(false);
   const [bitmapEditorPatternPickerActive, setBitmapEditorPatternPickerActive] = useState(false);
   const [bitmapEditorPickedCell, setBitmapEditorPickedCell] = useState<ZxAttributeCellSnapshot | null>(null);
   const [bitmapEditorPickedFrameIndex, setBitmapEditorPickedFrameIndex] = useState<number | null>(null);
-  const [bitmapEditorTarget, setBitmapEditorTarget] = useState<BitmapEditorTarget>("result");
+  const [bitmapEditorTarget] = useState<BitmapEditorTarget>("result");
   const [bitmapEditorResultFrameIndex, setBitmapEditorResultFrameIndex] = useState(0);
   const [bitmapEditorResultBuffer, setBitmapEditorResultBuffer] = useState<NativeResultBitmap | null>(null);
   const bitmapEditorResultBufferRef = useRef<NativeResultBitmap | null>(null);
@@ -1791,6 +1810,9 @@ export function App() {
 
   function setWorkbenchWindowOpen(window: ActiveWorkbenchWindowId, open: boolean): void {
     updateWorkbenchWindowLayout(window, (layout) => ({ ...layout, open }));
+    if (window === "geometry" || window === "adjustments" || window === "palette" || window === "dithering" || window === "tilemap") {
+      setWorkbenchSectionsOpen((current) => ({ ...current, [window]: open }));
+    }
   }
 
   function workbenchDockLayerFor(dock: WorkbenchWindowDock): HTMLDivElement | null {
@@ -1926,11 +1948,11 @@ export function App() {
     ? workbenchResultFloating ? "both-floating" : "source-floating"
     : workbenchResultFloating ? "result-floating" : "both-docked";
   const workbenchHasDockedSettingsSections =
-    (workbenchSectionsOpen.geometry && !workbenchGeometryFloating) ||
-    (workbenchSectionsOpen.adjustments && !workbenchAdjustmentsFloating) ||
-    (workbenchSectionsOpen.palette && !workbenchPaletteFloating) ||
-    (workbenchSectionsOpen.dithering && !workbenchDitheringFloating) ||
-    (workbenchSectionsOpen.tilemap && workspaceMode === "tilemap" && !workbenchTilemapFloating);
+    (workbenchWindowLayout("geometry").open && !workbenchGeometryFloating) ||
+    (workbenchWindowLayout("adjustments").open && !workbenchAdjustmentsFloating) ||
+    (workbenchWindowLayout("palette").open && !workbenchPaletteFloating) ||
+    (workbenchWindowLayout("dithering").open && !workbenchDitheringFloating) ||
+    (workbenchWindowLayout("tilemap").open && workspaceMode === "tilemap" && !workbenchTilemapFloating);
   const workbenchSettingsDockEmpty = workbenchHasFloatingSections && !workbenchHasDockedSettingsSections;
   const workbenchSnapDistance = 16;
   const workbenchGridSize = 8;
@@ -2413,7 +2435,7 @@ export function App() {
   }
 
   function setWorkbenchSectionOpen(section: WorkbenchSettingsSection, open: boolean): void {
-    setWorkbenchSectionsOpen((current) => ({ ...current, [section]: open }));
+    setWorkbenchWindowOpen(section, open);
   }
 
   function startWorkbenchDrag(event: ReactPointerEvent<HTMLElement>): void {
@@ -3270,24 +3292,36 @@ export function App() {
   // as the source canvas. This covers normal image previews as well as screen
   // and tilemap result stages.
   useLayoutEffect(() => {
-    const canvas = convertedCanvasRef.current;
+    const canvases = [sourceConvertedCanvasRef.current, convertedCanvasRef.current]
+      .filter((canvas): canvas is HTMLCanvasElement => canvas !== null);
     const displayResult = workspaceMode === "tilemap" &&
         charsetState.kind === "ready" && !tilemapStale
       ? lastFinal
       : draftPreviewResult(draftState) ?? lastFinal;
-    if (canvas === null || displayResult === null) return;
-    const context = canvas.getContext("2d");
-    if (context === null) return;
+    if (canvases.length === 0 || displayResult === null) return;
     let rgba: Uint8Array | undefined;
     let previewWidth = displayResult.width;
     let previewHeight = displayResult.height;
+    const flashPhase = workspaceMode === "palette" && (
+      bitmapEditorFlashPreviewMode === "inverted" ||
+      (bitmapEditorFlashPreviewMode === "animate" && bitmapEditorFlashPreviewPhase)
+    );
+    const zxFramePreview = (frameIndex: number): Uint8Array | undefined => {
+      const frame = displayResult.frames[frameIndex];
+      if (frame === undefined) return undefined;
+      if (displayResult.platformId === "zx-spectrum" &&
+          displayResult.attributeHeight !== null && flashPhase) {
+        return renderZxFlashPreview(frame.encoded, displayResult.attributeHeight, true);
+      }
+      return frame.previewRgba;
+    };
     const physicalSpatialFrame = displayResult.frames[0];
     const spatialPreview = displayResult.verticalSpatialDiagnostics === undefined ||
         physicalSpatialFrame === undefined
       ? undefined
       : verticalSpatialPreviewForStage(
           outputPreviewStage,
-          physicalSpatialFrame.previewRgba,
+          zxFramePreview(0) ?? physicalSpatialFrame.previewRgba,
           displayResult.width,
           displayResult.height,
           displayResult.verticalSpatialDiagnostics,
@@ -3338,9 +3372,8 @@ export function App() {
           : undefined
         : outputPreviewStage === "screen-2"
           ? displayResult.verticalSpatialDiagnostics !== undefined
-            ? spatialPreview?.rgba
-            : displayResult.frames[1]?.previewRgba ??
-              displayResult.frames[0]?.previewRgba
+          ? spatialPreview?.rgba
+            : zxFramePreview(1) ?? zxFramePreview(0)
           : outputPreviewStage === "merged"
             ? displayResult.platformId === "sinclair-ql" &&
                 displayResult.modeId === "mode8-mode4-mixed-512x256" &&
@@ -3354,25 +3387,37 @@ export function App() {
                 )
               : displayResult.verticalSpatialDiagnostics !== undefined
                 ? spatialPreview?.rgba
-                : displayResult.mergedPreviewRgba
-            : displayResult.frames[0]?.previewRgba;
+                : displayResult.platformId === "zx-spectrum" && flashPhase
+                  ? displayResult.frames.length > 1
+                    ? mergeTemporalRgba(
+                        zxFramePreview(0) ?? displayResult.frames[0]!.previewRgba,
+                        zxFramePreview(1) ?? displayResult.frames[1]!.previewRgba,
+                      )
+                    : zxFramePreview(0) ?? displayResult.mergedPreviewRgba
+                  : displayResult.mergedPreviewRgba
+            : zxFramePreview(0);
     }
     if (displayResult.verticalSpatialDiagnostics !== undefined) {
       previewWidth = spatialPreview?.width ?? previewWidth;
       previewHeight = spatialPreview?.height ?? previewHeight;
     }
-    canvas.width = previewWidth;
-    canvas.height = previewHeight;
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    if (rgba === undefined) return;
-    const pixels = new Uint8ClampedArray(Uint8Array.from(rgba).buffer);
-    context.putImageData(
-      new ImageData(pixels, previewWidth, previewHeight),
-      0,
-      0,
-    );
+    for (const canvas of canvases) {
+      canvas.width = previewWidth;
+      canvas.height = previewHeight;
+      const context = canvas.getContext("2d");
+      if (context === null) continue;
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      if (rgba === undefined) continue;
+      const pixels = new Uint8ClampedArray(Uint8Array.from(rgba).buffer);
+      context.putImageData(
+        new ImageData(pixels, previewWidth, previewHeight),
+        0,
+        0,
+      );
+    }
   }, [
     draftState, lastFinal, outputPreviewStage, workspaceMode, charsetState,
+    bitmapEditorFlashPreviewMode, bitmapEditorFlashPreviewPhase,
     sourcePreviewContent, resultPreviewContent,
     tilemapStale, hideAttributes, qlMixedDisplayResolution,
     brightness, contrast, saturation, gamma, smoothing, sharpening,
@@ -3760,6 +3805,8 @@ export function App() {
   useEffect(() => {
     const revision = revisionRef.current + 1;
     revisionRef.current = revision;
+    setBitmapEditorFlashPreviewMode("normal");
+    setBitmapEditorFlashPreviewPhase(false);
     setBitmapEditorScope("pixel");
     setBitmapEditorPatternPickerActive(false);
     clearBitmapEditorPickedCell();
@@ -5125,6 +5172,16 @@ export function App() {
     const pixelY = Math.max(0, Math.min(191, Math.floor(
       (event.clientY - bounds.top) / bounds.height * 192,
     )));
+    if (workspaceMode === "tilemap" && tileEditorColorPickerActive && charsetState.kind === "ready") {
+      const sourceCell = Math.floor(pixelY / 8) * 32 + Math.floor(pixelX / 8);
+      const sourceAttribute = charsetState.result.attributes[sourceCell];
+      if (sourceAttribute !== undefined) {
+        applyPickedTilemapAttribute(sourceAttribute);
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+    }
     if (pickBitmapEditorSourceFromResultWindow(pixelX, pixelY)) {
       event.preventDefault();
       event.stopPropagation();
@@ -6253,6 +6310,7 @@ export function App() {
     setTileEditorUndo([]);
     setTileEditorRedo([]);
     setTilemapEditorCell(0);
+    setTileEditorColorPickerActive(false);
     setTileEditorEdited(false);
   }
 
@@ -6304,10 +6362,55 @@ export function App() {
     );
   }
 
+  function updateSelectedTilemapCell(
+    update: (assignment: WorkerCharsetResult["assignments"][number], attribute: number) => {
+      readonly assignment?: WorkerCharsetResult["assignments"][number];
+      readonly attribute?: number;
+    },
+  ): void {
+    if (charsetState.kind !== "ready" || tilemapEditorCell === null) return;
+    const result = charsetState.result;
+    const cellIndex = tilemapEditorCell;
+    const currentAssignment = result.assignments[cellIndex];
+    if (currentAssignment === undefined) return;
+    const currentAttribute = result.attributes[cellIndex] ?? 0;
+    const updateResult = update(currentAssignment, currentAttribute);
+    const nextAssignment = updateResult.assignment ?? currentAssignment;
+    const nextAttribute = updateResult.attribute ?? currentAttribute;
+    if (nextAssignment.characterIndex === currentAssignment.characterIndex &&
+        nextAssignment.transform === currentAssignment.transform &&
+        nextAssignment.inverted === currentAssignment.inverted &&
+        nextAttribute === currentAttribute) return;
+    const assignments = result.assignments.slice();
+    assignments[cellIndex] = nextAssignment;
+    const attributes = result.attributes.slice();
+    attributes[cellIndex] = nextAttribute & 0xff;
+    pushTileEditorHistory(result);
+    commitTileEditorResult(result, result.charset, assignments, result.encoding, attributes);
+  }
+
+  function toggleSelectedTilemapTransform(toggle: TileTransformToggle): void {
+    if (charsetState.kind !== "ready" || !charsetState.result.transformations) return;
+    updateSelectedTilemapCell((assignment) => ({
+      assignment: { ...assignment, transform: toggleTileTransform(assignment.transform, toggle) },
+    }));
+  }
+
+  function updateSelectedTilemapAttribute(update: (attribute: number) => number): void {
+    updateSelectedTilemapCell((_assignment, attribute) => ({ attribute: update(attribute) & 0xff }));
+  }
+
+  function applyPickedTilemapAttribute(attribute: number): void {
+    updateSelectedTilemapAttribute(() => attribute & 0xff);
+    setTileEditorColorPickerActive(false);
+  }
+
   function selectEditorTile(index: number): void {
     if (charsetState.kind !== "ready") return;
     if (index < 0 || index >= charsetState.result.characterCount) return;
     setTileEditorSelected(index);
+    const firstCell = charsetState.result.assignments.findIndex((assignment) => assignment.characterIndex === index);
+    if (firstCell >= 0) setTilemapEditorCell(firstCell);
   }
 
   function selectUsedTile(index: number): void {
@@ -6561,6 +6664,8 @@ export function App() {
   }
 
   function resetResultEditorState(): void {
+    setBitmapEditorFlashPreviewMode("normal");
+    setBitmapEditorFlashPreviewPhase(false);
     clearBitmapEditorPickedCell();
     setBitmapEditorColorPickerActive(false);
     setBitmapEditorPatternPickerActive(false);
@@ -6654,6 +6759,9 @@ export function App() {
         result.width,
         qlMixedDisplayResolution,
       );
+    }
+    if (result.platformId === "zx-spectrum" && result.modeId === "zx48-mixed-256x192") {
+      return mergeTemporalRgba(first.previewRgba, second.previewRgba);
     }
     if (result.platformId === "zx-spectrum") {
       return mergeMonochromeRgba(first.previewRgba, second.previewRgba);
@@ -7269,6 +7377,8 @@ export function App() {
     setBitmapEditorResultOriginal(null);
     setBitmapEditorResultOriginalResult(null);
     setBitmapEditorResultEdited(false);
+    setBitmapEditorFlashPreviewMode("normal");
+    setBitmapEditorFlashPreviewPhase(false);
     setImageStatus("Converted result restored to the last High conversion.");
     setDirty(true);
   }
@@ -8032,6 +8142,8 @@ export function App() {
   async function openProject(file: File | undefined) {
     if (file === undefined) return;
     if (dirty && !window.confirm("Replace the current unsaved work with this project?")) return;
+    setBitmapEditorFlashPreviewMode("normal");
+    setBitmapEditorFlashPreviewPhase(false);
     const verifier = new ConversionWorkerClient();
     try {
       const validated = await validateCompletedProject(new Uint8Array(await file.arrayBuffer()));
@@ -8423,6 +8535,35 @@ export function App() {
       charsetState.kind === "ready" && !tilemapStale
     ? lastFinal
     : draftPreviewResult(draftState) ?? lastFinal;
+  const bitmapEditorFlashFrame = displayedResult?.frames[
+    Math.min(bitmapEditorResultFrameIndex, Math.max(0, displayedResult.frames.length - 1))
+  ];
+  const bitmapEditorFlashEncoded = bitmapEditorTarget === "result" &&
+      displayedResult?.platformId === "zx-spectrum"
+    ? bitmapEditorResultBuffer?.encoded ?? bitmapEditorFlashFrame?.encoded
+    : undefined;
+  const bitmapEditorFlashAvailable = workspaceMode === "palette" && displayedResult?.platformId === "zx-spectrum" &&
+    displayedResult.frames.some((frame, index) => {
+      const encoded = index === bitmapEditorResultFrameIndex && bitmapEditorFlashEncoded !== undefined
+        ? bitmapEditorFlashEncoded
+        : frame.encoded;
+      return encoded.subarray(ZX_BITMAP_BYTES).some((attribute) => (attribute & 0x80) !== 0);
+    });
+  useEffect(() => {
+    if (bitmapEditorFlashPreviewMode === "inverted") {
+      setBitmapEditorFlashPreviewPhase(true);
+      return;
+    }
+    setBitmapEditorFlashPreviewPhase(false);
+    if (bitmapEditorFlashPreviewMode !== "animate" || !bitmapEditorFlashAvailable) return;
+    const timer = window.setInterval(() => {
+      setBitmapEditorFlashPreviewPhase((phase) => !phase);
+    }, 500);
+    return () => window.clearInterval(timer);
+  }, [
+    bitmapEditorFlashPreviewMode,
+    bitmapEditorFlashAvailable,
+  ]);
   useEffect(() => {
     if (bitmapEditorTarget !== "result" || displayedResult === null || bitmapEditorResultEdited) return;
     const frameIndex = Math.min(bitmapEditorResultFrameIndex, Math.max(0, displayedResult.frames.length - 1));
@@ -8441,6 +8582,7 @@ export function App() {
   useLayoutEffect(() => {
     const sourceCanvas = bitmapEditorSourceCanvasRef.current;
     const resultCanvas = bitmapEditorResultCanvasRef.current;
+    const mergedFlashCanvas = bitmapEditorMergedFlashCanvasRef.current;
     const activeEditorBuffer = bitmapEditorTarget === "result"
       ? bitmapEditorResultBuffer
       : bitmapEditorBuffer;
@@ -8454,22 +8596,76 @@ export function App() {
       return { width: displayedResult.width, height: displayedResult.height, rgba };
     })());
     if (target === null || target === undefined) return;
+    const editorFlashPhase = bitmapEditorFlashPreviewMode === "inverted" ||
+      (bitmapEditorFlashPreviewMode === "animate" && bitmapEditorFlashPreviewPhase);
+    const activeZxResultEncoded = bitmapEditorTarget === "result" &&
+        displayedResult?.platformId === "zx-spectrum"
+      ? bitmapEditorResultBuffer?.encoded ?? displayedResult.frames[
+          Math.min(bitmapEditorResultFrameIndex, Math.max(0, displayedResult.frames.length - 1))
+        ]?.encoded
+      : undefined;
+    const renderedTarget = bitmapEditorTarget === "result" &&
+        activeZxResultEncoded !== undefined &&
+        displayedResult?.platformId === "zx-spectrum" &&
+        displayedResult.attributeHeight !== null &&
+        editorFlashPhase
+      ? {
+          ...target,
+          rgba: renderZxFlashPreview(
+            activeZxResultEncoded,
+            displayedResult.attributeHeight,
+            true,
+          ),
+        }
+      : target;
     for (const canvas of [sourceCanvas, resultCanvas]) {
       if (canvas === null) continue;
-      canvas.width = target.width;
-      canvas.height = target.height;
+      canvas.width = renderedTarget.width;
+      canvas.height = renderedTarget.height;
       const context = canvas.getContext("2d");
       if (context === null) continue;
       context.putImageData(
-        new ImageData(new Uint8ClampedArray(target.rgba), target.width, target.height),
+        new ImageData(new Uint8ClampedArray(renderedTarget.rgba), renderedTarget.width, renderedTarget.height),
         0,
         0,
       );
+    }
+    if (mergedFlashCanvas !== null &&
+        bitmapEditorTarget === "result" &&
+        displayedResult?.platformId === "zx-spectrum" &&
+        displayedResult.modeId === "zx48-mixed-256x192" &&
+        displayedResult.frames.length === 2 &&
+        displayedResult.attributeHeight !== null) {
+      const [firstFrame, secondFrame] = displayedResult.frames;
+      if (firstFrame !== undefined && secondFrame !== undefined) {
+        const firstPhase = renderZxFlashPreview(
+          firstFrame.encoded,
+          displayedResult.attributeHeight,
+          editorFlashPhase,
+        );
+        const secondPhase = renderZxFlashPreview(
+          secondFrame.encoded,
+          displayedResult.attributeHeight,
+          editorFlashPhase,
+        );
+        const merged = mergeTemporalRgba(firstPhase, secondPhase);
+        mergedFlashCanvas.width = displayedResult.width;
+        mergedFlashCanvas.height = displayedResult.height;
+        const context = mergedFlashCanvas.getContext("2d");
+        context?.putImageData(
+          new ImageData(new Uint8ClampedArray(merged), displayedResult.width, displayedResult.height),
+          0,
+          0,
+        );
+      }
     }
   }, [
     bitmapEditorBuffer,
     bitmapEditorResultBuffer,
     bitmapEditorTarget,
+    bitmapEditorFlashPreviewMode,
+    bitmapEditorFlashPreviewPhase,
+    bitmapEditorFlashAvailable,
     displayedResult,
     outputPreviewStage,
     sourcePreviewContent,
@@ -8631,28 +8827,6 @@ export function App() {
     const pickedPreviewPaper = ZX_BASE_COLORS[(pickedPreviewAttribute >> 3) & 7];
     const bitmapEditorActions = <div className="bitmap-editor-full-toolbar" aria-label="Bitmap editor actions" onPointerDown={(event) => { bitmapEditorFullPointerRef.current = null; bitmapEditorPointerRef.current = null; panDragRef.current = null; event.stopPropagation(); }}>
       <div className="bitmap-editor-control-grid" aria-label="Bitmap editor controls">
-      <label className="bitmap-editor-target-control"><span>Editing</span><select value={bitmapEditorTarget} onChange={(event) => {
-        const target = event.target.value as BitmapEditorTarget;
-        if (target === bitmapEditorTarget) return;
-        clearBitmapEditorPickedCell();
-        setBitmapEditorColorPickerActive(false);
-        setBitmapEditorPatternPickerActive(false);
-        setBitmapEditorScope("pixel");
-        if (target === "source" && bitmapEditorResultEdited) {
-          if (!window.confirm("Switch to source editing and discard unsaved converted-result edits?")) return;
-          if (bitmapEditorResultOriginalResult !== null) {
-            draftWorkerRef.current?.dispose();
-            draftWorkerRef.current = null;
-            setDraftState({ kind: "idle" });
-            setLastFinal(bitmapEditorResultOriginalResult);
-            setState({ kind: "ready", result: bitmapEditorResultOriginalResult });
-            setDirty(true);
-          }
-        }
-        if (target === "source") resetResultEditorState();
-        setBitmapEditorTarget(target);
-        if (target === "result" && displayedResult !== null) initializeResultEditor(displayedResult, bitmapEditorResultFrameIndex);
-        }} aria-label="Bitmap editor target"><option value="result">Converted result</option><option value="source">Source image</option></select></label>
       {bitmapEditorTarget === "result" && displayedResult !== null && displayedResult.frames.length > 1 ? <label className="bitmap-editor-target-control"><span>Frame</span><select value={bitmapEditorResultFrameIndex} onChange={(event) => { const index = Number(event.target.value); selectResultEditorFrame(displayedResult, index); }} aria-label="Result frame">{displayedResult.frames.map((_, index) => <option value={index} key={index}>Screen {index + 1}</option>)}</select></label> : null}
       <button className="secondary compact bitmap-editor-full-action bitmap-editor-action-wide" type="button" onClick={bitmapEditorTarget === "result" ? revertFullResult : revertFullBitmap} disabled={bitmapEditorTarget === "result" ? !bitmapEditorResultEdited : bitmapEditorRevertSource === null} title={bitmapEditorTarget === "result" ? "Revert converted-result edits" : "Revert source edits"} aria-label={bitmapEditorTarget === "result" ? "Revert converted result" : "Revert source"}>Revert</button>
       <div className="bitmap-editor-action-grid bitmap-editor-history-grid" aria-label="Bitmap editor history">
@@ -8707,8 +8881,25 @@ export function App() {
             })}
           </div>
         </div>
+        {bitmapEditorTarget === "result" && displayedResult?.platformId === "zx-spectrum" ? <div className="bitmap-editor-picked-cell-manipulation" aria-label="Picked tile controls">
+          <div className="bitmap-editor-picked-cell-directions" role="group" aria-label="Rotate picked tile">
+            {(["left", "right", "up", "down"] as const).map((direction) => <button className="secondary compact bitmap-editor-full-action bitmap-editor-picked-cell-action" type="button" key={direction} disabled={bitmapEditorPickedCell === null} title={`Rotate picked tile ${direction}`} aria-label={`Rotate picked tile ${direction}`} onClick={() => setBitmapEditorPickedCell((cell) => cell === null ? null : transformZxAttributeCell(cell, direction))}>{direction === "left" ? "←" : direction === "right" ? "→" : direction === "up" ? "↑" : "↓"}</button>)}
+          </div>
+          <div className="bitmap-editor-split-button bitmap-editor-picked-cell-actions" role="group" aria-label="Invert or reset picked tile">
+            <button className="secondary compact bitmap-editor-full-action bitmap-editor-split-action" type="button" disabled={bitmapEditorPickedCell === null} title="Invert picked tile pixels" aria-label="Invert picked tile" onClick={() => setBitmapEditorPickedCell((cell) => cell === null ? null : transformZxAttributeCell(cell, "invert"))}>INV</button>
+            <button className="secondary compact bitmap-editor-full-action bitmap-editor-split-action" type="button" disabled={bitmapEditorPickedCell === null} title="Empty/reset picked tile pixels" aria-label="Empty or reset picked tile" onClick={() => setBitmapEditorPickedCell((cell) => cell === null ? null : transformZxAttributeCell(cell, "reset"))}>RST</button>
+          </div>
+        </div> : null}
         {bitmapEditorPickedCell === null ? <span className="bitmap-editor-picked-cell-empty">Empty · 8×{pickedPreviewHeight} · select a result cell with Pattern picker</span> : <span className="bitmap-editor-picked-cell-meta">{bitmapEditorPickedCell.cellX},{bitmapEditorPickedCell.cellY} · 8×{bitmapEditorPickedCell.attributeHeight} · INK {bitmapEditorPickedCell.attribute & 7} / PAPER {(bitmapEditorPickedCell.attribute >> 3) & 7} · BRIGHT {(bitmapEditorPickedCell.attribute & 0x40) !== 0 ? "on" : "off"} · FLASH {(bitmapEditorPickedCell.attribute & 0x80) !== 0 ? "on" : "off"} · 0x{bitmapEditorPickedCell.attribute.toString(16).padStart(2, "0")}</span>}
       </div>
+      {displayedResult?.platformId === "zx-spectrum" &&
+        displayedResult.modeId === "zx48-mixed-256x192" &&
+        bitmapEditorFlashAvailable ? (
+          <div className="bitmap-editor-flash-merged-preview">
+            <span>Mixed result · shared phase</span>
+            <canvas ref={bitmapEditorMergedFlashCanvasRef} aria-label="ZX mixed result FLASH phase preview" />
+          </div>
+        ) : null}
     </div>;
     return <div className="bitmap-editor-pane-layout">
       {bitmapEditorActions}
@@ -8791,24 +8982,69 @@ export function App() {
       ? <p>Run Tilemap High to open the unified editor.</p>
     : (() => {
         const result = charsetState.result;
+        const selectedCellIndex = tilemapEditorCell;
+        const selectedAssignment = selectedCellIndex === null ? null : result.assignments[selectedCellIndex] ?? null;
+        const selectedAttribute = selectedCellIndex === null ? 0 : result.attributes[selectedCellIndex] ?? 0;
+        const selectedTransform = selectedAssignment?.transform ?? 0;
+        const selectedTransformToggles = tileTransformToggleState(selectedTransform);
+        const selectedTilePreview = selectedAssignment === null
+          ? new Uint8Array(8)
+          : transformTile(result.charset.subarray(selectedAssignment.characterIndex * 8, selectedAssignment.characterIndex * 8 + 8), selectedAssignment.transform);
+        if (selectedAssignment?.inverted) {
+          for (let row = 0; row < selectedTilePreview.length; row += 1) selectedTilePreview[row] = (selectedTilePreview[row] ?? 0) ^ 0xff;
+        }
+        const selectedBright = (selectedAttribute & 0x40) !== 0;
+        const selectedFlash = (selectedAttribute & 0x80) !== 0;
+        const selectedInk = ZX_BASE_COLORS[selectedAttribute & 7];
+        const selectedPaper = ZX_BASE_COLORS[(selectedAttribute >> 3) & 7];
+        const selectedCellX = selectedCellIndex === null ? null : selectedCellIndex % 32;
+        const selectedCellY = selectedCellIndex === null ? null : Math.floor(selectedCellIndex / 32);
+        const canEditSelectedCell = selectedCellIndex !== null && selectedAssignment !== null;
         return <div className="unified-editor" tabIndex={-1} onKeyDown={handleUnifiedEditorKey}>
           <div className="unified-editor-toolbar">
             <button className="secondary compact" type="button" onClick={undoTileEditor} disabled={tileEditorUndo.length === 0}>Undo</button>
             <button className="secondary compact" type="button" onClick={redoTileEditor} disabled={tileEditorRedo.length === 0}>Redo</button>
             <button className="secondary compact" type="button" onClick={revertSelectedTile} disabled={tileEditorOriginals[tileEditorSelected] === null}>Revert</button>
           </div>
-          <>
-            <div className="unified-tile-layout">
-              <div className="unified-tile-bitmap" role="grid" aria-label={`Tile ${tileEditorSelected} bitmap`} onPointerDown={beginTileEditorPaint} onPointerMove={moveTileEditorPaint} onPointerUp={endTileEditorPaint} onPointerCancel={endTileEditorPaint}>{Array.from({ length: 64 }, (_, pixelIndex) => { const x = pixelIndex % 8; const y = Math.floor(pixelIndex / 8); const row = result.charset[tileEditorSelected * 8 + y] ?? 0; const on = (row & (0x80 >> x)) !== 0; return <span className={`tile-editor-pixel${on ? " on" : ""}`} key={pixelIndex} role="gridcell" aria-label={`${x}, ${y}${on ? ": on" : ": off"}`} />; })}</div>
-              <div className="unified-tile-side">
-                <div className="unified-tile-heading">
-                  <p><strong>Tile {tileEditorSelected}</strong> · {tileUsage.find((item) => item.characterIndex === tileEditorSelected)?.count ?? 0} cells use this tile</p>
-                  <div className="unified-tile-navigation"><button className="secondary compact" type="button" onClick={() => moveEditorTile(-1)} disabled={tileEditorSelected === 0} aria-label="Previous tile">← Previous</button><button className="secondary compact" type="button" onClick={() => moveEditorTile(1)} disabled={tileEditorSelected >= result.characterCount - 1} aria-label="Next tile">Next →</button></div>
-                </div>
-                <div className="tile-editor-toolbar"><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "rotate-left" })}>↶</button><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "rotate-right" })}>↷</button><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "rotate-up" })}>↑</button><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "rotate-down" })}>↓</button><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "clear" })}>Clear</button><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "invert" })}>Invert</button></div>
+          <div className="unified-tile-layout">
+            <section className="unified-tile-column" aria-label="Base tile editor">
+              <div className="unified-tile-heading">
+                <p><strong>Base tile {tileEditorSelected}</strong> · {tileUsage.find((item) => item.characterIndex === tileEditorSelected)?.count ?? 0} map cells use it</p>
+                <div className="unified-tile-navigation"><button className="secondary compact" type="button" onClick={() => moveEditorTile(-1)} disabled={tileEditorSelected === 0} aria-label="Previous tile">← Previous</button><button className="secondary compact" type="button" onClick={() => moveEditorTile(1)} disabled={tileEditorSelected >= result.characterCount - 1} aria-label="Next tile">Next →</button></div>
               </div>
-            </div>
-          </>
+              <div className="unified-tile-bitmap" role="grid" aria-label={`Base tile ${tileEditorSelected} bitmap`} onPointerDown={beginTileEditorPaint} onPointerMove={moveTileEditorPaint} onPointerUp={endTileEditorPaint} onPointerCancel={endTileEditorPaint}>{Array.from({ length: 64 }, (_, pixelIndex) => { const x = pixelIndex % 8; const y = Math.floor(pixelIndex / 8); const row = result.charset[tileEditorSelected * 8 + y] ?? 0; const on = (row & (0x80 >> x)) !== 0; return <span className={`tile-editor-pixel${on ? " on" : ""}`} key={pixelIndex} role="gridcell" aria-label={`${x}, ${y}${on ? ": on" : ": off"}`} />; })}</div>
+              <div className="tile-editor-toolbar"><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "rotate-left" })} aria-label="Rotate base tile left">↶</button><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "rotate-right" })} aria-label="Rotate base tile right">↷</button><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "rotate-up" })} aria-label="Rotate base tile up">↑</button><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "rotate-down" })} aria-label="Rotate base tile down">↓</button><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "clear" })}>Clear</button><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "invert" })}>Invert</button></div>
+            </section>
+            <section className="unified-tile-column unified-cell-column" aria-label="Selected map cell preview and attributes">
+              <div className="unified-tile-heading">
+                <p><strong>{canEditSelectedCell ? `Map cell ${selectedCellX},${selectedCellY}` : "No map cell selected"}</strong>{canEditSelectedCell ? ` · Tile ${selectedAssignment.characterIndex}` : " · Select a cell in the tilemap preview"}</p>
+              </div>
+              <div className="unified-rendered-tile" role="img" aria-label={canEditSelectedCell ? `Rendered tile at map cell ${selectedCellX},${selectedCellY}, ${tileTransformLabel(selectedTransform)}, INK ${selectedAttribute & 7}, PAPER ${(selectedAttribute >> 3) & 7}` : "No selected tilemap cell"}>
+                {Array.from({ length: 64 }, (_, pixelIndex) => {
+                  const x = pixelIndex % 8;
+                  const y = Math.floor(pixelIndex / 8);
+                  const on = ((selectedTilePreview[y] ?? 0) & (0x80 >> x)) !== 0;
+                  const color = on ? selectedInk : selectedPaper;
+                  return <span key={pixelIndex} style={{ backgroundColor: color === undefined ? "#000" : color[selectedBright ? "bright" : "normal"] }} />;
+                })}
+              </div>
+              <div className="unified-transform-controls" aria-label="Selected cell transformation">
+                {([
+                  ["mirror-x", "Mirror X"],
+                  ["mirror-y", "Mirror Y"],
+                  ["rotate-cw", "R90 CW"],
+                ] as const).map(([toggle, label]) => <button className={`secondary compact${selectedTransformToggles[toggle] ? " active" : ""}`} key={toggle} type="button" disabled={!canEditSelectedCell || !result.transformations} aria-pressed={selectedTransformToggles[toggle]} title={result.transformations ? `${label} selected map cell` : "Enable transformations in tilemap settings to edit this cell"} onClick={() => toggleSelectedTilemapTransform(toggle)}>{label}</button>)}
+                <button className="secondary compact" type="button" disabled={!canEditSelectedCell || !result.transformations || selectedTransform === 0} title="Reset selected cell transform" onClick={() => updateSelectedTilemapCell((assignment) => ({ assignment: { ...assignment, transform: 0 } }))}>Reset</button>
+              </div>
+              <p className="unified-transform-readout">{tileTransformLabel(selectedTransform)}{selectedAssignment?.inverted ? " · Inverted" : ""}{selectedFlash ? " · FLASH" : ""}</p>
+              <div className="unified-cell-colors" aria-label="Selected cell color attributes">
+                <div className="unified-color-row"><strong>INK</strong><div className="unified-color-swatches">{ZX_BASE_COLORS.map((color) => <button className={`bitmap-editor-attribute-color${(selectedAttribute & 7) === color.code ? " selected" : ""}`} key={`ink-${color.code}`} type="button" disabled={!canEditSelectedCell} aria-label={`Set selected cell INK to ${color.name}`} aria-pressed={(selectedAttribute & 7) === color.code} title={`INK ${color.name}`} onClick={() => updateSelectedTilemapAttribute((attribute) => (attribute & ~7) | color.code)}><span style={{ background: selectedBright ? color.bright : color.normal }} /></button>)}</div></div>
+                <div className="unified-color-row"><strong>PAPER</strong><div className="unified-color-swatches">{ZX_BASE_COLORS.map((color) => <button className={`bitmap-editor-attribute-color${((selectedAttribute >> 3) & 7) === color.code ? " selected" : ""}`} key={`paper-${color.code}`} type="button" disabled={!canEditSelectedCell} aria-label={`Set selected cell PAPER to ${color.name}`} aria-pressed={((selectedAttribute >> 3) & 7) === color.code} title={`PAPER ${color.name}`} onClick={() => updateSelectedTilemapAttribute((attribute) => (attribute & ~0x38) | (color.code << 3))}><span style={{ background: selectedBright ? color.bright : color.normal }} /></button>)}</div></div>
+                <div className="unified-attribute-flags"><button className={`secondary compact${selectedBright ? " active" : ""}`} type="button" disabled={!canEditSelectedCell} aria-pressed={selectedBright} onClick={() => updateSelectedTilemapAttribute((attribute) => attribute ^ 0x40)}>BRIGHT</button><button className={`secondary compact${selectedFlash ? " active" : ""}`} type="button" disabled={!canEditSelectedCell} aria-pressed={selectedFlash} onClick={() => updateSelectedTilemapAttribute((attribute) => attribute ^ 0x80)}>FLASH</button><button className={`secondary compact${tileEditorColorPickerActive ? " active" : ""}`} type="button" disabled={!canEditSelectedCell} aria-pressed={tileEditorColorPickerActive} title="Pick INK, PAPER, BRIGHT, and FLASH from a map cell, then apply them to the selected cell" onClick={() => setTileEditorColorPickerActive((active) => !active)}>COL picker</button></div>
+                {tileEditorColorPickerActive ? <span className="control-help" role="status">Click a map cell to copy its attributes to the selected cell.</span> : null}
+              </div>
+            </section>
+          </div>
         </div>;
       })();
   const qlVerticalPixelScale = isQl && (
@@ -8848,6 +9084,13 @@ export function App() {
         width: 8,
         height: 8,
       };
+  const highlightedTileCells = workspaceMode === "tilemap" && highlightSelectedTileUses && charsetState.kind === "ready"
+    ? charsetState.result.assignments.flatMap((assignment, cellIndex) =>
+        assignment.characterIndex === tileEditorSelected && cellIndex !== tilemapEditorCell
+          ? [{ x: (cellIndex % 32) * 8, y: Math.floor(cellIndex / 32) * 8, width: 8, height: 8 }]
+          : [],
+      )
+    : [];
   const previewAspect = resolvePreviewAspect(
     displayedWidth,
     displayedHeight,
@@ -8957,6 +9200,30 @@ export function App() {
       bright: color.bright ?? color.normal,
     })),
   );
+  const zxFlashPreviewPhaseActive = workspaceMode === "palette" && (
+    bitmapEditorFlashPreviewMode === "inverted" ||
+    (bitmapEditorFlashPreviewMode === "animate" && bitmapEditorFlashPreviewPhase)
+  );
+  const liveFramePreviewRgba = (
+    result: WorkerConversionResult,
+    frameIndex: number,
+  ): Uint8Array | undefined => {
+    const frame = result.frames[frameIndex];
+    if (frame === undefined) return undefined;
+    return result.platformId === "zx-spectrum" &&
+        result.attributeHeight !== null && zxFlashPreviewPhaseActive
+      ? renderZxFlashPreview(frame.encoded, result.attributeHeight, true)
+      : frame.previewRgba;
+  };
+  const liveMergedPreviewRgba = (result: WorkerConversionResult): Uint8Array => {
+    if (result.platformId !== "zx-spectrum" || !zxFlashPreviewPhaseActive) {
+      return result.mergedPreviewRgba;
+    }
+    const first = liveFramePreviewRgba(result, 0);
+    if (first === undefined) return result.mergedPreviewRgba;
+    const second = liveFramePreviewRgba(result, 1);
+    return second === undefined ? first : mergeTemporalRgba(first, second);
+  };
   const spatialAnalyticPreview = targetModeId.includes("vertical-spatial") &&
     (outputPreviewStage === "merged" || outputPreviewStage === "screen-2");
   const outputPaletteColors = (outputPreviewStage === "merged" || spatialAnalyticPreview) &&
@@ -8972,8 +9239,16 @@ export function App() {
               displayedResult.width,
               qlMixedDisplayResolution,
             )
-          : displayedResult.verticalSpatialDiagnostics?.analyticPreviewRgba ??
-            displayedResult.mergedPreviewRgba,
+          : displayedResult.verticalSpatialDiagnostics !== undefined &&
+              displayedResult.platformId === "zx-spectrum" &&
+              zxFlashPreviewPhaseActive
+            ? buildVerticalSpatialAnalyticPreview(
+                liveFramePreviewRgba(displayedResult, 0) ?? displayedResult.frames[0]?.previewRgba ?? displayedResult.verticalSpatialDiagnostics.analyticPreviewRgba,
+                displayedResult.width,
+                displayedResult.height,
+              )
+            : displayedResult.verticalSpatialDiagnostics?.analyticPreviewRgba ??
+              liveMergedPreviewRgba(displayedResult),
       ).map((color) => ({
         key: color,
         background: color,
@@ -9006,12 +9281,13 @@ export function App() {
   const differencePreviewDataUrl = useMemo(() => {
     const frame = displayedResult?.frames[0];
     if (displayedResult === null || frame === undefined) return null;
+    const resultRgba = liveFramePreviewRgba(displayedResult, 0) ?? frame.previewRgba;
     return rgbaPngDataUrl(
-      previewDifferenceHeatmap(displayedResult.sourcePreviewRgba, frame.previewRgba),
+      previewDifferenceHeatmap(displayedResult.sourcePreviewRgba, resultRgba),
       displayedResult.width,
       displayedResult.height,
     );
-  }, [displayedResult]);
+  }, [displayedResult, bitmapEditorFlashPreviewMode, bitmapEditorFlashPreviewPhase]);
   const mixedScreenWindowImages = useMemo(() => {
     if (displayedResult === null) return null;
     const first = displayedResult.frames[0];
@@ -9020,26 +9296,30 @@ export function App() {
     const width = displayedResult.width;
     const height = displayedResult.height;
     const encode = (rgba: Uint8Array) => rgbaPngDataUrl(rgba, width, height);
+    const framePreview = (frame: typeof first): Uint8Array =>
+      liveFramePreviewRgba(displayedResult, displayedResult.frames.indexOf(frame)) ?? frame.previewRgba;
     const previews: Partial<Record<"screen-1" | "screen-2" | "merged-low" | "merged-high", string>> = {};
     if (displayedResult.verticalSpatialDiagnostics !== undefined) {
-      previews["screen-1"] = encode(first.previewRgba);
-      previews["screen-2"] = rgbaPngDataUrl(
-        displayedResult.verticalSpatialDiagnostics.analyticPreviewRgba,
-        displayedResult.verticalSpatialDiagnostics.logicalWidth,
-        displayedResult.verticalSpatialDiagnostics.logicalHeight,
-      );
+      const physicalPreview = framePreview(first);
+      previews["screen-1"] = encode(physicalPreview);
+      const analyticPreview = displayedResult.platformId === "zx-spectrum" && zxFlashPreviewPhaseActive
+        ? buildVerticalSpatialAnalyticPreview(physicalPreview, width, height)
+        : displayedResult.verticalSpatialDiagnostics.analyticPreviewRgba;
+      previews["screen-2"] = rgbaPngDataUrl(analyticPreview, width, height / 2);
       return previews;
     }
     if (second === undefined) return null;
-    previews["screen-1"] = encode(first.previewRgba);
-    previews["screen-2"] = encode(second.previewRgba);
+    const firstPreview = framePreview(first);
+    const secondPreview = framePreview(second);
+    previews["screen-1"] = encode(firstPreview);
+    previews["screen-2"] = encode(secondPreview);
     if (displayedResult.platformId === "sinclair-ql" &&
       displayedResult.modeId === "mode8-mode4-mixed-512x256") {
       previews["merged-low"] = encode(renderQlMixedDisplayPreview(first.previewRgba, second.previewRgba, width, "low"));
       previews["merged-high"] = encode(renderQlMixedDisplayPreview(first.previewRgba, second.previewRgba, width, "high"));
     }
     return previews;
-  }, [displayedResult]);
+  }, [displayedResult, bitmapEditorFlashPreviewMode, bitmapEditorFlashPreviewPhase]);
   const preAttributePreviewDataUrl = displayedResult === null
     ? null
     : rgbaPngDataUrl(
@@ -9633,7 +9913,7 @@ export function App() {
             data-workbench-window="geometry"
             data-dock={workbenchWindowLayout("geometry").dock}
             data-minimized={workbenchWindowLayout("geometry").minimized ? "true" : "false"}
-            open={workbenchSectionsOpen.geometry && !workbenchWindowLayout("geometry").minimized}
+            open={workbenchWindowLayout("geometry").open && !workbenchWindowLayout("geometry").minimized}
             style={workbenchDockWindowStyle("geometry", workbenchGeometryFloating ? { zIndex: workbenchWindowZIndex("geometry") } : undefined)}
             onPointerDown={(event) => {
               if (workbenchGeometryFloating) {
@@ -9855,7 +10135,7 @@ export function App() {
             data-workbench-window="adjustments"
             data-dock={workbenchWindowLayout("adjustments").dock}
             data-minimized={workbenchWindowLayout("adjustments").minimized ? "true" : "false"}
-            open={workbenchSectionsOpen.adjustments && !workbenchWindowLayout("adjustments").minimized}
+            open={workbenchWindowLayout("adjustments").open && !workbenchWindowLayout("adjustments").minimized}
             style={workbenchDockWindowStyle("adjustments", workbenchAdjustmentsFloating ? { zIndex: workbenchWindowZIndex("adjustments") } : undefined)}
             onPointerDown={(event) => {
               if (workbenchAdjustmentsFloating) {
@@ -9951,7 +10231,7 @@ export function App() {
             data-workbench-window="palette"
             data-dock={workbenchWindowLayout("palette").dock}
             data-minimized={workbenchWindowLayout("palette").minimized ? "true" : "false"}
-            open={workbenchSectionsOpen.palette && !workbenchWindowLayout("palette").minimized}
+            open={workbenchWindowLayout("palette").open && !workbenchWindowLayout("palette").minimized}
             style={workbenchDockWindowStyle("palette", workbenchPaletteFloating ? { zIndex: workbenchWindowZIndex("palette") } : undefined)}
             onPointerDown={(event) => {
               if (workbenchPaletteFloating) {
@@ -10300,7 +10580,7 @@ export function App() {
             data-workbench-window="dithering"
             data-dock={workbenchWindowLayout("dithering").dock}
             data-minimized={workbenchWindowLayout("dithering").minimized ? "true" : "false"}
-            open={workbenchSectionsOpen.dithering && !workbenchWindowLayout("dithering").minimized}
+            open={workbenchWindowLayout("dithering").open && !workbenchWindowLayout("dithering").minimized}
             style={workbenchDockWindowStyle("dithering", workbenchDitheringFloating ? { zIndex: workbenchWindowZIndex("dithering") } : undefined)}
             onPointerDown={(event) => {
               if (workbenchDitheringFloating) {
@@ -10554,12 +10834,23 @@ export function App() {
                     </optgroup>
                     <optgroup label="Alternatives and historical engines">
                       {compatible.filter((engine) =>
-                        !recommended.has(engine.id) && engine.lifecycle !== "experimental"
+                        !recommended.has(engine.id) &&
+                        ditherEngineSelectionGroupForTarget(engine.id, targetModeId) !== "to-be-hidden" &&
+                        engine.lifecycle !== "experimental"
                       ).map((engine) =>
                         <option key={engine.id} value={engine.id}>{engine.name}</option>)}
                     </optgroup>
                     <optgroup label="Experimental engines">
-                      {compatible.filter((engine) => engine.lifecycle === "experimental").map((engine) =>
+                      {compatible.filter((engine) =>
+                        ditherEngineSelectionGroupForTarget(engine.id, targetModeId) !== "to-be-hidden" &&
+                        engine.lifecycle === "experimental"
+                      ).map((engine) =>
+                        <option key={engine.id} value={engine.id}>{engine.name}</option>)}
+                    </optgroup>
+                    <optgroup label="To be hidden">
+                      {compatible.filter((engine) =>
+                        ditherEngineSelectionGroupForTarget(engine.id, targetModeId) === "to-be-hidden"
+                      ).map((engine) =>
                         <option key={engine.id} value={engine.id}>{engine.name}</option>)}
                     </optgroup>
                   </>;
@@ -10801,13 +11092,23 @@ export function App() {
                     </optgroup>
                     <optgroup label="Alternatives and historical engines">
                       {compatible.filter((engine) =>
-                        !recommended.has(engine.id) && engine.lifecycle !== "experimental"
+                        !recommended.has(engine.id) &&
+                        ditherEngineSelectionGroupForTarget(engine.id, targetModeId) !== "to-be-hidden" &&
+                        engine.lifecycle !== "experimental"
                       ).map((engine) =>
                         <option key={engine.id} value={engine.id}>{engine.name}</option>)}
                     </optgroup>
                     <optgroup label="Experimental engines">
                       {compatible.filter((engine) =>
-                        !recommended.has(engine.id) && engine.lifecycle === "experimental"
+                        !recommended.has(engine.id) &&
+                        ditherEngineSelectionGroupForTarget(engine.id, targetModeId) !== "to-be-hidden" &&
+                        engine.lifecycle === "experimental"
+                      ).map((engine) =>
+                        <option key={engine.id} value={engine.id}>{engine.name}</option>)}
+                    </optgroup>
+                    <optgroup label="To be hidden">
+                      {compatible.filter((engine) =>
+                        ditherEngineSelectionGroupForTarget(engine.id, targetModeId) === "to-be-hidden"
                       ).map((engine) =>
                         <option key={engine.id} value={engine.id}>{engine.name}</option>)}
                     </optgroup>
@@ -10975,7 +11276,7 @@ export function App() {
             data-workbench-window="tilemap"
             data-dock={workbenchWindowLayout("tilemap").dock}
             data-minimized={workbenchWindowLayout("tilemap").minimized ? "true" : "false"}
-            open={workbenchSectionsOpen.tilemap && !workbenchWindowLayout("tilemap").minimized}
+            open={workbenchWindowLayout("tilemap").open && !workbenchWindowLayout("tilemap").minimized}
             style={workbenchDockWindowStyle("tilemap", workbenchTilemapFloating ? { zIndex: workbenchWindowZIndex("tilemap") } : undefined)}
             onPointerDown={(event) => {
               if (workbenchTilemapFloating) {
@@ -12036,7 +12337,7 @@ export function App() {
               />
             ) : null}
             <div className="workbench-window-content workbench-tools-content">
-            <div className={`control-row tools-control-row tools-primary-row control-row-${isZx ? 4 : isPmd ? 3 : 2}`}>
+            <div className={`control-row tools-control-row tools-primary-row control-row-${isZx ? 4 + (workspaceMode === "tilemap" ? 1 : 0) : isPmd ? 3 : 2}`}>
               <div className="tools-zoom-controls" aria-label="Preview zoom">
                 <span>Zoom</span>
                 <div className="pan-pad tools-zoom-pad">
@@ -12061,7 +12362,32 @@ export function App() {
                 />
                 <span>Hide attributes</span>
               </label> : null}
+              {workspaceMode === "tilemap" && charsetState.kind === "ready" ? <label className="check-control tools-option-highlight">
+                <input type="checkbox" checked={highlightSelectedTileUses} onChange={(event) => setHighlightSelectedTileUses(event.target.checked)} />
+                <span>Highlight selected tile uses</span>
+              </label> : null}
             </div>
+            {workspaceMode === "palette" && displayedResult?.platformId === "zx-spectrum" && bitmapEditorFlashAvailable ? (
+              <div className="tools-flash-preview" role="radiogroup" aria-label="FLASH preview">
+                <span>FLASH preview</span>
+                {(["animate", "normal", "inverted"] as const).map((mode) => (
+                  <label className="tools-flash-radio" key={mode}>
+                    <input
+                      type="radio"
+                      name="zx-flash-preview-mode"
+                      value={mode}
+                      disabled={mode !== "normal" && !bitmapEditorFlashAvailable}
+                      checked={bitmapEditorFlashPreviewMode === mode}
+                      onChange={() => setBitmapEditorFlashPreviewMode(mode)}
+                    />
+                    <span>
+                      {mode === "animate" ? "Animate" : mode === "normal" ? "Normal" : "Inverted"}
+                    </span>
+                  </label>
+                ))}
+                <small>Bitmap editor only · 500 ms</small>
+              </div>
+            ) : null}
             <div className={`control-row tools-control-row tools-secondary-row control-row-${2 + (isQl && workspaceMode === "palette" ? 1 : 0) + (isQl && workspaceMode === "palette" && targetModeId === "mode8-mode4-mixed-512x256" ? 1 : 0)}`}>
               <label className="check-control tools-option-pan">
                 <input type="checkbox" checked={synchronizePan} onChange={(event) => setSynchronizePan(event.target.checked)} />
@@ -12449,7 +12775,7 @@ export function App() {
                       }}
                     >
                       <canvas
-                        ref={sourcePreviewContent === "result-image" || (hasVerticalSpatialTarget && (sourcePreviewContent === "screen-1" || sourcePreviewContent === "screen-2")) ? convertedCanvasRef : canvasRef}
+                        ref={sourcePreviewContent === "result-image" || (hasVerticalSpatialTarget && (sourcePreviewContent === "screen-1" || sourcePreviewContent === "screen-2")) ? sourceConvertedCanvasRef : canvasRef}
                         className={framing === "crop"
                           ? `crop-editor-canvas crop-pointer-${cropPointerMode}`
                           : undefined}
@@ -12532,7 +12858,8 @@ export function App() {
                         </svg>
                       ) : null}
                       {sourcePreviewContent === "result-image" && tilemapEditorSelectionOverlay !== null ? (
-                        <svg className="bitmap-editor-selection-overlay" viewBox={`0 0 ${displayedWidth} ${displayedHeight}`} preserveAspectRatio="none" aria-hidden="true">
+                        <svg className="tilemap-selection-overlay" viewBox={`0 0 ${displayedWidth} ${displayedHeight}`} preserveAspectRatio="none" aria-hidden="true">
+                          {highlightedTileCells.map((cellIndexRect) => <rect className="tilemap-matching-cell-outline" key={`${cellIndexRect.x},${cellIndexRect.y}`} {...cellIndexRect} />)}
                           <rect {...tilemapEditorSelectionOverlay} />
                         </svg>
                       ) : null}
@@ -12774,7 +13101,8 @@ export function App() {
                         </svg>
                       ) : null}
                       {resultPreviewContent !== "source-image" && tilemapEditorSelectionOverlay !== null ? (
-                        <svg className="bitmap-editor-selection-overlay" viewBox={`0 0 ${displayedWidth} ${displayedHeight}`} preserveAspectRatio="none" aria-hidden="true">
+                        <svg className="tilemap-selection-overlay" viewBox={`0 0 ${displayedWidth} ${displayedHeight}`} preserveAspectRatio="none" aria-hidden="true">
+                          {highlightedTileCells.map((cellIndexRect) => <rect className="tilemap-matching-cell-outline" key={`${cellIndexRect.x},${cellIndexRect.y}`} {...cellIndexRect} />)}
                           <rect {...tilemapEditorSelectionOverlay} />
                         </svg>
                       ) : null}

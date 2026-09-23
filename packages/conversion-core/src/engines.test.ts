@@ -3,6 +3,7 @@ import {
   ATTRIBUTE_OPTIMIZERS,
   DITHER_ENGINES,
   assertCompatibleEngines,
+  ditherEngineSelectionGroupForTarget,
   ditherMethodForEngine,
   isCompatibleEnginePair,
   isDitherEngineAvailableForSelection,
@@ -216,6 +217,29 @@ describe("versioned conversion engines", () => {
     );
     expect(engine?.lifecycle).toBe("promoted");
     expect(engine?.targetModeIds).toEqual(["zx48-mixed-256x192"]);
+  });
+
+  it("tags only benchmark-proven duplicate engines for the selection cleanup group", () => {
+    expect(ditherEngineSelectionGroupForTarget(
+      "ordered-osg-v1",
+      "mode8-256x256",
+    )).toBe("to-be-hidden");
+    expect(ditherEngineSelectionGroupForTarget(
+      "ordered-baseline-additive-v5",
+      "mode8-256x256",
+    )).toBeUndefined();
+    expect(ditherEngineSelectionGroupForTarget(
+      "ordered-baseline-additive-v5",
+      "mode8-mode4-mixed-512x256",
+    )).toBe("to-be-hidden");
+    expect(ditherEngineSelectionGroupForTarget(
+      "error-diffusion-checker-phase-v4-4",
+      "pmd85-3-rgb",
+    )).toBeUndefined();
+    expect(ditherEngineSelectionGroupForTarget(
+      "error-diffusion-checker-phase-v4-5",
+      "pmd85-3-rgb",
+    )).toBe("to-be-hidden");
   });
 
   it("keeps research engines explicitly benchmark-only", () => {
