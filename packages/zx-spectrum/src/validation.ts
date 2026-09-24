@@ -1,7 +1,5 @@
 import {
   ZX_ATTRIBUTE_BYTES,
-  ZX_BITMAP_BYTES,
-  ZX_FLASH_MASK,
   ZX_SCREEN_HEIGHT,
   ZX_SCREEN_WIDTH,
   ZX_SCR_BYTES,
@@ -53,22 +51,6 @@ export function validateScreen(screen: ZxScreen): ZxValidationIssue[] {
     });
   }
 
-  const attributeLimit = Math.min(
-    screen.attributes.length,
-    ZX_ATTRIBUTE_BYTES,
-  );
-  for (let offset = 0; offset < attributeLimit; offset += 1) {
-    const value = screen.attributes[offset];
-    if (value !== undefined && (value & ZX_FLASH_MASK) !== 0) {
-      issues.push({
-        code: "SCREEN_FLASH_SET",
-        message: `Attribute ${offset} has FLASH set.`,
-        offset,
-      });
-      break;
-    }
-  }
-
   return issues;
 }
 
@@ -81,18 +63,6 @@ export function validateScr(bytes: Uint8Array): ZxValidationIssue[] {
       message: `Expected ${ZX_SCR_BYTES} bytes, received ${bytes.length}.`,
     });
     return issues;
-  }
-
-  for (let offset = ZX_BITMAP_BYTES; offset < ZX_SCR_BYTES; offset += 1) {
-    const value = bytes[offset];
-    if (value !== undefined && (value & ZX_FLASH_MASK) !== 0) {
-      issues.push({
-        code: "SCR_FLASH_SET",
-        message: `Attribute byte ${offset - ZX_BITMAP_BYTES} has FLASH set.`,
-        offset,
-      });
-      break;
-    }
   }
 
   return issues;
@@ -121,4 +91,3 @@ export class ZxValidationError extends Error {
     this.issues = issues;
   }
 }
-

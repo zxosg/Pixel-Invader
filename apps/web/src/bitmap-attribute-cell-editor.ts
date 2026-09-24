@@ -26,6 +26,8 @@ export interface ZxAttributeCellSnapshot {
   readonly attribute: number;
 }
 
+export type ZxPickedCellTransform = "left" | "right" | "up" | "down" | "invert" | "reset";
+
 function assertHeight(attributeHeight: number): asserts attributeHeight is ZxAttributeCellHeight {
   if (attributeHeight !== 1 && attributeHeight !== 2 && attributeHeight !== 4 && attributeHeight !== 8) {
     throw new RangeError("ZX attribute height must be 1, 2, 4, or 8.");
@@ -47,6 +49,32 @@ function assertScr(encoded: Uint8Array, attributeHeight: ZxAttributeCellHeight):
 
 export function cloneZxAttributeCell(cell: ZxAttributeCellSnapshot): ZxAttributeCellSnapshot {
   return { ...cell, rows: cell.rows.slice() };
+}
+
+/** Applies a cyclic bitmap transform to a picked cell pattern without changing its attributes. */
+export function transformZxAttributeCell(
+  cell: ZxAttributeCellSnapshot,
+  transform: ZxPickedCellTransform,
+): ZxAttributeCellSnapshot {
+  const rows = cell.rows.slice();
+  if (transform === "left") {
+    for (let y = 0; y < rows.length; y += 1) rows[y] = ((rows[y] ?? 0) << 1 | (rows[y] ?? 0) >>> 7) & 0xff;
+  } else if (transform === "right") {
+    for (let y = 0; y < rows.length; y += 1) rows[y] = ((rows[y] ?? 0) >>> 1 | ((rows[y] ?? 0) & 1) << 7) & 0xff;
+  } else if (transform === "up" && rows.length > 1) {
+    const first = rows[0] ?? 0;
+    rows.copyWithin(0, 1);
+    rows[rows.length - 1] = first;
+  } else if (transform === "down" && rows.length > 1) {
+    const last = rows[rows.length - 1] ?? 0;
+    rows.copyWithin(1, 0, rows.length - 1);
+    rows[0] = last;
+  } else if (transform === "invert") {
+    for (let y = 0; y < rows.length; y += 1) rows[y] = (rows[y] ?? 0) ^ 0xff;
+  } else if (transform === "reset") {
+    rows.fill(0);
+  }
+  return { ...cell, rows };
 }
 
 export function readZxAttributeCell(

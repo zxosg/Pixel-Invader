@@ -5,6 +5,7 @@ import {
 } from "@retro-converter/zx-spectrum";
 import {
   mergeMonochromeRgba,
+  mergeTemporalRgba,
   zxBitmapToMonochromeRgba,
 } from "./monochrome-preview";
 
@@ -51,5 +52,12 @@ describe("ZX monochrome previews", () => {
         127, 127, 127, 255,
       ]),
     );
+  });
+
+  it("averages temporal color frames independently per channel", () => {
+    expect(mergeTemporalRgba(
+      Uint8Array.from([255, 0, 20, 255]),
+      Uint8Array.from([0, 101, 21, 255]),
+    )).toEqual(Uint8Array.from([127, 50, 20, 255]));
   });
 });

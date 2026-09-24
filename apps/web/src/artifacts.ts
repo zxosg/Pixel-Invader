@@ -240,6 +240,9 @@ export async function buildConversionMetadata(input: MetadataInput) {
           enabled_base_color_codes: selection.enabledColorIds,
         })),
       },
+      flash_enabled: frames.some((frame) =>
+        frame.subarray(ZX_BITMAP_BYTES).some((attribute) => (attribute & 0x80) !== 0),
+      ),
       attributes_hex: attributes,
       mixing: input.settings.modeId === "zx48-vertical-spatial-256x192"
         ? "vertical-spatial-static-50-50-linear-srgb-v1"

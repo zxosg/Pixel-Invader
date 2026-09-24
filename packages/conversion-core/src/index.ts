@@ -1,4 +1,9 @@
-export { convertToZx, renderAttributeFrameRgba, renderScreenRgba } from "./convert.js";
+export {
+  convertToZx,
+  renderAttributeFrameRgba,
+  renderScreenRgba,
+  renderZxFlashPreview,
+} from "./convert.js";
 export {
   buildTemporalCrossPalette,
   buildMixedResolutionPalette,

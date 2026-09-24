@@ -7,6 +7,7 @@ import {
   applyZxAttributeCellMaskOperation,
   copyZxAttributeCell,
   readZxAttributeCell,
+  transformZxAttributeCell,
   writeZxAttributeCell,
   zxAttributeCellsEqual,
 } from "./bitmap-attribute-cell-editor.js";
@@ -38,6 +39,20 @@ describe("ZX attribute-cell editor", () => {
     expect(both.rows).toEqual(source.rows);
     source.rows[0] = 0;
     expect(both.rows[0]).toBe(0xa0);
+  });
+
+  it("rotates, inverts, and resets picked tile patterns without changing cell attributes", () => {
+    const cell = { cellX: 4, cellY: 3, attributeHeight: 4 as const, rows: Uint8Array.from([0x81, 0x24, 0x7e, 0x00]), attribute: 0xd6 };
+    expect(transformZxAttributeCell(cell, "left").rows).toEqual(Uint8Array.from([0x03, 0x48, 0xfc, 0x00]));
+    expect(transformZxAttributeCell(cell, "right").rows).toEqual(Uint8Array.from([0xc0, 0x12, 0x3f, 0x00]));
+    expect(transformZxAttributeCell(cell, "up").rows).toEqual(Uint8Array.from([0x24, 0x7e, 0x00, 0x81]));
+    expect(transformZxAttributeCell(cell, "down").rows).toEqual(Uint8Array.from([0x00, 0x81, 0x24, 0x7e]));
+    expect(transformZxAttributeCell(cell, "invert").rows).toEqual(Uint8Array.from([0x7e, 0xdb, 0x81, 0xff]));
+    expect(transformZxAttributeCell(cell, "reset").rows).toEqual(new Uint8Array(4));
+    for (const operation of ["left", "right", "up", "down", "invert", "reset"] as const) {
+      expect(transformZxAttributeCell(cell, operation)).toMatchObject({ cellX: 4, cellY: 3, attributeHeight: 4, attribute: 0xd6 });
+    }
+    expect(cell.rows).toEqual(Uint8Array.from([0x81, 0x24, 0x7e, 0x00]));
   });
 
   it("writes complete cells and reports no-op operations", () => {

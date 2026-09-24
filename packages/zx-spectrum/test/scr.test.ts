@@ -48,28 +48,28 @@ describe(".scr serialization", () => {
     expect(parsed.attributes).toEqual(screen.attributes);
   });
 
-  it("rejects invalid pixels and FLASH attributes", () => {
+  it("rejects invalid pixels while allowing the native FLASH attribute bit", () => {
     const invalidPixel = createBlankScreen();
     invalidPixel.pixels[123] = 2;
     expect(validateScreen(invalidPixel)[0]?.code).toBe("SCREEN_PIXEL_VALUE");
 
     const invalidAttribute = createBlankScreen();
     invalidAttribute.attributes[10] = 0x80;
-    expect(validateScreen(invalidAttribute)[0]?.code).toBe(
-      "SCREEN_FLASH_SET",
-    );
-    expect(() => serializeScr(invalidAttribute)).toThrow();
+    expect(validateScreen(invalidAttribute)).toEqual([]);
+    const serialized = serializeScr(invalidAttribute);
+    expect(serialized[ZX_BITMAP_BYTES + 10]).toBe(0x80);
+    expect(parseScr(serialized).attributes[10]).toBe(0x80);
   });
 
-  it("rejects malformed .scr length and FLASH bytes", () => {
+  it("rejects malformed .scr length and permits FLASH bytes", () => {
     expect(validateScr(new Uint8Array(ZX_SCR_BYTES - 1))[0]?.code).toBe(
       "SCR_LENGTH",
     );
 
     const bytes = serializeScr(createBlankScreen());
     bytes[ZX_BITMAP_BYTES] = 0x80;
-    expect(validateScr(bytes)[0]?.code).toBe("SCR_FLASH_SET");
-    expect(() => parseScr(bytes)).toThrow();
+    expect(validateScr(bytes)).toEqual([]);
+    expect(parseScr(bytes).attributes[0]).toBe(0x80);
   });
 
   it("serializes software modes with an extended attribute section", () => {
@@ -81,6 +81,17 @@ describe(".scr serialization", () => {
       expect(bytes).toHaveLength(6_144 + attributes.length);
       expect(bytes.subarray(ZX_BITMAP_BYTES)).toEqual(attributes);
       expect(validateSoftwareScr(bytes, attributeHeight)).toEqual([]);
+    }
+  });
+
+  it("round-trips FLASH attributes through all software attribute heights", () => {
+    for (const attributeHeight of [8, 4, 2, 1] as const) {
+      const pixels = new Uint8Array(256 * 192);
+      const attributes = new Uint8Array(32 * (192 / attributeHeight));
+      attributes[0] = 0x80 | 0x47;
+      const bytes = serializeSoftwareScr(pixels, attributes, attributeHeight);
+      expect(validateSoftwareScr(bytes, attributeHeight)).toEqual([]);
+      expect(bytes[ZX_BITMAP_BYTES]).toBe(0xc7);
     }
   });
 
