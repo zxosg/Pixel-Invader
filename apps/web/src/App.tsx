@@ -3228,7 +3228,16 @@ export function App() {
       context.putImageData(new ImageData(pixels, image.width, image.height), 0, 0);
       return;
     }
-    if (workspaceMode === "tilemap" && displayResult !== null) {
+    // Crop editing always needs the oriented source bitmap as its backing
+    // canvas. A stale/retained tilemap result may still be available while
+    // the crop settings are being edited, but painting that result here would
+    // put its smaller dimensions into the source-sized canvas and desync the
+    // crop overlay from the displayed image.
+    if (
+      workspaceMode === "tilemap" &&
+      framing !== "crop" &&
+      displayResult !== null
+    ) {
       const frame = displayResult.frames[0];
       const rgba = hideAttributes &&
           displayResult.platformId === "zx-spectrum" &&
