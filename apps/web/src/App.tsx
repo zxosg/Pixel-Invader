@@ -1063,6 +1063,8 @@ export function App() {
     readonly visited: Set<string>;
     readonly pan: boolean;
     readonly nativeCells: boolean;
+    readonly button: number;
+    moved: boolean;
     historyCaptured: boolean;
     readonly startX: number;
     readonly startY: number;
@@ -7082,6 +7084,11 @@ export function App() {
     setBitmapEditorCellMode((mode) => nextBitmapEditorCellMode(mode));
   }
 
+  function cycleBitmapEditorOperation(): void {
+    const operations: readonly BitmapEditorOperation[] = ["copy", "or", "and", "xor", "none"];
+    setBitmapEditorOperation((operation) => operations[(operations.indexOf(operation) + 1) % operations.length]!);
+  }
+
   function toggleBitmapEditorColorPicker(): void {
     setBitmapEditorColorPickerActive((active) => !active);
   }
@@ -7246,6 +7253,25 @@ export function App() {
     event.stopPropagation();
     const viewport = side === "source" ? sourceViewportRef.current : resultViewportRef.current;
     if (viewport === null) return;
+    const pan = event.button === 1 || event.button === 2 || bitmapEditorSpaceRef.current;
+    if (event.button === 2) {
+      bitmapEditorFullPointerRef.current = {
+        side,
+        pointerId: event.pointerId,
+        visited: new Set(),
+        pan: true,
+        nativeCells: false,
+        button: event.button,
+        moved: false,
+        historyCaptured: false,
+        startX: event.clientX,
+        startY: event.clientY,
+        scrollLeft: viewport.scrollLeft,
+        scrollTop: viewport.scrollTop,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      return;
+    }
     if (bitmapEditorNativeSourcePickerActive()) {
       if (event.button !== 0) return;
       const cell = fullBitmapAttributeCellFromEvent(event);
@@ -7268,6 +7294,8 @@ export function App() {
         visited: new Set(),
         pan: false,
         nativeCells: true,
+        button: event.button,
+        moved: false,
         historyCaptured: false,
         startX: event.clientX,
         startY: event.clientY,
@@ -7279,7 +7307,6 @@ export function App() {
       applyBitmapEditorCellOperation(cell.cellX, cell.cellY);
       return;
     }
-    const pan = event.button === 1 || event.button === 2 || bitmapEditorSpaceRef.current;
     const pixel = pan ? null : fullBitmapPixelFromEvent(event);
     if (pixel !== null && bitmapEditorColorPickerActive) {
       if (bitmapEditorTarget === "source") captureBitmapEditorSourceColor(pixel.x, pixel.y);
@@ -7292,6 +7319,8 @@ export function App() {
       visited: new Set(),
       pan,
       nativeCells: false,
+      button: event.button,
+      moved: false,
       historyCaptured: false,
       startX: event.clientX,
       startY: event.clientY,
@@ -7321,6 +7350,9 @@ export function App() {
     }
     const viewport = pointer.side === "source" ? sourceViewportRef.current : resultViewportRef.current;
     if (pointer.pan && viewport !== null) {
+      if (Math.abs(event.clientX - pointer.startX) > 2 || Math.abs(event.clientY - pointer.startY) > 2) {
+        pointer.moved = true;
+      }
       viewport.scrollLeft = pointer.scrollLeft - (event.clientX - pointer.startX);
       viewport.scrollTop = pointer.scrollTop - (event.clientY - pointer.startY);
       return;
@@ -7332,7 +7364,11 @@ export function App() {
   }
 
   function endFullBitmapPointer(event: ReactPointerEvent<HTMLDivElement>): void {
-    if (bitmapEditorFullPointerRef.current?.pointerId === event.pointerId) {
+    const pointer = bitmapEditorFullPointerRef.current;
+    if (pointer?.pointerId === event.pointerId && pointer.button === 2 && !pointer.moved) {
+      cycleBitmapEditorOperation();
+    }
+    if (pointer?.pointerId === event.pointerId) {
       bitmapEditorFullPointerRef.current = null;
     }
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
