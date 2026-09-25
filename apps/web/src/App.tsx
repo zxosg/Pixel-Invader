@@ -21,6 +21,7 @@ import {
   zxSoftwareScrBytes,
 } from "@retro-converter/zx-spectrum";
 import { encodeRgbaPng } from "@retro-converter/image-codecs";
+import { addGifBorder, encodeAnimatedGif } from "./animated-gif.js";
 import { assertValidQlScreen, type QlMode } from "@retro-converter/sinclair-ql";
 import {
   PMD85_SCREEN_HEIGHT,
@@ -624,6 +625,15 @@ function rgbaPngDataUrl(rgba: Uint8Array, width: number, height: number): string
   return `data:image/png;base64,${btoa(binary)}`;
 }
 
+function resultContainsZxFlash(result: WorkerConversionResult | null): boolean {
+  return result?.platformId === "zx-spectrum" && result.attributeHeight !== null &&
+    result.frames.some((frame) => zxScreenContainsFlash(frame.encoded));
+}
+
+function zxScreenContainsFlash(encoded: Uint8Array): boolean {
+  return encoded.subarray(ZX_BITMAP_BYTES).some((attribute) => (attribute & 0x80) !== 0);
+}
+
 function previewDifferenceHeatmap(
   first: Uint8Array,
   second: Uint8Array,
@@ -1211,6 +1221,7 @@ export function App() {
       ? { r: 0, g: 0, b: 0 }
       : DEFAULT_CONVERSION_SETTINGS.background,
   );
+  const [gifBorderWidth, setGifBorderWidth] = useState(32);
   const [cropXEntry, setCropXEntry] = useState(String(DEFAULT_CONVERSION_SETTINGS.crop.x));
   const [cropYEntry, setCropYEntry] = useState(String(DEFAULT_CONVERSION_SETTINGS.crop.y));
   const [cropWidthEntry, setCropWidthEntry] = useState(String(DEFAULT_CONVERSION_SETTINGS.crop.width));
@@ -3324,7 +3335,7 @@ export function App() {
     let rgba: Uint8Array | undefined;
     let previewWidth = displayResult.width;
     let previewHeight = displayResult.height;
-    const flashPhase = workspaceMode === "palette" && (
+    const flashPhase = (
       bitmapEditorFlashPreviewMode === "inverted" ||
       (bitmapEditorFlashPreviewMode === "animate" && bitmapEditorFlashPreviewPhase)
     );
@@ -3390,7 +3401,9 @@ export function App() {
     } else {
       rgba = workspaceMode === "tilemap"
         ? charsetState.kind === "ready"
-          ? charsetState.result.previewRgba
+          ? flashPhase
+            ? renderZxFlashPreview(charsetState.result.decodedScr, 8, true)
+            : charsetState.result.previewRgba
           : undefined
         : outputPreviewStage === "screen-2"
           ? displayResult.verticalSpatialDiagnostics !== undefined
@@ -8001,6 +8014,54 @@ export function App() {
     }
   }
 
+  function exportAnimatedFlashGif(): void {
+    const tilemapResult = workspaceMode === "tilemap" && charsetState.kind === "ready" && !tilemapStale
+      ? charsetState.result
+      : null;
+    if (state.kind !== "ready" || sourceArtifact === null ||
+        (workspaceMode === "tilemap" ? tilemapResult === null : lastFinal === null)) return;
+    try {
+      const hasFlash = tilemapResult !== null
+        ? zxScreenContainsFlash(tilemapResult.decodedScr)
+        : resultContainsZxFlash(lastFinal);
+      const previewWidth = tilemapResult === null ? lastFinal!.width : 256;
+      const previewHeight = tilemapResult === null ? lastFinal!.height : 192;
+      const previewFrames = tilemapResult !== null
+        ? hasFlash
+          ? [false, true].map((invertedPhase) =>
+              renderZxFlashPreview(tilemapResult.decodedScr, 8, invertedPhase))
+          : [tilemapResult.previewRgba]
+        : hasFlash && lastFinal!.platformId === "zx-spectrum" &&
+            lastFinal!.attributeHeight !== null
+          ? [false, true].map((invertedPhase) => {
+              const framePreviews = lastFinal!.frames.map((frame) =>
+                renderZxFlashPreview(frame.encoded, lastFinal!.attributeHeight!, invertedPhase));
+              if (lastFinal!.modeId === "zx48-mixed-256x192" && framePreviews.length >= 2) {
+                return mergeTemporalRgba(framePreviews[0]!, framePreviews[1]!);
+              }
+              return framePreviews[0]!;
+            })
+          : [lastFinal!.mergedPreviewRgba];
+      const gifFrames = previewFrames.map((rgba) => addGifBorder({
+        rgba,
+        width: previewWidth,
+        height: previewHeight,
+      }, {
+        width: gifBorderWidth,
+        color: [background.r, background.g, background.b],
+      }));
+      const gif = encodeAnimatedGif(gifFrames, 50);
+      downloadBytes(
+        gif,
+        "image/gif",
+        `${sourceArtifact.baseName}${hasFlash ? "-flashing" : ""}-preview.gif`,
+      );
+      setExportError(null);
+    } catch (error: unknown) {
+      setExportError(`GIF export blocked: ${error instanceof Error ? error.message : "GIF encoding failed."}`);
+    }
+  }
+
   async function createCurrentMetadataJson(): Promise<Uint8Array> {
     if (
       state.kind !== "ready" || lastFinal === null || sourceArtifact === null ||
@@ -8594,27 +8655,32 @@ export function App() {
       displayedResult?.platformId === "zx-spectrum"
     ? bitmapEditorResultBuffer?.encoded ?? bitmapEditorFlashFrame?.encoded
     : undefined;
-  const bitmapEditorFlashAvailable = workspaceMode === "palette" && displayedResult?.platformId === "zx-spectrum" &&
-    displayedResult.frames.some((frame, index) => {
-      const encoded = index === bitmapEditorResultFrameIndex && bitmapEditorFlashEncoded !== undefined
-        ? bitmapEditorFlashEncoded
-        : frame.encoded;
-      return encoded.subarray(ZX_BITMAP_BYTES).some((attribute) => (attribute & 0x80) !== 0);
-    });
+  const tilemapFlashScreen = workspaceMode === "tilemap" && charsetState.kind === "ready"
+    ? charsetState.result.decodedScr
+    : null;
+  const flashPreviewAvailable = tilemapFlashScreen !== null
+    ? zxScreenContainsFlash(tilemapFlashScreen)
+    : workspaceMode === "palette" && displayedResult?.platformId === "zx-spectrum" &&
+      displayedResult.frames.some((frame, index) => {
+        const encoded = index === bitmapEditorResultFrameIndex && bitmapEditorFlashEncoded !== undefined
+          ? bitmapEditorFlashEncoded
+          : frame.encoded;
+        return zxScreenContainsFlash(encoded);
+      });
   useEffect(() => {
     if (bitmapEditorFlashPreviewMode === "inverted") {
       setBitmapEditorFlashPreviewPhase(true);
       return;
     }
     setBitmapEditorFlashPreviewPhase(false);
-    if (bitmapEditorFlashPreviewMode !== "animate" || !bitmapEditorFlashAvailable) return;
+    if (bitmapEditorFlashPreviewMode !== "animate" || !flashPreviewAvailable) return;
     const timer = window.setInterval(() => {
       setBitmapEditorFlashPreviewPhase((phase) => !phase);
     }, 500);
     return () => window.clearInterval(timer);
   }, [
     bitmapEditorFlashPreviewMode,
-    bitmapEditorFlashAvailable,
+    flashPreviewAvailable,
   ]);
   useEffect(() => {
     if (bitmapEditorTarget !== "result" || displayedResult === null || bitmapEditorResultEdited) return;
@@ -8717,7 +8783,7 @@ export function App() {
     bitmapEditorTarget,
     bitmapEditorFlashPreviewMode,
     bitmapEditorFlashPreviewPhase,
-    bitmapEditorFlashAvailable,
+    flashPreviewAvailable,
     displayedResult,
     outputPreviewStage,
     sourcePreviewContent,
@@ -8946,7 +9012,7 @@ export function App() {
       </div>
       {displayedResult?.platformId === "zx-spectrum" &&
         displayedResult.modeId === "zx48-mixed-256x192" &&
-        bitmapEditorFlashAvailable ? (
+        workspaceMode === "palette" && flashPreviewAvailable ? (
           <div className="bitmap-editor-flash-merged-preview">
             <span>Mixed result · shared phase</span>
             <canvas ref={bitmapEditorMergedFlashCanvasRef} aria-label="ZX mixed result FLASH phase preview" />
@@ -9049,6 +9115,12 @@ export function App() {
         const selectedFlash = (selectedAttribute & 0x80) !== 0;
         const selectedInk = ZX_BASE_COLORS[selectedAttribute & 7];
         const selectedPaper = ZX_BASE_COLORS[(selectedAttribute >> 3) & 7];
+        const invertSelectedFlash = selectedFlash && (
+          bitmapEditorFlashPreviewMode === "inverted" ||
+          (bitmapEditorFlashPreviewMode === "animate" && bitmapEditorFlashPreviewPhase)
+        );
+        const selectedPreviewInk = invertSelectedFlash ? selectedPaper : selectedInk;
+        const selectedPreviewPaper = invertSelectedFlash ? selectedInk : selectedPaper;
         const selectedCellX = selectedCellIndex === null ? null : selectedCellIndex % 32;
         const selectedCellY = selectedCellIndex === null ? null : Math.floor(selectedCellIndex / 32);
         const canEditSelectedCell = selectedCellIndex !== null && selectedAssignment !== null;
@@ -9064,9 +9136,9 @@ export function App() {
                 <p><strong>Base tile {tileEditorSelected}</strong> · {tileUsage.find((item) => item.characterIndex === tileEditorSelected)?.count ?? 0} map cells use it</p>
               </div>
               <div className="unified-tile-bitmap" role="grid" aria-label={`Base tile ${tileEditorSelected} bitmap`} onPointerDown={beginTileEditorPaint} onPointerMove={moveTileEditorPaint} onPointerUp={endTileEditorPaint} onPointerCancel={endTileEditorPaint}>{Array.from({ length: 64 }, (_, pixelIndex) => { const x = pixelIndex % 8; const y = Math.floor(pixelIndex / 8); const row = result.charset[tileEditorSelected * 8 + y] ?? 0; const on = (row & (0x80 >> x)) !== 0; return <span className={`tile-editor-pixel${on ? " on" : ""}`} key={pixelIndex} role="gridcell" aria-label={`${x}, ${y}${on ? ": on" : ": off"}`} />; })}</div>
-              <div className="unified-tile-navigation unified-segmented" role="group" aria-label="Base tile navigation"><button className="secondary compact" type="button" onClick={() => moveEditorTile(-1)} disabled={tileEditorSelected === 0} aria-label="Previous tile">← Previous</button><button className="secondary compact" type="button" onClick={() => moveEditorTile(1)} disabled={tileEditorSelected >= result.characterCount - 1} aria-label="Next tile">Next →</button></div>
+              <div className="unified-tile-navigation unified-segmented" role="group" aria-label="Base tile navigation"><button className="secondary compact" type="button" onClick={() => moveEditorTile(-1)} disabled={tileEditorSelected === 0} aria-label="Previous tile">◀ Previous</button><button className="secondary compact" type="button" onClick={() => moveEditorTile(1)} disabled={tileEditorSelected >= result.characterCount - 1} aria-label="Next tile">Next ▶</button></div>
               <div className="unified-base-tile-actions" aria-label="Base tile operations">
-                <div className="tile-editor-toolbar unified-segmented" role="group" aria-label="Rotate or shift base tile"><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "rotate-left" })} aria-label="Rotate base tile left">↶</button><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "rotate-right" })} aria-label="Rotate base tile right">↷</button><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "rotate-up" })} aria-label="Rotate base tile up">↑</button><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "rotate-down" })} aria-label="Rotate base tile down">↓</button></div>
+                <div className="tile-editor-toolbar unified-segmented" role="group" aria-label="Rotate or shift base tile"><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "rotate-left" })} aria-label="Rotate base tile left">◀</button><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "rotate-right" })} aria-label="Rotate base tile right">▶</button><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "rotate-up" })} aria-label="Rotate base tile up">▲</button><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "rotate-down" })} aria-label="Rotate base tile down">▼</button></div>
                 <div className="unified-base-edit-actions unified-segmented" role="group" aria-label="Clear or invert base tile"><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "clear" })}>Clear</button><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "invert" })}>Invert</button></div>
               </div>
             </section>
@@ -9079,7 +9151,7 @@ export function App() {
                   const x = pixelIndex % 8;
                   const y = Math.floor(pixelIndex / 8);
                   const on = ((selectedTilePreview[y] ?? 0) & (0x80 >> x)) !== 0;
-                  const color = on ? selectedInk : selectedPaper;
+                  const color = on ? selectedPreviewInk : selectedPreviewPaper;
                   return <span key={pixelIndex} style={{ backgroundColor: color === undefined ? "#000" : color[selectedBright ? "bright" : "normal"] }} />;
                 })}
               </div>
@@ -9096,9 +9168,12 @@ export function App() {
                 <div className="unified-color-row"><strong>INK</strong><div className="unified-color-swatches">{ZX_BASE_COLORS.map((color) => <button className={`bitmap-editor-attribute-color${(selectedAttribute & 7) === color.code ? " selected" : ""}`} key={`ink-${color.code}`} type="button" disabled={!canEditSelectedCell} aria-label={`Set selected cell INK to ${color.name}`} aria-pressed={(selectedAttribute & 7) === color.code} title={`INK ${color.name}`} onClick={() => updateSelectedTilemapAttribute((attribute) => (attribute & ~7) | color.code)}><span style={{ background: selectedBright ? color.bright : color.normal }} /></button>)}</div></div>
                 <div className="unified-color-row"><strong>PAPER</strong><div className="unified-color-swatches">{ZX_BASE_COLORS.map((color) => <button className={`bitmap-editor-attribute-color${((selectedAttribute >> 3) & 7) === color.code ? " selected" : ""}`} key={`paper-${color.code}`} type="button" disabled={!canEditSelectedCell} aria-label={`Set selected cell PAPER to ${color.name}`} aria-pressed={((selectedAttribute >> 3) & 7) === color.code} title={`PAPER ${color.name}`} onClick={() => updateSelectedTilemapAttribute((attribute) => (attribute & ~0x38) | (color.code << 3))}><span style={{ background: selectedBright ? color.bright : color.normal }} /></button>)}</div></div>
                 <div className="unified-attribute-flags" aria-label="Selected cell attributes and pickers">
-                  <div className="unified-segmented" role="group" aria-label="Cell color flags">
+                  <div className="unified-segmented unified-cell-flag-buttons" role="group" aria-label="Cell color flags">
                     <button className={`secondary compact${selectedBright ? " active" : ""}`} type="button" disabled={!canEditSelectedCell} aria-pressed={selectedBright} onClick={() => updateSelectedTilemapAttribute((attribute) => attribute ^ 0x40)}>BRIGHT</button>
                     <button className={`secondary compact${selectedFlash ? " active" : ""}`} type="button" disabled={!canEditSelectedCell} aria-pressed={selectedFlash} onClick={() => updateSelectedTilemapAttribute((attribute) => attribute ^ 0x80)}>FLASH</button>
+                    <button className="secondary compact" type="button" disabled={!canEditSelectedCell} title="Swap INK and PAPER for this map cell; BRIGHT and FLASH remain unchanged" aria-label="Invert INK/PAPER by swapping them" onClick={() => updateSelectedTilemapAttribute((attribute) =>
+                      (attribute & 0xc0) | ((attribute & 0x07) << 3) | ((attribute >> 3) & 0x07)
+                    )}>INV</button>
                   </div>
                   <div className="unified-segmented" role="group" aria-label="Cell pickers">
                     <button className={`secondary compact${tileEditorColorPickerActive ? " active" : ""}`} type="button" disabled={!canEditSelectedCell} aria-pressed={tileEditorColorPickerActive} title="Pick INK, PAPER, BRIGHT, and FLASH from a map cell, then apply them to the selected cell" onClick={() => {
@@ -10176,11 +10251,11 @@ export function App() {
             <fieldset className="pan-control">
               <legend>Pixel pan</legend>
               <div className="pan-pad" aria-label="Move rescaled source bitmap by one pixel">
-                <button className="pan-up" type="button" aria-label="Move bitmap up one pixel" title="Move bitmap up one pixel" disabled={panOffsetY <= -panMaximumY} onClick={() => { setPanOffsetY(Math.max(-panMaximumY, panOffsetY - 1)); setState({ kind: "idle" }); }}>↑</button>
-                <button className="pan-left" type="button" aria-label="Move bitmap left one pixel" title="Move bitmap left one pixel" disabled={panOffsetX <= -panMaximumX} onClick={() => { setPanOffsetX(Math.max(-panMaximumX, panOffsetX - 1)); setState({ kind: "idle" }); }}>←</button>
+                <button className="pan-up" type="button" aria-label="Move bitmap up one pixel" title="Move bitmap up one pixel" disabled={panOffsetY <= -panMaximumY} onClick={() => { setPanOffsetY(Math.max(-panMaximumY, panOffsetY - 1)); setState({ kind: "idle" }); }}>▲</button>
+                <button className="pan-left" type="button" aria-label="Move bitmap left one pixel" title="Move bitmap left one pixel" disabled={panOffsetX <= -panMaximumX} onClick={() => { setPanOffsetX(Math.max(-panMaximumX, panOffsetX - 1)); setState({ kind: "idle" }); }}>◀</button>
                 <button className="pan-center" type="button" aria-label="Center bitmap" title="Center bitmap" disabled={panOffsetX === 0 && panOffsetY === 0} onClick={() => { setPanOffsetX(0); setPanOffsetY(0); setState({ kind: "idle" }); }}>●</button>
-                <button className="pan-right" type="button" aria-label="Move bitmap right one pixel" title="Move bitmap right one pixel" disabled={panOffsetX >= panMaximumX} onClick={() => { setPanOffsetX(Math.min(panMaximumX, panOffsetX + 1)); setState({ kind: "idle" }); }}>→</button>
-                <button className="pan-down" type="button" aria-label="Move bitmap down one pixel" title="Move bitmap down one pixel" disabled={panOffsetY >= panMaximumY} onClick={() => { setPanOffsetY(Math.min(panMaximumY, panOffsetY + 1)); setState({ kind: "idle" }); }}>↓</button>
+                <button className="pan-right" type="button" aria-label="Move bitmap right one pixel" title="Move bitmap right one pixel" disabled={panOffsetX >= panMaximumX} onClick={() => { setPanOffsetX(Math.min(panMaximumX, panOffsetX + 1)); setState({ kind: "idle" }); }}>▶</button>
+                <button className="pan-down" type="button" aria-label="Move bitmap down one pixel" title="Move bitmap down one pixel" disabled={panOffsetY >= panMaximumY} onClick={() => { setPanOffsetY(Math.min(panMaximumY, panOffsetY + 1)); setState({ kind: "idle" }); }}>▼</button>
               </div>
             </fieldset>
             <fieldset className="pan-edge-control edge-control">
@@ -10195,6 +10270,22 @@ export function App() {
               <legend>Background</legend>
               <input className="background-picker" type="color" aria-label="Background color" title="Choose background color; the color dialog supports manual RGB entry" value={rgbToHex(background)} onChange={(event) => { setBackground(hexToRgb(event.target.value)); setState({ kind: "idle" }); }} />
             </fieldset>
+            <label className="gif-border-control">
+              <span>GIF border (px)</span>
+              <input
+                type="number"
+                min="0"
+                max="256"
+                step="1"
+                value={gifBorderWidth}
+                aria-label="GIF border width in pixels"
+                title="Symmetric padding on each GIF edge; filled with the Geometry background color."
+                onChange={(event) => {
+                  const value = Number(event.target.value);
+                  if (Number.isInteger(value)) setGifBorderWidth(Math.max(0, Math.min(256, value)));
+                }}
+              />
+            </label>
           </div>
           </fieldset>
           </details>
@@ -12084,12 +12175,14 @@ export function App() {
                   <button className="secondary" type="button" onClick={exportFinalCharset}>Final charset</button>
                   <button className="secondary" type="button" onClick={exportScr}>Palette source .scr</button>
                   <button className="secondary" type="button" onClick={exportCharsetPreview}>Decoder preview PNG</button>
+                  <button className="secondary" type="button" onClick={exportAnimatedFlashGif}>GIF</button>
                   <button className="secondary" type="button" onClick={exportCharsetDiagnostics}>Diagnostics JSON</button>
                 </>
               ) : resultSaveReady ? (
                 <>
                   <span className="action-label">Save</span>
                   <button className="secondary" type="button" onClick={exportPreviewPng}>PNG</button>
+                  <button className="secondary" type="button" onClick={exportAnimatedFlashGif}>GIF</button>
                   <button className="secondary" type="button" onClick={exportScr}>
                     {isPmd
                       ? "PMD binary"
@@ -12438,7 +12531,7 @@ export function App() {
                 <span>Highlight selected tile uses</span>
               </label> : null}
             </div>
-            {workspaceMode === "palette" && displayedResult?.platformId === "zx-spectrum" && bitmapEditorFlashAvailable ? (
+            {flashPreviewAvailable ? (
               <div className="tools-flash-preview" role="radiogroup" aria-label="FLASH preview">
                 <span>FLASH preview</span>
                 {(["animate", "normal", "inverted"] as const).map((mode) => (
@@ -12447,7 +12540,7 @@ export function App() {
                       type="radio"
                       name="zx-flash-preview-mode"
                       value={mode}
-                      disabled={mode !== "normal" && !bitmapEditorFlashAvailable}
+                      disabled={mode !== "normal" && !flashPreviewAvailable}
                       checked={bitmapEditorFlashPreviewMode === mode}
                       onChange={() => setBitmapEditorFlashPreviewMode(mode)}
                     />
@@ -12456,7 +12549,7 @@ export function App() {
                     </span>
                   </label>
                 ))}
-                <small>Bitmap editor only · 500 ms</small>
+                <small>Live result previews · 500 ms</small>
               </div>
             ) : null}
             <div className={`control-row tools-control-row tools-secondary-row control-row-${2 + (isQl && workspaceMode === "palette" ? 1 : 0) + (isQl && workspaceMode === "palette" && targetModeId === "mode8-mode4-mixed-512x256" ? 1 : 0)}`}>
