@@ -632,6 +632,10 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
     method: "error-diffusion",
     platforms: ["zx-spectrum", "sinclair-ql"],
     lifecycle: "experimental",
+    selectionGroupByTarget: {
+      "mode8-mode4-mixed-512x256": "to-be-hidden",
+      "zx48-mixed-256x192": "to-be-hidden",
+    },
     effectiveParameterIds: [
       "dithering-amount", "error-randomization", "error-line-suppression",
     ],
