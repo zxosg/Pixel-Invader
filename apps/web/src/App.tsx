@@ -1073,7 +1073,20 @@ export function App() {
   const [tileEditorEdited, setTileEditorEdited] = useState(false);
   const [tilemapEditorCell, setTilemapEditorCell] = useState<number | null>(null);
   const [tileEditorColorPickerActive, setTileEditorColorPickerActive] = useState(false);
+  const [tileEditorTilePickerActive, setTileEditorTilePickerActive] = useState(false);
+  const tileEditorTilePickerClickGuardRef = useRef<{ readonly index: number; readonly until: number } | null>(null);
   const [highlightSelectedTileUses, setHighlightSelectedTileUses] = useState(false);
+  useEffect(() => {
+    if (!tileEditorColorPickerActive && !tileEditorTilePickerActive) return;
+    const cancelPickersOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setTileEditorColorPickerActive(false);
+      setTileEditorTilePickerActive(false);
+      event.preventDefault();
+    };
+    window.addEventListener("keydown", cancelPickersOnEscape);
+    return () => window.removeEventListener("keydown", cancelPickersOnEscape);
+  }, [tileEditorColorPickerActive, tileEditorTilePickerActive]);
   const [bitmapEditorCell, setBitmapEditorCell] = useState<BitmapCell | null>(null);
   const [bitmapEditorUndo, setBitmapEditorUndo] = useState<readonly BitmapCell[]>([]);
   const [bitmapEditorRedo, setBitmapEditorRedo] = useState<readonly BitmapCell[]>([]);
@@ -5181,6 +5194,16 @@ export function App() {
     const pixelY = Math.max(0, Math.min(191, Math.floor(
       (event.clientY - bounds.top) / bounds.height * 192,
     )));
+    if (workspaceMode === "tilemap" && tileEditorTilePickerActive && charsetState.kind === "ready") {
+      const sourceCell = Math.floor(pixelY / 8) * 32 + Math.floor(pixelX / 8);
+      const sourceAssignment = charsetState.result.assignments[sourceCell];
+      if (sourceAssignment !== undefined) {
+        applyPickedTilemapIndex(sourceAssignment.characterIndex);
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+    }
     if (workspaceMode === "tilemap" && tileEditorColorPickerActive && charsetState.kind === "ready") {
       const sourceCell = Math.floor(pixelY / 8) * 32 + Math.floor(pixelX / 8);
       const sourceAttribute = charsetState.result.attributes[sourceCell];
@@ -6320,6 +6343,7 @@ export function App() {
     setTileEditorRedo([]);
     setTilemapEditorCell(0);
     setTileEditorColorPickerActive(false);
+    setTileEditorTilePickerActive(false);
     setTileEditorEdited(false);
   }
 
@@ -6412,6 +6436,25 @@ export function App() {
   function applyPickedTilemapAttribute(attribute: number): void {
     updateSelectedTilemapAttribute(() => attribute & 0xff);
     setTileEditorColorPickerActive(false);
+  }
+
+  function applyPickedTilemapIndex(characterIndex: number): void {
+    if (charsetState.kind !== "ready" || tilemapEditorCell === null) return;
+    if (!Number.isInteger(characterIndex) || characterIndex < 0 || characterIndex >= charsetState.result.characterCount) return;
+    updateSelectedTilemapCell((assignment) => ({
+      assignment: { ...assignment, characterIndex },
+    }));
+    setTileEditorTilePickerActive(false);
+  }
+
+  function consumeRecentTilePickerClick(characterIndex: number): boolean {
+    const guard = tileEditorTilePickerClickGuardRef.current;
+    if (guard === null) return false;
+    if (guard.until < Date.now()) {
+      tileEditorTilePickerClickGuardRef.current = null;
+      return false;
+    }
+    return guard.index === characterIndex;
   }
 
   function selectEditorTile(index: number): void {
@@ -9019,10 +9062,13 @@ export function App() {
             <section className="unified-tile-column" aria-label="Base tile editor">
               <div className="unified-tile-heading">
                 <p><strong>Base tile {tileEditorSelected}</strong> · {tileUsage.find((item) => item.characterIndex === tileEditorSelected)?.count ?? 0} map cells use it</p>
-                <div className="unified-tile-navigation"><button className="secondary compact" type="button" onClick={() => moveEditorTile(-1)} disabled={tileEditorSelected === 0} aria-label="Previous tile">← Previous</button><button className="secondary compact" type="button" onClick={() => moveEditorTile(1)} disabled={tileEditorSelected >= result.characterCount - 1} aria-label="Next tile">Next →</button></div>
               </div>
               <div className="unified-tile-bitmap" role="grid" aria-label={`Base tile ${tileEditorSelected} bitmap`} onPointerDown={beginTileEditorPaint} onPointerMove={moveTileEditorPaint} onPointerUp={endTileEditorPaint} onPointerCancel={endTileEditorPaint}>{Array.from({ length: 64 }, (_, pixelIndex) => { const x = pixelIndex % 8; const y = Math.floor(pixelIndex / 8); const row = result.charset[tileEditorSelected * 8 + y] ?? 0; const on = (row & (0x80 >> x)) !== 0; return <span className={`tile-editor-pixel${on ? " on" : ""}`} key={pixelIndex} role="gridcell" aria-label={`${x}, ${y}${on ? ": on" : ": off"}`} />; })}</div>
-              <div className="tile-editor-toolbar"><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "rotate-left" })} aria-label="Rotate base tile left">↶</button><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "rotate-right" })} aria-label="Rotate base tile right">↷</button><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "rotate-up" })} aria-label="Rotate base tile up">↑</button><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "rotate-down" })} aria-label="Rotate base tile down">↓</button><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "clear" })}>Clear</button><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "invert" })}>Invert</button></div>
+              <div className="unified-tile-navigation unified-segmented" role="group" aria-label="Base tile navigation"><button className="secondary compact" type="button" onClick={() => moveEditorTile(-1)} disabled={tileEditorSelected === 0} aria-label="Previous tile">← Previous</button><button className="secondary compact" type="button" onClick={() => moveEditorTile(1)} disabled={tileEditorSelected >= result.characterCount - 1} aria-label="Next tile">Next →</button></div>
+              <div className="unified-base-tile-actions" aria-label="Base tile operations">
+                <div className="tile-editor-toolbar unified-segmented" role="group" aria-label="Rotate or shift base tile"><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "rotate-left" })} aria-label="Rotate base tile left">↶</button><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "rotate-right" })} aria-label="Rotate base tile right">↷</button><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "rotate-up" })} aria-label="Rotate base tile up">↑</button><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "rotate-down" })} aria-label="Rotate base tile down">↓</button></div>
+                <div className="unified-base-edit-actions unified-segmented" role="group" aria-label="Clear or invert base tile"><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "clear" })}>Clear</button><button className="secondary compact" type="button" onClick={() => applyEditorOperation({ kind: "invert" })}>Invert</button></div>
+              </div>
             </section>
             <section className="unified-tile-column unified-cell-column" aria-label="Selected map cell preview and attributes">
               <div className="unified-tile-heading">
@@ -9037,7 +9083,7 @@ export function App() {
                   return <span key={pixelIndex} style={{ backgroundColor: color === undefined ? "#000" : color[selectedBright ? "bright" : "normal"] }} />;
                 })}
               </div>
-              <div className="unified-transform-controls" aria-label="Selected cell transformation">
+              <div className="unified-transform-controls unified-segmented" role="group" aria-label="Selected cell transformation">
                 {([
                   ["mirror-x", "Mirror X"],
                   ["mirror-y", "Mirror Y"],
@@ -9049,8 +9095,24 @@ export function App() {
               <div className="unified-cell-colors" aria-label="Selected cell color attributes">
                 <div className="unified-color-row"><strong>INK</strong><div className="unified-color-swatches">{ZX_BASE_COLORS.map((color) => <button className={`bitmap-editor-attribute-color${(selectedAttribute & 7) === color.code ? " selected" : ""}`} key={`ink-${color.code}`} type="button" disabled={!canEditSelectedCell} aria-label={`Set selected cell INK to ${color.name}`} aria-pressed={(selectedAttribute & 7) === color.code} title={`INK ${color.name}`} onClick={() => updateSelectedTilemapAttribute((attribute) => (attribute & ~7) | color.code)}><span style={{ background: selectedBright ? color.bright : color.normal }} /></button>)}</div></div>
                 <div className="unified-color-row"><strong>PAPER</strong><div className="unified-color-swatches">{ZX_BASE_COLORS.map((color) => <button className={`bitmap-editor-attribute-color${((selectedAttribute >> 3) & 7) === color.code ? " selected" : ""}`} key={`paper-${color.code}`} type="button" disabled={!canEditSelectedCell} aria-label={`Set selected cell PAPER to ${color.name}`} aria-pressed={((selectedAttribute >> 3) & 7) === color.code} title={`PAPER ${color.name}`} onClick={() => updateSelectedTilemapAttribute((attribute) => (attribute & ~0x38) | (color.code << 3))}><span style={{ background: selectedBright ? color.bright : color.normal }} /></button>)}</div></div>
-                <div className="unified-attribute-flags"><button className={`secondary compact${selectedBright ? " active" : ""}`} type="button" disabled={!canEditSelectedCell} aria-pressed={selectedBright} onClick={() => updateSelectedTilemapAttribute((attribute) => attribute ^ 0x40)}>BRIGHT</button><button className={`secondary compact${selectedFlash ? " active" : ""}`} type="button" disabled={!canEditSelectedCell} aria-pressed={selectedFlash} onClick={() => updateSelectedTilemapAttribute((attribute) => attribute ^ 0x80)}>FLASH</button><button className={`secondary compact${tileEditorColorPickerActive ? " active" : ""}`} type="button" disabled={!canEditSelectedCell} aria-pressed={tileEditorColorPickerActive} title="Pick INK, PAPER, BRIGHT, and FLASH from a map cell, then apply them to the selected cell" onClick={() => setTileEditorColorPickerActive((active) => !active)}>COL picker</button></div>
+                <div className="unified-attribute-flags" aria-label="Selected cell attributes and pickers">
+                  <div className="unified-segmented" role="group" aria-label="Cell color flags">
+                    <button className={`secondary compact${selectedBright ? " active" : ""}`} type="button" disabled={!canEditSelectedCell} aria-pressed={selectedBright} onClick={() => updateSelectedTilemapAttribute((attribute) => attribute ^ 0x40)}>BRIGHT</button>
+                    <button className={`secondary compact${selectedFlash ? " active" : ""}`} type="button" disabled={!canEditSelectedCell} aria-pressed={selectedFlash} onClick={() => updateSelectedTilemapAttribute((attribute) => attribute ^ 0x80)}>FLASH</button>
+                  </div>
+                  <div className="unified-segmented" role="group" aria-label="Cell pickers">
+                    <button className={`secondary compact${tileEditorColorPickerActive ? " active" : ""}`} type="button" disabled={!canEditSelectedCell} aria-pressed={tileEditorColorPickerActive} title="Pick INK, PAPER, BRIGHT, and FLASH from a map cell, then apply them to the selected cell" onClick={() => {
+                    setTileEditorTilePickerActive(false);
+                    setTileEditorColorPickerActive((active) => !active);
+                    }}>COL</button>
+                    <button className={`secondary compact${tileEditorTilePickerActive ? " active" : ""}`} type="button" disabled={!canEditSelectedCell} aria-pressed={tileEditorTilePickerActive} title="Choose a tile from the converted screen or Charset tiles; replace the tile index only at the selected map cell" onClick={() => {
+                    setTileEditorColorPickerActive(false);
+                    setTileEditorTilePickerActive((active) => !active);
+                    }}>TILE</button>
+                  </div>
+                </div>
                 {tileEditorColorPickerActive ? <span className="control-help" role="status">Click a map cell to copy its attributes to the selected cell.</span> : null}
+                {tileEditorTilePickerActive ? <span className="control-help" role="status">Choose a source tile from the converted screen or Charset tiles. Only map cell {selectedCellX},{selectedCellY} will change; other uses are untouched. Press Escape to cancel.</span> : null}
               </div>
             </section>
           </div>
@@ -12584,21 +12646,54 @@ export function App() {
                     ref={(element) => {
                       charsetGlyphRefs.current[characterIndex] = element;
                     }}
-                    onClick={() => {
-                      if (charsetSource !== "existing") selectEditorTile(characterIndex);
+                    onClick={(event) => {
+                      if (consumeRecentTilePickerClick(characterIndex)) {
+                        event.preventDefault();
+                        return;
+                      }
+                      if (tileEditorTilePickerActive) {
+                        tileEditorTilePickerClickGuardRef.current = { index: characterIndex, until: Date.now() + 500 };
+                        applyPickedTilemapIndex(characterIndex);
+                      } else if (charsetSource !== "existing") {
+                        selectEditorTile(characterIndex);
+                      }
                     }}
-                    onDoubleClick={() => charsetSource === "existing"
-                      ? handleCharsetDoubleClick(characterIndex)
-                      : selectEditorTile(characterIndex)}
-                    onPointerDown={(event) => charsetSource === "existing"
-                      ? beginCharsetSelection(characterIndex, event)
-                      : undefined}
+                    onDoubleClick={(event) => {
+                      if (consumeRecentTilePickerClick(characterIndex)) {
+                        event.preventDefault();
+                        return;
+                      }
+                      if (tileEditorTilePickerActive) {
+                        applyPickedTilemapIndex(characterIndex);
+                      } else if (charsetSource === "existing") {
+                        handleCharsetDoubleClick(characterIndex);
+                      } else {
+                        selectEditorTile(characterIndex);
+                      }
+                    }}
+                    onPointerDown={(event) => {
+                      if (consumeRecentTilePickerClick(characterIndex)) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        return;
+                      }
+                      if (tileEditorTilePickerActive) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        tileEditorTilePickerClickGuardRef.current = { index: characterIndex, until: Date.now() + 500 };
+                        applyPickedTilemapIndex(characterIndex);
+                      } else if (charsetSource === "existing") {
+                        beginCharsetSelection(characterIndex, event);
+                      }
+                    }}
                     onKeyDown={(event) => editorReady
                       ? (event.key === "ArrowLeft" || event.key === "ArrowRight" || event.key === "ArrowUp" || event.key === "ArrowDown"
                         ? handleCharsetGlyphKey(characterIndex, event)
                         : event.key === "Enter" || event.key === " "
-                          ? (event.preventDefault(), selectEditorTile(characterIndex), charsetSource === "existing" ? toggleCharsetCharacter(characterIndex) : undefined)
-                          : undefined)
+                          ? (event.preventDefault(), tileEditorTilePickerActive
+                            ? applyPickedTilemapIndex(characterIndex)
+                            : (selectEditorTile(characterIndex), charsetSource === "existing" ? toggleCharsetCharacter(characterIndex) : undefined))
+                        : undefined)
                       : handleCharsetGlyphKey(characterIndex, event)}
                     onDragStart={(event) => event.preventDefault()}
                   >
