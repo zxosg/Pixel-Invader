@@ -1,5 +1,6 @@
 import { ImageImportError } from "./errors.js";
 import { parseExifOrientation, type ExifOrientation } from "./exif.js";
+import { isRecognizedSrgbPngIccp } from "./icc.js";
 import { MAX_METADATA_BYTES, validateImageLimits } from "./limits.js";
 
 export type ImageFormat = "png" | "jpeg";
@@ -88,10 +89,12 @@ export function parsePngHeader(bytes: Uint8Array): ImageHeader {
     } else if (type === "acTL") {
       throw new ImageImportError("IMAGE_ANIMATION_UNSUPPORTED", "Animated PNG is not supported in v1.0.");
     } else if (type === "iCCP") {
-      throw new ImageImportError(
-        "IMAGE_COLOR_PROFILE_UNSUPPORTED",
-        "Embedded PNG ICC profiles are not in the v1.0 sRGB allow-list.",
-      );
+      if (length > MAX_METADATA_BYTES || !isRecognizedSrgbPngIccp(bytes.subarray(dataOffset, dataOffset + length))) {
+        throw new ImageImportError(
+          "IMAGE_COLOR_PROFILE_UNSUPPORTED",
+          "Embedded PNG ICC profile is malformed or not a recognized sRGB profile.",
+        );
+      }
     } else if (type === "eXIf") {
       if (length > MAX_METADATA_BYTES) {
         throw new ImageImportError("IMAGE_LIMIT_EXCEEDED", "PNG EXIF metadata exceeds 4 MiB.");

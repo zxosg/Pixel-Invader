@@ -81,5 +81,16 @@ export {
   quantizedOklab,
   validateStructuredSettings,
 } from "./structured-zx.js";
+export {
+  buildJointMixedCandidates,
+  buildJointMixedPhysicalPalette,
+  convertJointMixedCells,
+  findBestJointMixedCandidate,
+  scoreJointMixedCandidateWithDualFs,
+  type JointMixedCandidate,
+  type JointMixedFrames,
+  type JointMixedPhysicalColor,
+  type JointMixedQuantizedCellScore,
+} from "./zx-mixed-joint.js";
 export * from "./engines.js";
 export * from "./types.js";

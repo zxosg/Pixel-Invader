@@ -7,6 +7,7 @@ import {
   type ConversionSettings,
   type QlTargetModeId,
 } from "@retro-converter/conversion-core";
+import { migrateRetiredOrderedMatrix } from "./legacy-ordered-matrix.js";
 import { APPLICATION_VERSION, sha256Hex } from "./artifacts.js";
 import { assertValidQlScreen } from "@retro-converter/sinclair-ql";
 import { assertValidSoftwareScr } from "@retro-converter/zx-spectrum";
@@ -457,6 +458,9 @@ export async function validateCompletedProject(bytes: Uint8Array): Promise<Valid
       ...rawSettings?.pmd85,
     },
     borderColor: rawSettings?.borderColor ?? archivedBorder,
+    orderedMatrix: migrateRetiredOrderedMatrix(
+      rawSettings?.orderedMatrix ?? DEFAULT_CONVERSION_SETTINGS.orderedMatrix,
+    ) as ConversionSettings["orderedMatrix"],
   };
   if (
     !Number.isInteger(settings.panOffsetX) ||

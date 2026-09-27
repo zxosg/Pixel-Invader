@@ -655,6 +655,133 @@ describe("completed project containers", () => {
     expect(validated.frames).toEqual([first, second]);
   });
 
+  it("round-trips the experimental joint Mixed optimizer and dither engine", async () => {
+    const first = serializeScr(createBlankScreen(0));
+    const second = serializeScr(createBlankScreen(0x47));
+    const input = {
+      ...projectInput(),
+      settings: {
+        ...DEFAULT_CONVERSION_SETTINGS,
+        modeId: "zx48-mixed-256x192" as const,
+        attributeOptimizerId: "zx-mixed-joint-cell-v1" as const,
+        ditherEngineId: "zx-mixed-dual-fs-v1" as const,
+        dithering: "error-diffusion" as const,
+        ditheringAmount: 70,
+        paletteSelections: [
+          { screenIndex: 0, enabledColorIds: [0, 2, 7], brightMode: "off" as const },
+          { screenIndex: 1, enabledColorIds: [1, 4, 6], brightMode: "on" as const },
+        ],
+      },
+      scr: first,
+      frames: [first, second],
+    };
+    const validated = await validateCompletedProject(
+      await createCompletedProject(input),
+    );
+    expect(validated.settings.attributeOptimizerId)
+      .toBe("zx-mixed-joint-cell-v1");
+    expect(validated.settings.ditherEngineId).toBe("zx-mixed-dual-fs-v1");
+    expect(validated.frames).toEqual([first, second]);
+  });
+
+  it("round-trips the experimental ZX coverage BRIGHT-scored v10 engine", async () => {
+    const screen = serializeScr(createBlankScreen(0));
+    const input = {
+      ...projectInput(),
+      settings: {
+        ...DEFAULT_CONVERSION_SETTINGS,
+        modeId: "zx48-standard-256x192" as const,
+        attributeOptimizerId: "zx-guide-reference-halo-v1" as const,
+        ditherEngineId: "ordered-coverage-bright-scored-v10" as const,
+        dithering: "ordered" as const,
+        ditheringAmount: 50,
+        orderedMatrix: "bayer-4x4" as const,
+        paletteSelections: [{
+          screenIndex: 0,
+          enabledColorIds: [0, 7],
+          brightMode: "auto" as const,
+        }],
+      },
+      scr: screen,
+      frames: [screen],
+    };
+    const validated = await validateCompletedProject(
+      await createCompletedProject(input),
+    );
+    expect(validated.settings.attributeOptimizerId)
+      .toBe("zx-guide-reference-halo-v1");
+    expect(validated.settings.ditherEngineId)
+      .toBe("ordered-coverage-bright-scored-v10");
+    expect(validated.settings.ditheringAmount).toBe(50);
+  });
+
+  it("round-trips edge-aware Mixed v2 and boundary-aware dual-frame dithering", async () => {
+    const screen = serializeScr(createBlankScreen(0));
+    const input = {
+      ...projectInput(),
+      settings: {
+        ...DEFAULT_CONVERSION_SETTINGS,
+        modeId: "zx48-mixed-256x192" as const,
+        attributeOptimizerId: "zx-mixed-joint-cell-v2" as const,
+        ditherEngineId: "zx-mixed-dual-fs-boundary-v1" as const,
+        dithering: "error-diffusion" as const,
+        ditheringAmount: 65,
+        paletteSelections: [
+          { screenIndex: 0, enabledColorIds: [0, 7], brightMode: "auto" as const },
+          { screenIndex: 1, enabledColorIds: [0, 7], brightMode: "auto" as const },
+        ],
+      },
+      scr: screen,
+      frames: [screen, screen],
+    };
+    const validated = await validateCompletedProject(await createCompletedProject(input));
+    expect(validated.settings.attributeOptimizerId).toBe("zx-mixed-joint-cell-v2");
+    expect(validated.settings.ditherEngineId).toBe("zx-mixed-dual-fs-boundary-v1");
+    expect(validated.frames).toEqual([screen, screen]);
+  });
+
+  it("round-trips quantized Mixed optimization with a built-in ordered matrix", async () => {
+    const screen = serializeScr(createBlankScreen(0x47));
+    const input = {
+      ...projectInput(),
+      settings: {
+        ...DEFAULT_CONVERSION_SETTINGS,
+        modeId: "zx48-mixed-256x192" as const,
+        attributeOptimizerId: "zx-mixed-joint-quantized-v1" as const,
+        ditherEngineId: "ordered-threshold-identity-v1" as const,
+        dithering: "ordered" as const,
+        ditheringAmount: 65,
+        orderedMatrix: "bayer-4x4" as const,
+        paletteSelections: [
+          { screenIndex: 0, enabledColorIds: [0, 7], brightMode: "auto" as const },
+          { screenIndex: 1, enabledColorIds: [0, 7], brightMode: "auto" as const },
+        ],
+      },
+      scr: screen,
+      frames: [screen, screen],
+    };
+    const validated = await validateCompletedProject(await createCompletedProject(input));
+    expect(validated.settings.attributeOptimizerId).toBe("zx-mixed-joint-quantized-v1");
+    expect(validated.settings.ditherEngineId).toBe("ordered-threshold-identity-v1");
+    expect(validated.settings.orderedMatrix).toBe("bayer-4x4");
+    expect(validated.frames).toEqual([screen, screen]);
+  });
+
+  it("migrates a retired DithvIDE matrix choice to Bayer when opening a project", async () => {
+    const screen = serializeScr(createBlankScreen(0x47));
+    const input = {
+      ...projectInput(),
+      settings: {
+        ...DEFAULT_CONVERSION_SETTINGS,
+        orderedMatrix: "dithvide-grid-4x4" as never,
+      },
+      scr: screen,
+      frames: [screen],
+    };
+    const validated = await validateCompletedProject(await createCompletedProject(input));
+    expect(validated.settings.orderedMatrix).toBe("bayer-4x4");
+  });
+
   it("stores a plain Sinclair QL project with one hardware screen", async () => {
     const screen = encodeQlScreen(
       new Uint8Array(512 * 256),

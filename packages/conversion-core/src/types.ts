@@ -39,6 +39,9 @@ export type AttributeOptimizerId =
   | "pmd85-vertical-spatial-uniform-v1"
   | "pmd85-vertical-spatial-detail-v2"
   | "zx-adaptive-v1"
+  | "zx-mixed-joint-cell-v1"
+  | "zx-mixed-joint-cell-v2"
+  | "zx-mixed-joint-quantized-v1"
   | "zx-source-cell-v1"
   | "zx-guide-local-v1"
   | "zx-guide-reference-halo-v1"
@@ -97,6 +100,9 @@ export type DitherEngineId =
   | "ordered-baseline-additive-v5"
   | "ordered-strict-matrix-v6"
   | "ordered-coverage-normalized-v7"
+  | "ordered-tone-calibrated-v8"
+  | "ordered-bright-locked-cell-v9"
+  | "ordered-coverage-bright-scored-v10"
   | "ordered-mixed-phase-stable-v8"
   | "ordered-threshold-identity-v1"
   | "ordered-clustered-dot-v1"
@@ -125,7 +131,9 @@ export type DitherEngineId =
   | "error-diffusion-matrix-guided-v1"
   | "error-diffusion-decorrelated-v3"
   | "error-diffusion-atkinson-v1"
-  | "error-diffusion-riemersma-v1";
+  | "error-diffusion-riemersma-v1"
+  | "zx-mixed-dual-fs-v1"
+  | "zx-mixed-dual-fs-boundary-v1";
 
 export interface EngineFallbackDiagnostic {
   readonly requestedEngineId: DitherEngineId;

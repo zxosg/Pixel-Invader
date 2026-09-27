@@ -1008,12 +1008,21 @@ export function convertScrToCharset(
   const transforms = new Uint8Array(768);
   const attributes = screen.attributes.slice();
   const assignments: CharsetAssignment[] = [];
-  const effectiveMetric = options.derivedStrategy === "image-similarity-v4" ||
-      options.derivedStrategy === "image-similarity-v5"
-    ? "image-similarity-v2"
-    : options.derivedStrategy === "image-similarity-v2" ||
-        options.derivedStrategy === "image-similarity-v3"
+  // Derived strategies may choose a different matcher or refine the glyph
+  // dictionary, but those behaviors are not valid for a user-supplied font.
+  // An existing charset must remain byte-for-byte stable; its matching metric
+  // is configured independently through distanceMetric.
+  const derivedStrategy = options.source === "derived"
     ? options.derivedStrategy
+    : "best-coverage";
+  const effectiveMetric = options.source === "existing"
+    ? options.distanceMetric
+    : derivedStrategy === "image-similarity-v4" ||
+        derivedStrategy === "image-similarity-v5"
+    ? "image-similarity-v2"
+    : derivedStrategy === "image-similarity-v2" ||
+        derivedStrategy === "image-similarity-v3"
+    ? derivedStrategy
     : options.distanceMetric;
   let totalDistance = 0;
   let maximumDistance = 0;
@@ -1079,7 +1088,7 @@ export function convertScrToCharset(
     candidateCacheHits: number;
     candidateSetsPrepared: number;
   } | undefined;
-  if (options.derivedStrategy === "image-similarity-v3") {
+  if (derivedStrategy === "image-similarity-v3") {
     const refined = refineImageSimilarityV3(
       tiles,
       screen,
@@ -1111,9 +1120,9 @@ export function convertScrToCharset(
       transformHistogram[assignment.transform] =
         (transformHistogram[assignment.transform] ?? 0) + 1;
     });
-  } else if (options.derivedStrategy === "image-similarity-v4" ||
-      options.derivedStrategy === "image-similarity-v5") {
-    const refined = options.derivedStrategy === "image-similarity-v5"
+  } else if (derivedStrategy === "image-similarity-v4" ||
+      derivedStrategy === "image-similarity-v5") {
+    const refined = derivedStrategy === "image-similarity-v5"
       ? refineImageSimilarityV5(
           tiles, screen, charset, assignments, options,
         )

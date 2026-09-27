@@ -155,6 +155,41 @@ describe("ZX charset raw encoding", () => {
     )).toBe(true);
   });
 
+  it("keeps external charset glyphs and assignments independent of derived strategy", () => {
+    const source = serializeScr(patternedScreen());
+    const charset = Uint8Array.from(
+      { length: 8 * 4 },
+      (_, index) => (index * 53 + Math.floor(index / 8) * 29) & 0xff,
+    );
+    const convert = (derivedStrategy: CharsetConversionOptions["derivedStrategy"]) =>
+      convertScrToCharset(source, options({
+        source: "existing",
+        existingCharset: charset,
+        existingCharsetRange: { startIndex: 0, length: 4 },
+        characterBudget: 4,
+        encoding: "extended",
+        allowTransforms: true,
+        distanceMetric: "hamming",
+        derivedStrategy,
+      }));
+
+    const baseline = convert("best-coverage");
+    expect(baseline.artifact.charset).toEqual(charset);
+    for (const strategy of [
+      "image-similarity-v2",
+      "image-similarity-v3",
+      "image-similarity-v4",
+      "image-similarity-v5",
+    ] as const) {
+      const result = convert(strategy);
+      expect(result.artifact.charset).toEqual(charset);
+      expect(result.assignments).toEqual(baseline.assignments);
+      expect(result.artifact.bytes).toEqual(baseline.artifact.bytes);
+      expect(result.diagnostics).not.toHaveProperty("refinementPasses");
+      expect(result.diagnostics).not.toHaveProperty("medoidSwaps");
+    }
+  });
+
   it("packs an arbitrary loaded selection in source-index order", () => {
     const charset = Uint8Array.from(
       { length: 8 * 6 },

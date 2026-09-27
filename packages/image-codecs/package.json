@@ -12,6 +12,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "fflate": "0.8.3",
     "fast-png": "8.0.0",
     "jpeg-js": "0.4.4"
   }

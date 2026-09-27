@@ -3,6 +3,7 @@ import {
   isCompatibleEnginePair,
   type ConversionSettings,
 } from "@retro-converter/conversion-core";
+import { migrateRetiredOrderedMatrix } from "./legacy-ordered-matrix.js";
 import { sha256Hex } from "./artifacts.js";
 
 export const BUILT_IN_PROFILE_ID = "org.retroconverter.zx48.default";
@@ -707,6 +708,7 @@ function validateSettings(value: unknown): value is ConversionSettings {
       "ordered-baseline-additive-v5",
       "ordered-strict-matrix-v6",
       "ordered-coverage-normalized-v7",
+      "ordered-coverage-bright-scored-v10",
       "ordered-mixed-phase-stable-v8",
       "ordered-clustered-dot-v1",
       "ordered-void-cluster-v1",
@@ -793,7 +795,6 @@ function validateSettings(value: unknown): value is ConversionSettings {
       value.platformId === "sinclair-ql" && ["mode8-plain-256x256", "mode4-plain-512x256", "mode8-256x256", "mode4-512x256", "mode8-mode4-mixed-512x256"].includes(String(value.modeId)) ||
       value.platformId === "pmd-85") &&
     (value.artisticPattern === undefined || ["auto", "checkerboard", "horizontal", "vertical"].includes(String(value.artisticPattern))) &&
-    ["checkerboard-2x1", "bayer-2x2", "bayer-4x4", "bayer-8x8", "clustered-dot-4x4", "clustered-dot-8x8", "void-cluster-8x8"].includes(String(value.orderedMatrix)) &&
     Array.isArray(value.customOrderedMatrices) &&
     Array.isArray(value.customDiffusionKernels) &&
     isObject(value.composer) &&
@@ -1034,6 +1035,7 @@ export async function parseImportedProfile(bytes: Uint8Array): Promise<Conversio
           panEdgeMode: raw.settings.panEdgeMode === undefined
             ? "background"
             : raw.settings.panEdgeMode,
+          orderedMatrix: migrateRetiredOrderedMatrix(raw.settings.orderedMatrix),
         }
       : raw.settings;
     if (typeof raw.name !== "string" || raw.name.length < 1 || raw.name.length > 80 || !validateSettings(settings)) {

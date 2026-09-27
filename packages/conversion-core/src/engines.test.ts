@@ -18,12 +18,167 @@ describe("versioned conversion engines", () => {
       .toBe(DITHER_ENGINES.length);
   });
 
+  it("registers the joint ZX Mixed optimizer and its paired-frame dither", () => {
+    expect(ATTRIBUTE_OPTIMIZERS.find(({ id }) => id === "zx-mixed-joint-cell-v1"))
+      .toMatchObject({
+        lifecycle: "experimental",
+        targetModeIds: ["zx48-mixed-256x192"],
+      });
+    expect(isDitherEngineAvailableForSelection(
+      "zx-spectrum",
+      "zx48-mixed-256x192",
+      "zx-mixed-joint-cell-v1",
+      "zx-mixed-dual-fs-v1",
+    )).toBe(true);
+    expect(isDitherEngineAvailableForSelection(
+      "zx-spectrum",
+      "zx48-mixed-256x192",
+      "zx-adaptive-v1",
+      "zx-mixed-dual-fs-v1",
+    )).toBe(false);
+    expect(isDitherEngineAvailableForSelection(
+      "zx-spectrum",
+      "zx48-mixed-256x192",
+      "zx-mixed-joint-cell-v1",
+      "none-discrete-v2",
+    )).toBe(true);
+    expect(ATTRIBUTE_OPTIMIZERS.find(({ id }) => id === "zx-mixed-joint-cell-v2"))
+      .toMatchObject({
+        lifecycle: "experimental",
+        targetModeIds: ["zx48-mixed-256x192"],
+      });
+    expect(isDitherEngineAvailableForSelection(
+      "zx-spectrum",
+      "zx48-mixed-256x192",
+      "zx-mixed-joint-cell-v2",
+      "zx-mixed-dual-fs-boundary-v1",
+    )).toBe(true);
+    expect(ATTRIBUTE_OPTIMIZERS.find(({ id }) => id === "zx-mixed-joint-quantized-v1"))
+      .toMatchObject({
+        lifecycle: "experimental",
+        targetModeIds: ["zx48-mixed-256x192"],
+      });
+    expect(isDitherEngineAvailableForSelection(
+      "zx-spectrum",
+      "zx48-mixed-256x192",
+      "zx-mixed-joint-quantized-v1",
+      "zx-mixed-dual-fs-v1",
+    )).toBe(true);
+    expect(isDitherEngineAvailableForSelection(
+      "zx-spectrum",
+      "zx48-mixed-256x192",
+      "zx-mixed-joint-quantized-v1",
+      "none-discrete-v2",
+    )).toBe(true);
+    expect(isDitherEngineAvailableForSelection(
+      "zx-spectrum",
+      "zx48-mixed-256x192",
+      "zx-mixed-joint-quantized-v1",
+      "error-diffusion-unrestricted-v2",
+    )).toBe(true);
+    for (const unsupported of [
+      "error-diffusion-projected-v1",
+      "error-diffusion-riemersma-v1",
+      "zx-mixed-dual-fs-boundary-v1",
+    ] as const) {
+      expect(isDitherEngineAvailableForSelection(
+        "zx-spectrum",
+        "zx48-mixed-256x192",
+        "zx-mixed-joint-quantized-v1",
+        unsupported,
+      )).toBe(false);
+    }
+    expect(isDitherEngineAvailableForSelection(
+      "zx-spectrum",
+      "zx48-mixed-256x192",
+      "zx-adaptive-v1",
+      "zx-mixed-dual-fs-boundary-v1",
+    )).toBe(false);
+  });
+
   it("selects the newest registered engine for each basic method", () => {
     expect(latestDitherEngineForMethod("none")).toBe("none-discrete-v2");
     expect(latestDitherEngineForMethod("ordered"))
       .toBe("ordered-strict-matrix-v6");
     expect(latestDitherEngineForMethod("error-diffusion"))
       .toBe("error-diffusion-decorrelated-v3");
+  });
+
+  it("keeps tone-calibrated v8 experimental and limited to ZX Standard", () => {
+    expect(DITHER_ENGINES.find(({ id }) => id === "ordered-tone-calibrated-v8"))
+      .toMatchObject({
+        lifecycle: "experimental",
+        platforms: ["zx-spectrum"],
+        targetModeIds: ["zx48-standard-256x192"],
+      });
+    expect(isDitherEngineAvailableForSelection(
+      "zx-spectrum",
+      "zx48-standard-256x192",
+      "zx-adaptive-v1",
+      "ordered-tone-calibrated-v8",
+    )).toBe(true);
+    expect(isDitherEngineAvailableForSelection(
+      "zx-spectrum",
+      "zx48-mixed-256x192",
+      "zx-adaptive-v1",
+      "ordered-tone-calibrated-v8",
+    )).toBe(false);
+    expect(isDitherEngineAvailableForSelection(
+      "sinclair-ql",
+      "mode8-256x256",
+      "zx-adaptive-v1",
+      "ordered-tone-calibrated-v8",
+    )).toBe(false);
+  });
+
+  it("keeps BRIGHT-locked v9 experimental and scoped to the Halo ZX Standard path", () => {
+    expect(DITHER_ENGINES.find(({ id }) => id === "ordered-bright-locked-cell-v9"))
+      .toMatchObject({
+        lifecycle: "experimental",
+        platforms: ["zx-spectrum"],
+        targetModeIds: ["zx48-standard-256x192"],
+        compatibleAttributeOptimizerIds: ["zx-guide-reference-halo-v1"],
+      });
+    expect(isDitherEngineAvailableForSelection(
+      "zx-spectrum",
+      "zx48-standard-256x192",
+      "zx-guide-reference-halo-v1",
+      "ordered-bright-locked-cell-v9",
+    )).toBe(true);
+    expect(isDitherEngineAvailableForSelection(
+      "zx-spectrum",
+      "zx48-standard-256x192",
+      "zx-adaptive-v1",
+      "ordered-bright-locked-cell-v9",
+    )).toBe(false);
+    expect(isDitherEngineAvailableForSelection(
+      "zx-spectrum",
+      "zx48-mixed-256x192",
+      "zx-guide-reference-halo-v1",
+      "ordered-bright-locked-cell-v9",
+    )).toBe(false);
+  });
+
+  it("keeps coverage cell-scored BRIGHT v10 experimental and scoped to Halo ZX Standard", () => {
+    expect(DITHER_ENGINES.find(({ id }) => id === "ordered-coverage-bright-scored-v10"))
+      .toMatchObject({
+        lifecycle: "experimental",
+        platforms: ["zx-spectrum"],
+        targetModeIds: ["zx48-standard-256x192"],
+        compatibleAttributeOptimizerIds: ["zx-guide-reference-halo-v1"],
+      });
+    expect(isDitherEngineAvailableForSelection(
+      "zx-spectrum", "zx48-standard-256x192", "zx-guide-reference-halo-v1",
+      "ordered-coverage-bright-scored-v10",
+    )).toBe(true);
+    expect(isDitherEngineAvailableForSelection(
+      "zx-spectrum", "zx48-standard-256x192", "zx-adaptive-v1",
+      "ordered-coverage-bright-scored-v10",
+    )).toBe(false);
+    expect(isDitherEngineAvailableForSelection(
+      "zx-spectrum", "zx48-mixed-256x192", "zx-guide-reference-halo-v1",
+      "ordered-coverage-bright-scored-v10",
+    )).toBe(false);
   });
 
   it("maps engine IDs to methods and validates platform support", () => {
@@ -41,6 +196,8 @@ describe("versioned conversion engines", () => {
     expect(ditherMethodForEngine("ordered-strict-matrix-v6"))
       .toBe("ordered");
     expect(ditherMethodForEngine("ordered-coverage-normalized-v7"))
+      .toBe("ordered");
+    expect(ditherMethodForEngine("ordered-tone-calibrated-v8"))
       .toBe("ordered");
     expect(ditherMethodForEngine("ordered-mixed-phase-stable-v8"))
       .toBe("ordered");
@@ -255,6 +412,7 @@ describe("versioned conversion engines", () => {
       "ordered-clustered-dot-v1",
       "ordered-void-cluster-v1",
       "ordered-coverage-normalized-v7",
+      "ordered-tone-calibrated-v8",
       "error-diffusion-atkinson-v1",
       "error-diffusion-riemersma-v1",
       "error-diffusion-phase-balanced-v3",

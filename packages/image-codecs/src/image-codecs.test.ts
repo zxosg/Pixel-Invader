@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { zlibSync } from "fflate";
 import { encode as encodePng } from "fast-png";
 import { encode as encodeJpeg } from "jpeg-js";
 import {
@@ -38,6 +39,93 @@ function injectJpegApp1(jpeg: Uint8Array, payload: Uint8Array): Uint8Array {
     segmentLength >> 8, segmentLength & 0xff,
     ...payload,
     ...jpeg.subarray(2),
+  ]);
+}
+
+function pngCrc(bytes: Uint8Array): number {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ ((crc & 1) === 1 ? 0xedb88320 : 0);
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type: string, data: Uint8Array): Uint8Array {
+  const typeBytes = Uint8Array.from(Array.from(type, (character) => character.charCodeAt(0)));
+  const crcInput = Uint8Array.from([...typeBytes, ...data]);
+  const crc = pngCrc(crcInput);
+  return Uint8Array.from([
+    data.length >>> 24, data.length >>> 16, data.length >>> 8, data.length,
+    ...typeBytes, ...data,
+    crc >>> 24, crc >>> 16, crc >>> 8, crc,
+  ]);
+}
+
+function recognizedSrgbIccp(): Uint8Array {
+  const description = "sRGB IEC61966-2.1";
+  const tags = ["desc", "rXYZ", "gXYZ", "bXYZ", "rTRC", "gTRC", "bTRC"];
+  const profileBuffer = new Uint8Array(1024);
+  const view = new DataView(profileBuffer.buffer);
+  const setAscii = (offset: number, value: string): void => {
+    value.split("").forEach((character, index) => {
+      profileBuffer[offset + index] = character.charCodeAt(0);
+    });
+  };
+  setAscii(12, "mntr");
+  setAscii(16, "RGB ");
+  setAscii(20, "XYZ ");
+  setAscii(36, "acsp");
+
+  const tableOffset = 128;
+  view.setUint32(tableOffset, tags.length, false);
+  let dataOffset = tableOffset + 4 + tags.length * 12;
+  const writeTag = (signature: string, data: Uint8Array): void => {
+    const index = tags.indexOf(signature);
+    if (index < 0) throw new Error(`Unexpected ICC tag ${signature}.`);
+    const entry = tableOffset + 4 + index * 12;
+    setAscii(entry, signature);
+    view.setUint32(entry + 4, dataOffset, false);
+    view.setUint32(entry + 8, data.length, false);
+    profileBuffer.set(data, dataOffset);
+    dataOffset += data.length;
+  };
+  const desc = new Uint8Array(12 + description.length + 1);
+  const descView = new DataView(desc.buffer);
+  desc.set(Uint8Array.from(Array.from("desc", (character) => character.charCodeAt(0))), 0);
+  descView.setUint32(8, description.length + 1, false);
+  desc.set(Uint8Array.from(Array.from(description, (character) => character.charCodeAt(0))), 12);
+  writeTag("desc", desc);
+
+  const matrix = [
+    [0.4360747, 0.2225045, 0.0139322],
+    [0.3850649, 0.7168786, 0.0971045],
+    [0.1430804, 0.0606169, 0.7141733],
+  ];
+  matrix.forEach((values, index) => {
+    const data = new Uint8Array(20);
+    data.set(Uint8Array.from(Array.from("XYZ ", (character) => character.charCodeAt(0))), 0);
+    const dataView = new DataView(data.buffer);
+    values.forEach((value, valueIndex) => dataView.setInt32(8 + valueIndex * 4, Math.round(value * 65536), false));
+    writeTag(tags[index + 1]!, data);
+  });
+  ["rTRC", "gTRC", "bTRC"].forEach((signature) => {
+    const data = new Uint8Array(16);
+    data.set(Uint8Array.from(Array.from("curv", (character) => character.charCodeAt(0))), 0);
+    const dataView = new DataView(data.buffer);
+    dataView.setUint32(8, 1, false);
+    dataView.setUint16(12, 0x0266, false);
+    writeTag(signature, data);
+  });
+
+  const profile = profileBuffer.slice(0, dataOffset);
+  new DataView(profile.buffer).setUint32(0, profile.length, false);
+  const compressed = zlibSync(profile);
+  return Uint8Array.from([
+    ...Array.from("sRGB", (character) => character.charCodeAt(0)), 0, 0,
+    ...compressed,
   ]);
 }
 
@@ -97,6 +185,17 @@ describe("content inspection", () => {
     ]);
     expectCode(() => inspectImage(withChunk("acTL")), "IMAGE_ANIMATION_UNSUPPORTED");
     expectCode(() => inspectImage(withChunk("iCCP")), "IMAGE_COLOR_PROFILE_UNSUPPORTED");
+  });
+
+  it("accepts a recognized embedded sRGB profile", () => {
+    const png = encodePng({ width: 1, height: 1, data: Uint8Array.from([10, 20, 30, 255]), channels: 4 });
+    const tagged = Uint8Array.from([
+      ...png.subarray(0, 33),
+      ...pngChunk("iCCP", recognizedSrgbIccp()),
+      ...png.subarray(33),
+    ]);
+    expect(inspectImage(tagged)).toMatchObject({ format: "png", width: 1, height: 1 });
+    expect(decodeImage(tagged).rgba).toEqual(Uint8Array.from([10, 20, 30, 255]));
   });
 });
 

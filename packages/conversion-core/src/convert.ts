@@ -59,6 +59,7 @@ import {
   planCheckerPlacement,
 } from "./checker-placement.js";
 import { convertStructuredZx } from "./structured-zx.js";
+import { convertJointMixedCells } from "./zx-mixed-joint.js";
 import {
   atkinsonDiffusionKernel,
   checkerPhaseDiffusionKernel,
@@ -105,6 +106,27 @@ function squaredDistance(r: number, g: number, b: number, color: RgbColor): numb
   const dg = g - color.g;
   const db = b - color.b;
   return dr * dr + dg * dg + db * db;
+}
+
+function renderEncodedSoftwareScrRgba(
+  encoded: Uint8Array,
+  attributeHeight: AttributeHeight,
+): Uint8Array {
+  if (encoded.length !== zxSoftwareScrBytes(attributeHeight)) {
+    throw new RangeError("Encoded software SCR length is invalid.");
+  }
+  const pixels = new Uint8Array(ZX_SCREEN_WIDTH * ZX_SCREEN_HEIGHT);
+  for (let y = 0; y < ZX_SCREEN_HEIGHT; y += 1) {
+    for (let xByte = 0; xByte < ZX_ATTRIBUTE_COLUMNS; xByte += 1) {
+      const packed = encoded[zxBitmapOffset(xByte, y)] ?? 0;
+      for (let bit = 0; bit < 8; bit += 1) {
+        pixels[y * ZX_SCREEN_WIDTH + xByte * 8 + bit] =
+          (packed & (0x80 >> bit)) === 0 ? 0 : 1;
+      }
+    }
+  }
+  const attributes = encoded.subarray(ZX_BITMAP_BYTES).slice();
+  return renderAttributeFrameRgba(pixels, attributes, attributeHeight);
 }
 
 function signedRoundDiv(numerator: number, denominator: number): number {
@@ -1062,6 +1084,154 @@ function renderCoverageNormalizedOrderedDither(
     }
   }
   return colorKeys;
+}
+
+function optimizeAttributeBrightnessForEncodedPixels(
+  source: Uint8Array,
+  pixels: Uint8Array,
+  attributes: Uint8Array,
+  cellHeight: AttributeHeight,
+): void {
+  const attributeRows = ZX_SCREEN_HEIGHT / cellHeight;
+  for (let cellY = 0; cellY < attributeRows; cellY += 1) {
+    for (let cellX = 0; cellX < ZX_ATTRIBUTE_COLUMNS; cellX += 1) {
+      const attributeOffset = cellY * ZX_ATTRIBUTE_COLUMNS + cellX;
+      const attribute = attributes[attributeOffset] ?? 0;
+      const inkCode = attribute & 7;
+      const paperCode = (attribute >> 3) & 7;
+      let normalError = 0;
+      let brightError = 0;
+      const yStart = cellY * cellHeight;
+      const yEnd = yStart + cellHeight;
+      const xStart = cellX * CELL_WIDTH;
+      const xEnd = xStart + CELL_WIDTH;
+      for (let y = yStart; y < yEnd; y += 1) {
+        for (let x = xStart; x < xEnd; x += 1) {
+          const pixelOffset = y * ZX_SCREEN_WIDTH + x;
+          const sourceOffset = pixelOffset * 4;
+          const colorCode = (pixels[pixelOffset] ?? 0) === 1 ? inkCode : paperCode;
+          const normal = zxColor(colorCode, false);
+          const bright = zxColor(colorCode, true);
+          const r = source[sourceOffset] ?? 0;
+          const g = source[sourceOffset + 1] ?? 0;
+          const b = source[sourceOffset + 2] ?? 0;
+          normalError += (r - normal.r) ** 2 + (g - normal.g) ** 2 + (b - normal.b) ** 2;
+          brightError += (r - bright.r) ** 2 + (g - bright.g) ** 2 + (b - bright.b) ** 2;
+        }
+      }
+      if (brightError < normalError) {
+        attributes[attributeOffset] = attribute | 0x40;
+      } else if (normalError < brightError) {
+        attributes[attributeOffset] = attribute & 0x3f;
+      }
+    }
+  }
+}
+
+function renderToneCalibratedAttributePixels(
+  source: Uint8Array,
+  attributes: Uint8Array,
+  cellHeight: AttributeHeight,
+  matrix: OrderedMatrix,
+  amount: number,
+): Uint8Array {
+  const pixels = new Uint8Array(ZX_SCREEN_WIDTH * ZX_SCREEN_HEIGHT);
+  const papers = new Uint8Array(pixels.length);
+  const inks = new Uint8Array(pixels.length);
+  const inkShares = new Float32Array(pixels.length);
+  const levels = matrix.levels;
+  const amountScale = amount / 100;
+  for (let y = 0; y < ZX_SCREEN_HEIGHT; y += 1) {
+    for (let x = 0; x < ZX_SCREEN_WIDTH; x += 1) {
+      const pixel = y * ZX_SCREEN_WIDTH + x;
+      const sourceOffset = pixel * 4;
+      const attribute = attributes[
+        Math.floor(y / cellHeight) * ZX_ATTRIBUTE_COLUMNS + Math.floor(x / CELL_WIDTH)
+      ] ?? 0;
+      const { paper, ink } = decodeAttribute(attribute);
+      const paperDistance = squaredDistance(
+        source[sourceOffset] ?? 0,
+        source[sourceOffset + 1] ?? 0,
+        source[sourceOffset + 2] ?? 0,
+        paper,
+      );
+      const inkDistance = squaredDistance(
+        source[sourceOffset] ?? 0,
+        source[sourceOffset + 1] ?? 0,
+        source[sourceOffset + 2] ?? 0,
+        ink,
+      );
+      const dr = ink.r - paper.r;
+      const dg = ink.g - paper.g;
+      const db = ink.b - paper.b;
+      const lengthSquared = dr * dr + dg * dg + db * db;
+      const projected = lengthSquared === 0 ? 0 : (
+        ((source[sourceOffset] ?? 0) - paper.r) * dr +
+        ((source[sourceOffset + 1] ?? 0) - paper.g) * dg +
+        ((source[sourceOffset + 2] ?? 0) - paper.b) * db
+      ) / lengthSquared;
+      const idealShare = Math.max(0, Math.min(1, projected));
+      const nearestInkShare = inkDistance < paperDistance ? 1 : 0;
+      const brightKey = (attribute & 0x40) !== 0 ? 8 : 0;
+      papers[pixel] = ((attribute >> 3) & 7) + brightKey;
+      inks[pixel] = (attribute & 7) + brightKey;
+      inkShares[pixel] = nearestInkShare * (1 - amountScale) + idealShare * amountScale;
+    }
+  }
+
+  for (let tileY = 0; tileY < ZX_SCREEN_HEIGHT; tileY += matrix.height) {
+    for (let tileX = 0; tileX < ZX_SCREEN_WIDTH; tileX += matrix.width) {
+      let targetR = 0;
+      let targetG = 0;
+      let targetB = 0;
+      for (let y = tileY; y < tileY + matrix.height; y += 1) {
+        for (let x = tileX; x < tileX + matrix.width; x += 1) {
+          const offset = (y * ZX_SCREEN_WIDTH + x) * 4;
+          targetR += source[offset] ?? 0;
+          targetG += source[offset + 1] ?? 0;
+          targetB += source[offset + 2] ?? 0;
+        }
+      }
+      let bestStep = 0;
+      let bestError = Number.POSITIVE_INFINITY;
+      for (let step = -levels; step <= levels; step += 1) {
+        let outputR = 0;
+        let outputG = 0;
+        let outputB = 0;
+        for (let y = tileY; y < tileY + matrix.height; y += 1) {
+          for (let x = tileX; x < tileX + matrix.width; x += 1) {
+            const pixel = y * ZX_SCREEN_WIDTH + x;
+            const count = Math.max(0, Math.min(levels,
+              Math.round((inkShares[pixel] ?? 0) * levels + step / 2)));
+            const key = orderedThreshold(matrix, x, y) < count
+              ? inks[pixel] ?? 0
+              : papers[pixel] ?? 0;
+            const color = zxColor(key & 7, key >= 8);
+            outputR += color.r;
+            outputG += color.g;
+            outputB += color.b;
+          }
+        }
+        const errorR = outputR - targetR;
+        const errorG = outputG - targetG;
+        const errorB = outputB - targetB;
+        const error = errorR * errorR + errorG * errorG + errorB * errorB;
+        if (error < bestError || error === bestError && Math.abs(step) < Math.abs(bestStep)) {
+          bestError = error;
+          bestStep = step;
+        }
+      }
+      for (let y = tileY; y < tileY + matrix.height; y += 1) {
+        for (let x = tileX; x < tileX + matrix.width; x += 1) {
+          const pixel = y * ZX_SCREEN_WIDTH + x;
+          const count = Math.max(0, Math.min(levels,
+            Math.round((inkShares[pixel] ?? 0) * levels + bestStep / 2)));
+          pixels[pixel] = orderedThreshold(matrix, x, y) < count ? 1 : 0;
+        }
+      }
+    }
+  }
+  return pixels;
 }
 
 function colorKeyMatches(key: number, code: number, bright: boolean): boolean {
@@ -2573,6 +2743,14 @@ function validateSettings(settings: ConversionSettings): void {
   if (ditherMethodForEngine(settings.ditherEngineId) !== settings.dithering) {
     throw new RangeError("Dither engine and dithering method do not match.");
   }
+  if (
+    (settings.attributeOptimizerId === "zx-mixed-joint-cell-v1" ||
+      settings.attributeOptimizerId === "zx-mixed-joint-cell-v2" ||
+      settings.attributeOptimizerId === "zx-mixed-joint-quantized-v1") &&
+    settings.modeId !== "zx48-mixed-256x192"
+  ) {
+    throw new RangeError("The joint-cell optimizer supports only ZX Mixed mode.");
+  }
   if ((settings.ditherEngineId === "artistic-ordered-hybrid-v1" ||
       settings.ditherEngineId === "artistic-ordered-tone-safe-v2") &&
       settings.modeId !== "zx48-standard-256x192" &&
@@ -3000,6 +3178,107 @@ export function convertToZx(
     const endpointTwo = new Uint8Array(normalized.length);
     const unrestrictedMerged = new Uint8Array(normalized.length);
     const combinedPalette = [...firstPhysicalPalette, ...secondPhysicalPalette];
+    if (
+      settings.attributeOptimizerId === "zx-mixed-joint-cell-v1" ||
+      settings.attributeOptimizerId === "zx-mixed-joint-cell-v2" ||
+      settings.attributeOptimizerId === "zx-mixed-joint-quantized-v1"
+    ) {
+      for (let pixel = 0; pixel < virtualIndices.length; pixel += 1) {
+        const pair = virtualPalette[virtualIndices[pixel] ?? 0]!;
+        const offset = pixel * 4;
+        unrestrictedMerged[offset] = pair.r;
+        unrestrictedMerged[offset + 1] = pair.g;
+        unrestrictedMerged[offset + 2] = pair.b;
+        unrestrictedMerged[offset + 3] = 255;
+      }
+
+      let jointFrames = convertJointMixedCells(normalized, settings, virtualPalette);
+      if (
+        settings.screenFlickerSuppression &&
+        paletteSelectionsMatch(firstSelection, secondSelection)
+      ) {
+        const firstPixels = Uint8Array.from(jointFrames.firstPixels);
+        const secondPixels = Uint8Array.from(jointFrames.secondPixels);
+        const firstAttributes = Uint8Array.from(jointFrames.firstAttributes);
+        const secondAttributes = Uint8Array.from(jointFrames.secondAttributes);
+        const attributeRows = ZX_SCREEN_HEIGHT / settings.attributeHeight;
+        for (let cellY = 0; cellY < attributeRows; cellY += 1) {
+          for (let cellX = 0; cellX < ZX_ATTRIBUTE_COLUMNS; cellX += 1) {
+            if (((cellX + cellY) & 1) === 0) continue;
+            const attributeOffset = cellY * ZX_ATTRIBUTE_COLUMNS + cellX;
+            const attribute = firstAttributes[attributeOffset]!;
+            firstAttributes[attributeOffset] = secondAttributes[attributeOffset]!;
+            secondAttributes[attributeOffset] = attribute;
+            for (let localY = 0; localY < settings.attributeHeight; localY += 1) {
+              const rowOffset = (cellY * settings.attributeHeight + localY) * ZX_SCREEN_WIDTH + cellX * CELL_WIDTH;
+              for (let localX = 0; localX < CELL_WIDTH; localX += 1) {
+                const pixelOffset = rowOffset + localX;
+                const pixel = firstPixels[pixelOffset]!;
+                firstPixels[pixelOffset] = secondPixels[pixelOffset]!;
+                secondPixels[pixelOffset] = pixel;
+              }
+            }
+          }
+        }
+        jointFrames = { firstPixels, secondPixels, firstAttributes, secondAttributes };
+      }
+
+      const firstEncoded = serializeSoftwareScr(
+        jointFrames.firstPixels,
+        jointFrames.firstAttributes,
+        settings.attributeHeight,
+      );
+      const secondEncoded = serializeSoftwareScr(
+        jointFrames.secondPixels,
+        jointFrames.secondAttributes,
+        settings.attributeHeight,
+      );
+      const firstPreview = renderEncodedSoftwareScrRgba(firstEncoded, settings.attributeHeight);
+      const secondPreview = renderEncodedSoftwareScrRgba(secondEncoded, settings.attributeHeight);
+      const firstFrame = {
+        hardwareModeId: "zx48-standard-256x192",
+        nativeWidth: ZX_SCREEN_WIDTH,
+        nativeHeight: ZX_SCREEN_HEIGHT,
+        nativePixelAspectRatio: 1,
+        encoded: firstEncoded,
+        paletteIndices: Uint8Array.from(jointFrames.firstPixels),
+        previewRgba: firstPreview,
+      };
+      const secondFrame = {
+        hardwareModeId: "zx48-standard-256x192",
+        nativeWidth: ZX_SCREEN_WIDTH,
+        nativeHeight: ZX_SCREEN_HEIGHT,
+        nativePixelAspectRatio: 1,
+        encoded: secondEncoded,
+        paletteIndices: Uint8Array.from(jointFrames.secondPixels),
+        previewRgba: secondPreview,
+      };
+      const merged = mergeTemporalFrames(firstPreview, secondPreview);
+      return {
+        platformId: "zx-spectrum",
+        modeId: "zx48-mixed-256x192",
+        width: destination.width,
+        height: destination.height,
+        pixelAspectRatio: 1,
+        attributeOptimizerId: settings.attributeOptimizerId,
+        ditherEngineId: settings.ditherEngineId,
+        paletteSelections: settings.paletteSelections,
+        frames: [firstFrame, secondFrame],
+        preConstraintPreviewRgba: unrestrictedMerged,
+        mergedPreviewRgba: merged,
+        screen: {
+          pixels: jointFrames.firstPixels,
+          attributes: jointFrames.firstAttributes,
+        },
+        pixels: jointFrames.firstPixels,
+        attributes: jointFrames.firstAttributes,
+        attributeHeight: settings.attributeHeight,
+        sourcePreviewRgba: normalized,
+        previewRgba: merged,
+        score: temporalRgbaError(normalized, merged),
+        ...(engineFallback === undefined ? {} : { engineFallback }),
+      };
+    }
     const mixedCarrierAmount = checkerPhaseV44 &&
       settings.ditheringAmount > 0 &&
       settings.errorDiffusionLineSuppression > 0
@@ -3383,6 +3662,9 @@ export function convertToZx(
       settings.ditherEngineId === "ordered-baseline-additive-v5" ||
       settings.ditherEngineId === "ordered-strict-matrix-v6" ||
       settings.ditherEngineId === "ordered-coverage-normalized-v7" ||
+      settings.ditherEngineId === "ordered-tone-calibrated-v8" ||
+      settings.ditherEngineId === "ordered-bright-locked-cell-v9" ||
+      settings.ditherEngineId === "ordered-coverage-bright-scored-v10" ||
       settings.ditherEngineId === "ordered-clustered-dot-v1" ||
       settings.ditherEngineId === "ordered-void-cluster-v1" ||
       settings.ditherEngineId === "artistic-chessboard-smooth-v1" ||
@@ -3445,7 +3727,9 @@ export function convertToZx(
               : settings.ditherEngineId,
             settings.errorDiffusionLineSuppression,
           )
-      : (settings.ditherEngineId === "ordered-coverage-normalized-v7" ||
+      : (settings.ditherEngineId === "ordered-tone-calibrated-v8" ||
+        settings.ditherEngineId === "ordered-coverage-normalized-v7" ||
+        settings.ditherEngineId === "ordered-coverage-bright-scored-v10" ||
         settings.ditherEngineId === "ordered-threshold-identity-v1")
       ? renderCoverageNormalizedOrderedDither(
           normalized,
@@ -3533,6 +3817,54 @@ export function convertToZx(
       pixels = remapLocalColors(
         normalized,
         guideKeys,
+        attributes,
+        cellHeight,
+      );
+    }
+    if (settings.ditherEngineId === "ordered-tone-calibrated-v8") {
+      pixels = renderToneCalibratedAttributePixels(
+        normalized,
+        attributes,
+        cellHeight,
+        matrix,
+        settings.ditheringAmount,
+      );
+    }
+    if (
+      settings.ditherEngineId === "ordered-bright-locked-cell-v9" &&
+      settings.dithering === "ordered" && settings.ditheringAmount > 0
+    ) {
+      const cellAttributes = new Uint8Array(ZX_SCREEN_WIDTH * ZX_SCREEN_HEIGHT);
+      for (let y = 0; y < ZX_SCREEN_HEIGHT; y += 1) {
+        const attributeRow = Math.floor(y / cellHeight) * ZX_ATTRIBUTE_COLUMNS;
+        for (let x = 0; x < ZX_SCREEN_WIDTH; x += 1) {
+          cellAttributes[y * ZX_SCREEN_WIDTH + x] = attributes[
+            attributeRow + Math.floor(x / CELL_WIDTH)
+          ] ?? 0;
+        }
+      }
+      const cellLockedGuide = renderLocalOrderedDither(
+        normalized,
+        cellAttributes,
+        matrix,
+        settings.ditheringAmount,
+        enabledColors,
+        zxBrightMode(settings),
+      );
+      pixels = remapReferenceGuide(
+        cellLockedGuide,
+        attributes,
+        cellHeight,
+      );
+    }
+    if (
+      settings.ditherEngineId === "ordered-coverage-bright-scored-v10" &&
+      settings.dithering === "ordered" && settings.ditheringAmount > 0 &&
+      zxBrightMode(settings) === "auto"
+    ) {
+      optimizeAttributeBrightnessForEncodedPixels(
+        normalized,
+        pixels,
         attributes,
         cellHeight,
       );

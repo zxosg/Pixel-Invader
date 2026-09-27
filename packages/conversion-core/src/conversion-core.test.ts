@@ -991,6 +991,243 @@ describe("ZX conversion", () => {
     expect(normalized.attributes).toEqual(baseline.attributes);
   });
 
+  it("keeps tone-calibrated v8 neutral on monochrome ramps and deterministic", () => {
+    const source = new Uint8Array(256 * 192 * 4);
+    for (let y = 0; y < 192; y += 1) {
+      for (let x = 0; x < 256; x += 1) {
+        const value = x;
+        source.set([value, value, value, 255], (y * 256 + x) * 4);
+      }
+    }
+    const shared = {
+      framing: "stretch",
+      attributeOptimizerId: "zx-source-cell-v1",
+      dithering: "ordered",
+      ditheringAmount: 100,
+      orderedMatrix: "bayer-4x4",
+      paletteSelections: [{
+        screenIndex: 0,
+        enabledColorIds: [0, 1, 2, 3, 4, 5, 6, 7],
+        brightMode: "off",
+      }],
+    } as const;
+    const v7 = convertToZx(source, 256, 192, settings({
+      ...shared,
+      ditherEngineId: "ordered-coverage-normalized-v7",
+    }), "draft");
+    const v8Settings = settings({
+      ...shared,
+      ditherEngineId: "ordered-tone-calibrated-v8",
+    });
+    const v8 = convertToZx(source, 256, 192, v8Settings, "draft");
+    const repeat = convertToZx(source, 256, 192, v8Settings, "draft");
+    const tileToneError = (rgba: Uint8Array): number => {
+      let totalError = 0;
+      let tileCount = 0;
+      for (let tileY = 0; tileY < 192; tileY += 4) {
+        for (let tileX = 0; tileX < 256; tileX += 4) {
+          let sourceMean = 0;
+          let outputMean = 0;
+          for (let y = tileY; y < tileY + 4; y += 1) {
+            for (let x = tileX; x < tileX + 4; x += 1) {
+              const offset = (y * 256 + x) * 4;
+              sourceMean += source[offset] ?? 0;
+              outputMean += (rgba[offset] ?? 0) * 0.2126 +
+                (rgba[offset + 1] ?? 0) * 0.7152 +
+                (rgba[offset + 2] ?? 0) * 0.0722;
+            }
+          }
+          totalError += Math.abs(sourceMean / 16 - outputMean / 16);
+          tileCount += 1;
+        }
+      }
+      return totalError / tileCount;
+    };
+    expect(repeat.pixels).toEqual(v8.pixels);
+    expect(repeat.attributes).toEqual(v8.attributes);
+    expect(tileToneError(v8.previewRgba))
+      .toBeLessThan(tileToneError(v7.previewRgba));
+    expect(validateScreen(v8.screen)).toEqual([]);
+  });
+
+  it("keeps tone-calibrated v8 zero percent equal to discrete", () => {
+    const source = gradientSource(256, 192);
+    const shared = {
+      framing: "stretch",
+      attributeOptimizerId: "zx-source-cell-v1",
+      ditheringAmount: 0,
+    } as const;
+    const baseline = convertToZx(source, 256, 192, settings({
+      ...shared,
+      ditherEngineId: "none-discrete-v2",
+      dithering: "none",
+    }), "draft");
+    const v8 = convertToZx(source, 256, 192, settings({
+      ...shared,
+      ditherEngineId: "ordered-tone-calibrated-v8",
+      dithering: "ordered",
+    }), "draft");
+    expect(v8.pixels).toEqual(baseline.pixels);
+    expect(v8.attributes).toEqual(baseline.attributes);
+  });
+
+  it("supports tone-calibrated v8 across ZX attribute heights and BRIGHT auto", () => {
+    const source = gradientSource(256, 192);
+    for (const attributeHeight of [1, 2, 4, 8] as const) {
+      const result = convertToZx(source, 256, 192, settings({
+        framing: "stretch",
+        attributeHeight,
+        dithering: "ordered",
+        ditheringAmount: 55,
+        ditherEngineId: "ordered-tone-calibrated-v8",
+        orderedMatrix: "bayer-8x8",
+        paletteSelections: [{
+          screenIndex: 0,
+          enabledColorIds: [0, 1, 2, 3, 4, 5, 6, 7],
+          brightMode: "auto",
+        }],
+      }), "draft");
+      expect(result.attributes).toHaveLength(32 * (192 / attributeHeight));
+      expect(result.previewRgba).toHaveLength(256 * 192 * 4);
+      if (attributeHeight === 8) expect(validateScreen(result.screen)).toEqual([]);
+    }
+  }, 20_000);
+
+  it("locks ordered guide brightness to each final attribute in BRIGHT auto", () => {
+    const source = new Uint8Array(256 * 192 * 4);
+    for (let y = 0; y < 192; y += 1) {
+      for (let x = 0; x < 256; x += 1) {
+        const value = x;
+        source.set([value, value, value, 255], (y * 256 + x) * 4);
+      }
+    }
+    const shared = {
+      framing: "stretch",
+      attributeOptimizerId: "zx-guide-reference-halo-v1",
+      dithering: "ordered",
+      ditheringAmount: 50,
+      orderedMatrix: "bayer-4x4",
+      paletteSelections: [{
+        screenIndex: 0,
+        enabledColorIds: [0, 7],
+        brightMode: "auto",
+      }],
+    } as const;
+    const v9Settings = settings({
+      ...shared,
+      ditherEngineId: "ordered-bright-locked-cell-v9",
+    });
+    const v9 = convertToZx(source, 256, 192, v9Settings, "high");
+    const repeat = convertToZx(source, 256, 192, v9Settings, "high");
+    const osg = convertToZx(source, 256, 192, settings({
+      ...shared,
+      ditherEngineId: "ordered-osg-v1",
+    }), "high");
+    const v6 = convertToZx(source, 256, 192, settings({
+      ...shared,
+      ditherEngineId: "ordered-strict-matrix-v6",
+    }), "high");
+
+    expect(repeat.pixels).toEqual(v9.pixels);
+    expect(repeat.attributes).toEqual(v9.attributes);
+    expect(v9.attributes).toEqual(v6.attributes);
+    expect(v9.pixels).toEqual(osg.pixels);
+    expect(v9.pixels).not.toEqual(v6.pixels);
+
+    for (const brightMode of ["on", "off"] as const) {
+      const fixedBrightness = { ...shared, paletteSelections: [{
+        screenIndex: 0,
+        enabledColorIds: [0, 7],
+        brightMode,
+      }] };
+      const fixedV9 = convertToZx(source, 256, 192, settings({
+        ...fixedBrightness,
+        ditherEngineId: "ordered-bright-locked-cell-v9",
+      }), "high");
+      const fixedV6 = convertToZx(source, 256, 192, settings({
+        ...fixedBrightness,
+        ditherEngineId: "ordered-strict-matrix-v6",
+      }), "high");
+      expect(fixedV9.pixels).toEqual(fixedV6.pixels);
+      expect(fixedV9.attributes).toEqual(fixedV6.attributes);
+    }
+    expect(validateScreen(v9.screen)).toEqual([]);
+  }, 20_000);
+
+  it("scores v10 Auto BRIGHT against the actual coverage-quantized cell", () => {
+    const source = new Uint8Array(256 * 192 * 4);
+    for (let y = 0; y < 192; y += 1) {
+      for (let x = 0; x < 256; x += 1) {
+        const value = x;
+        source.set([value, Math.floor(y * 255 / 191), 255 - value, 255], (y * 256 + x) * 4);
+      }
+    }
+    const shared = {
+      framing: "stretch",
+      attributeOptimizerId: "zx-guide-reference-halo-v1",
+      dithering: "ordered",
+      ditheringAmount: 50,
+      orderedMatrix: "bayer-4x4",
+      paletteSelections: [{
+        screenIndex: 0,
+        enabledColorIds: [0, 1, 2, 3, 4, 5, 6, 7],
+        brightMode: "auto",
+      }],
+    } as const;
+    const v7 = convertToZx(source, 256, 192, settings({
+      ...shared,
+      ditherEngineId: "ordered-coverage-normalized-v7",
+    }), "high");
+    const v10Settings = settings({
+      ...shared,
+      ditherEngineId: "ordered-coverage-bright-scored-v10",
+    });
+    const v10 = convertToZx(source, 256, 192, v10Settings, "high");
+    const repeat = convertToZx(source, 256, 192, v10Settings, "high");
+    expect(v10.attributes).not.toEqual(v7.attributes);
+    expect(v10.pixels).toEqual(v7.pixels);
+    expect(v10.score).toBeLessThanOrEqual(v7.score);
+    expect(repeat.pixels).toEqual(v10.pixels);
+    expect(repeat.attributes).toEqual(v10.attributes);
+    expect(validateScreen(v10.screen)).toEqual([]);
+
+    for (const brightMode of ["on", "off"] as const) {
+      const fixedSettings = settings({
+        ...shared,
+        ditherEngineId: "ordered-coverage-bright-scored-v10",
+        paletteSelections: [{
+          screenIndex: 0,
+          enabledColorIds: [0, 1, 2, 3, 4, 5, 6, 7],
+          brightMode,
+        }],
+      });
+      const fixedV10 = convertToZx(source, 256, 192, fixedSettings, "draft");
+      const fixedV7 = convertToZx(source, 256, 192, settings({
+        ...shared,
+        ditherEngineId: "ordered-coverage-normalized-v7",
+        paletteSelections: [{
+          screenIndex: 0,
+          enabledColorIds: [0, 1, 2, 3, 4, 5, 6, 7],
+          brightMode,
+        }],
+      }), "draft");
+      expect(fixedV10.pixels).toEqual(fixedV7.pixels);
+      expect(fixedV10.attributes).toEqual(fixedV7.attributes);
+    }
+    const zeroAmountV10 = convertToZx(source, 256, 192, settings({
+      ...shared,
+      ditherEngineId: "ordered-coverage-bright-scored-v10",
+      ditheringAmount: 0,
+    }), "draft");
+    const zeroAmountV7 = convertToZx(source, 256, 192, settings({
+      ...shared,
+      ditherEngineId: "ordered-coverage-normalized-v7",
+      ditheringAmount: 0,
+    }), "draft");
+    expect(zeroAmountV10.pixels).toEqual(zeroAmountV7.pixels);
+    expect(zeroAmountV10.attributes).toEqual(zeroAmountV7.attributes);
+  }, 30_000);
+
   it("runs legal-mask block DBS deterministically and keeps ZX constraints valid", () => {
     const source = new Uint8Array(256 * 192 * 4);
     for (let y = 0; y < 192; y += 1) {

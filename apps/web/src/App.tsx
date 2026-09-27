@@ -7708,12 +7708,18 @@ export function App() {
 
   function clearCharsetSelection(): void {
     const count = Math.floor((existingCharset?.length ?? 0) / 8);
-    markCharsetSelectionChanged(allCharsetIndices(count));
+    // Null means there is no subset filter; conversion uses the full range.
+    // Keeping an explicit all-indices array is equivalent for mapping, but it
+    // leaves the UI/project in a "selection active" state after choosing All.
+    existingCharsetSelectionRef.current = null;
+    setExistingCharsetSelection(null);
     setExistingCharsetStart(0);
     setExistingCharsetLength(count);
     setExistingCharsetStartEntry("1");
     setExistingCharsetLengthEntry(String(count));
     if (count > 32) setCharsetEncoding("extended");
+    invalidateCharset();
+    setTilemapStale(true);
   }
 
   function invertCharsetSelection(): void {
@@ -10413,6 +10419,8 @@ export function App() {
             <RangeNumberControl id="smoothing" label="Smoothing" value={smoothing} min={0} max={100} unit="%" onChange={(value) => { setSmoothing(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
             <RangeNumberControl id="sharpening" label="Sharpening" value={sharpening} min={0} max={100} unit="%" onChange={(value) => { setSharpening(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
             </div>
+            <div className="control-row control-row-2">
+            </div>
             <button className="secondary compact" type="button" onClick={() => {
               setBrightness(0);
               setContrast(0);
@@ -11848,8 +11856,14 @@ export function App() {
                   type="file"
                   accept=".chr,.bin,application/octet-stream"
                   disabled={charsetState.kind === "running"}
-                  onChange={(event) =>
-                    void importExistingCharset(event.currentTarget.files?.[0])}
+                  onChange={(event) => {
+                    const input = event.currentTarget;
+                    const file = input.files?.[0];
+                    // Clear the input so selecting the same file again still
+                    // emits a change event and resets any prior tile subset.
+                    input.value = "";
+                    void importExistingCharset(file);
+                  }}
                 />
               </label>
             ) : null}
