@@ -20,7 +20,7 @@ export function snapshotTilemapEditor(input: TilemapEditorSnapshot): TilemapEdit
   };
 }
 
-export type TileTransformToggle = "mirror-x" | "mirror-y" | "rotate-cw";
+export type TileTransformToggle = "mirror-x" | "mirror-y" | "rotate-cw" | "rotate-ccw";
 
 const TRANSFORM_MARKER: Uint8Array = Uint8Array.from([0x81, 0x42, 0x24, 0x18, 0x83, 0x46, 0x29, 0x17]);
 
@@ -41,7 +41,9 @@ function transformForToggles(mirrorX: boolean, mirrorY: boolean, rotateCw: boole
   return 0;
 }
 
-export function tileTransformToggleState(transform: TileTransform): Readonly<Record<TileTransformToggle, boolean>> {
+export function tileTransformToggleState(
+  transform: TileTransform,
+): Readonly<Record<Exclude<TileTransformToggle, "rotate-ccw">, boolean>> {
   for (const mirrorX of [false, true]) {
     for (const mirrorY of [false, true]) {
       for (const rotateCw of [false, true]) {
@@ -56,6 +58,14 @@ export function tileTransformToggleState(transform: TileTransform): Readonly<Rec
 
 export function toggleTileTransform(transform: TileTransform, toggle: TileTransformToggle): TileTransform {
   const state = tileTransformToggleState(transform);
+  if (toggle === "rotate-ccw") {
+    // CCW is represented by the combined CW-rotation and horizontal-mirror bits.
+    return transformForToggles(
+      !state["mirror-x"],
+      state["mirror-y"],
+      !state["rotate-cw"],
+    );
+  }
   return transformForToggles(
     toggle === "mirror-x" ? !state["mirror-x"] : state["mirror-x"],
     toggle === "mirror-y" ? !state["mirror-y"] : state["mirror-y"],

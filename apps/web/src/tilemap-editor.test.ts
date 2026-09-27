@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { CharsetAssignment, TileTransform } from "@retro-converter/zx-charset";
-import { setCellPixel, tileForCell, toggleCellPixel } from "./tilemap-editor.js";
+import {
+  setCellPixel,
+  tileForCell,
+  tileTransformToggleState,
+  toggleCellPixel,
+  toggleTileTransform,
+} from "./tilemap-editor.js";
 
 function assignment(overrides: Partial<CharsetAssignment> = {}): CharsetAssignment {
   return {
@@ -14,6 +20,17 @@ function assignment(overrides: Partial<CharsetAssignment> = {}): CharsetAssignme
 }
 
 describe("tilemap editor cell operations", () => {
+  it("toggles the CCW rotation represented by CW plus Mirror X", () => {
+    const ccw = toggleTileTransform(0, "rotate-ccw");
+
+    expect(tileTransformToggleState(ccw)).toEqual({
+      "mirror-x": true,
+      "mirror-y": false,
+      "rotate-cw": true,
+    });
+    expect(toggleTileTransform(ccw, "rotate-ccw")).toBe(0);
+  });
+
   it("toggles a rendered pixel through a rotated assignment", () => {
     const charset = new Uint8Array(8);
     charset[0] = 0x80;

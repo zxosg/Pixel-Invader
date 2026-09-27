@@ -9141,6 +9141,10 @@ export function App() {
         const selectedAttribute = selectedCellIndex === null ? 0 : result.attributes[selectedCellIndex] ?? 0;
         const selectedTransform = selectedAssignment?.transform ?? 0;
         const selectedTransformToggles = tileTransformToggleState(selectedTransform);
+        const selectedTransformToggleActive = (toggle: TileTransformToggle) =>
+          toggle === "rotate-ccw"
+            ? selectedTransformToggles["mirror-x"] && selectedTransformToggles["rotate-cw"]
+            : selectedTransformToggles[toggle];
         const selectedTilePreview = selectedAssignment === null
           ? new Uint8Array(8)
           : transformTile(result.charset.subarray(selectedAssignment.characterIndex * 8, selectedAssignment.characterIndex * 8 + 8), selectedAssignment.transform);
@@ -9196,7 +9200,8 @@ export function App() {
                   ["mirror-x", "Mirror X"],
                   ["mirror-y", "Mirror Y"],
                   ["rotate-cw", "R90 CW"],
-                ] as const).map(([toggle, label]) => <button className={`secondary compact${selectedTransformToggles[toggle] ? " active" : ""}`} key={toggle} type="button" disabled={!canEditSelectedCell || !result.transformations} aria-pressed={selectedTransformToggles[toggle]} title={result.transformations ? `${label} selected map cell` : "Enable transformations in tilemap settings to edit this cell"} onClick={() => toggleSelectedTilemapTransform(toggle)}>{label}</button>)}
+                  ["rotate-ccw", "R90 CCW"],
+                ] as const).map(([toggle, label]) => <button className={`secondary compact${selectedTransformToggleActive(toggle) ? " active" : ""}`} key={toggle} type="button" disabled={!canEditSelectedCell || !result.transformations} aria-pressed={selectedTransformToggleActive(toggle)} title={result.transformations ? `${label} selected map cell` : "Enable transformations in tilemap settings to edit this cell"} onClick={() => toggleSelectedTilemapTransform(toggle)}>{label}</button>)}
                 <button className="secondary compact" type="button" disabled={!canEditSelectedCell || !result.transformations || selectedTransform === 0} title="Reset selected cell transform" onClick={() => updateSelectedTilemapCell((assignment) => ({ assignment: { ...assignment, transform: 0 } }))}>Reset</button>
               </div>
               <p className="unified-transform-readout">{tileTransformLabel(selectedTransform)}{selectedAssignment?.inverted ? " · Inverted" : ""}{selectedFlash ? " · FLASH" : ""}</p>
