@@ -20,7 +20,7 @@ import {
   zxBitmapOffset,
   zxSoftwareScrBytes,
 } from "@retro-converter/zx-spectrum";
-import { encodeRgbaPng } from "@retro-converter/image-codecs";
+import { encodeRgbaPng, MAX_IMAGE_DIMENSION, MAX_IMAGE_PIXELS } from "@retro-converter/image-codecs";
 import { addGifBorder, encodeAnimatedGif } from "./animated-gif.js";
 import { assertValidQlScreen, type QlMode } from "@retro-converter/sinclair-ql";
 import {
@@ -3704,6 +3704,48 @@ export function App() {
       );
     } catch (error: unknown) {
       setImageStatus(`Invalid image: ${error instanceof Error ? error.message : "Unknown error."}`);
+    }
+  }
+
+  async function importClipboardImage(): Promise<void> {
+    if (navigator.clipboard?.read === undefined) {
+      setImageStatus("Clipboard image import is unavailable in this browser. Use a secure connection and a browser that supports clipboard reading.");
+      return;
+    }
+
+    try {
+      const clipboardItems = await navigator.clipboard.read();
+      for (const item of clipboardItems) {
+        const mimeType = ["image/png", "image/jpeg"].find((type) => item.types.includes(type));
+        if (mimeType === undefined) continue;
+
+        const blob = await item.getType(mimeType);
+        const bitmap = await createImageBitmap(blob);
+        try {
+          if (bitmap.width < 1 || bitmap.height < 1 || bitmap.width > MAX_IMAGE_DIMENSION || bitmap.height > MAX_IMAGE_DIMENSION || bitmap.width * bitmap.height > MAX_IMAGE_PIXELS) {
+            throw new Error("Clipboard image dimensions exceed the supported image limits.");
+          }
+          const canvas = document.createElement("canvas");
+          canvas.width = bitmap.width;
+          canvas.height = bitmap.height;
+          const context = canvas.getContext("2d");
+          if (context === null) throw new Error("Image conversion is unavailable in this browser.");
+          context.drawImage(bitmap, 0, 0);
+          const normalized = await new Promise<Blob>((resolve, reject) => {
+            canvas.toBlob((result) => {
+              if (result === null) reject(new Error("The clipboard image could not be normalized."));
+              else resolve(result);
+            }, "image/png");
+          });
+          await importImage(new File([normalized], "clipboard.png", { type: "image/png" }));
+        } finally {
+          bitmap.close();
+        }
+        return;
+      }
+      setImageStatus("The clipboard does not contain a PNG or JPEG image.");
+    } catch (error: unknown) {
+      setImageStatus(`Could not read an image from the clipboard: ${error instanceof Error ? error.message : "Clipboard access was denied."}`);
     }
   }
 
@@ -9870,6 +9912,7 @@ export function App() {
         canExportInspection={resultSaveReady && isZx}
         canExportTilemap={tilemapArtifactsReady}
         onOpenImage={importImage}
+        onImportClipboard={() => void importClipboardImage()}
         onOpenPmd={importPmd85}
         onOpenProject={openProject}
         onImportProfile={importProfile}

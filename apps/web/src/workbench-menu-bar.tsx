@@ -82,6 +82,7 @@ export interface WorkbenchMenuBarProps {
   readonly canExportInspection: boolean;
   readonly canExportTilemap: boolean;
   readonly onOpenImage: (file: File | undefined) => void;
+  readonly onImportClipboard: () => void;
   readonly onOpenPmd: (file: File | undefined) => void;
   readonly onOpenProject: (file: File | undefined) => void;
   readonly onImportProfile: (file: File | undefined) => void;
@@ -334,6 +335,7 @@ export function WorkbenchMenuBar(props: WorkbenchMenuBarProps) {
         <div id="workbench-menu-file" className="workbench-menu-popover" data-workbench-menu="file" role="region" aria-label="File" style={{ "--workbench-menu-popover-left": `${popoverLeft}px` } as CSSProperties}>
           <div className="workbench-menu-group">
             <button type="button" onClick={() => { setOpenMenu(null); imageInputRef.current?.click(); }}><span>Open Image…</span><kbd>{modifierLabel} O</kbd></button>
+            <button type="button" onClick={run(props.onImportClipboard)}>Import Image from Clipboard</button>
             {props.isPmd ? <button type="button" onClick={() => { setOpenMenu(null); pmdInputRef.current?.click(); }}>Open PMD Binary…</button> : null}
             <button type="button" onClick={() => { setOpenMenu(null); projectInputRef.current?.click(); }}>Open Project…</button>
             <button type="button" onClick={() => { setOpenMenu(null); profileInputRef.current?.click(); }}>Import Profile…</button>
