@@ -1,6 +1,7 @@
 import { unzipSync, zipSync, type Zippable } from "fflate";
 import {
   DEFAULT_CONVERSION_SETTINGS,
+  isValidZxPaletteDefinition,
   assertCompatibleEngines,
   outputScreenCount,
   qlHardwareModesForTarget,
@@ -462,6 +463,9 @@ export async function validateCompletedProject(bytes: Uint8Array): Promise<Valid
       rawSettings?.orderedMatrix ?? DEFAULT_CONVERSION_SETTINGS.orderedMatrix,
     ) as ConversionSettings["orderedMatrix"],
   };
+  if (!isValidZxPaletteDefinition(settings.zxPalette)) {
+    throw new Error("PROJECT_SCHEMA_INVALID: ZX palette calibration is invalid.");
+  }
   if (
     !Number.isInteger(settings.panOffsetX) ||
     !Number.isInteger(settings.panOffsetY) ||

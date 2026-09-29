@@ -6,6 +6,7 @@ import {
   type QlTargetModeId,
   type StructuredDiagnostics,
   type VerticalSpatialDiagnostics,
+  resolveZxPalette,
 } from "@retro-converter/conversion-core";
 import {
   ZX_BITMAP_BYTES,
@@ -162,6 +163,12 @@ export async function buildConversionMetadata(input: MetadataInput) {
   const analyticPreviewSha256 = input.verticalSpatialDiagnostics === undefined
     ? null
     : await sha256Hex(input.verticalSpatialDiagnostics.analyticPreviewRgba);
+  const resolvedZxPalette = input.settings.platformId === "zx-spectrum"
+    ? resolveZxPalette(input.settings.zxPalette)
+    : undefined;
+  const resolvedZxPaletteSha256 = resolvedZxPalette === undefined
+    ? null
+    : await sha256Hex(new TextEncoder().encode(canonicalJsonStringify(resolvedZxPalette)));
 
   return {
     schema_version: "4.0.0",
@@ -232,8 +239,22 @@ export async function buildConversionMetadata(input: MetadataInput) {
         : `zx48-software-8x${input.settings.attributeHeight}`,
       border_color: input.settings.borderColor,
       palette: {
-        normal_channel: DEFAULT_PROFILE.normal_channel,
-        bright_channel: DEFAULT_PROFILE.bright_channel,
+        // Retain the legacy scalar summary for older metadata readers. For
+        // non-neutral explicit whites, the RGB arrays below remain canonical.
+        normal_channel: Math.round((
+          resolvedZxPalette!.normal[7]!.r +
+          resolvedZxPalette!.normal[7]!.g +
+          resolvedZxPalette!.normal[7]!.b
+        ) / 3),
+        bright_channel: Math.round((
+          resolvedZxPalette!.bright[7]!.r +
+          resolvedZxPalette!.bright[7]!.g +
+          resolvedZxPalette!.bright[7]!.b
+        ) / 3),
+        calibration: input.settings.zxPalette,
+        resolved_palette_sha256: resolvedZxPaletteSha256,
+        resolved_normal: resolvedZxPalette!.normal,
+        resolved_bright: resolvedZxPalette!.bright,
         screen_selections: input.settings.paletteSelections.map((selection) => ({
           screen_index: selection.screenIndex,
           bright_mode: selection.brightMode,

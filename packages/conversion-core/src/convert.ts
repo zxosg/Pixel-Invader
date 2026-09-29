@@ -31,7 +31,7 @@ import {
   orderedThreshold,
   type OrderedMatrix,
 } from "./matrices.js";
-import { decodeAttribute, zxColor } from "./palette.js";
+import { decodeAttribute, DEFAULT_ZX_PALETTE, resolveZxPalette, zxColor } from "./palette.js";
 import {
   outputScreenCount,
   paletteSelection,
@@ -44,6 +44,7 @@ import type {
   ConversionSettings,
   OptimizationLevel,
   RgbColor,
+  ZxPalette,
   ZxConversionResult,
 } from "./types.js";
 import {
@@ -111,6 +112,7 @@ function squaredDistance(r: number, g: number, b: number, color: RgbColor): numb
 function renderEncodedSoftwareScrRgba(
   encoded: Uint8Array,
   attributeHeight: AttributeHeight,
+  palette: ZxPalette = DEFAULT_ZX_PALETTE,
 ): Uint8Array {
   if (encoded.length !== zxSoftwareScrBytes(attributeHeight)) {
     throw new RangeError("Encoded software SCR length is invalid.");
@@ -126,7 +128,7 @@ function renderEncodedSoftwareScrRgba(
     }
   }
   const attributes = encoded.subarray(ZX_BITMAP_BYTES).slice();
-  return renderAttributeFrameRgba(pixels, attributes, attributeHeight);
+  return renderAttributeFrameRgba(pixels, attributes, attributeHeight, palette);
 }
 
 function signedRoundDiv(numerator: number, denominator: number): number {
@@ -344,8 +346,8 @@ function selectDiscreteAttributesFromSource(
       for (let attribute = 0; attribute < 128; attribute += 1) {
         if (!attributeAllowed(attribute, settings, level, draftBright, enabledColors)) continue;
         const bright = (attribute & 0x40) !== 0;
-        const ink = zxColor(attribute & 7, bright);
-        const paper = zxColor((attribute >> 3) & 7, bright);
+        const ink = zxColor(attribute & 7, bright, settings.zxPalette);
+        const paper = zxColor((attribute >> 3) & 7, bright, settings.zxPalette);
         let score = 0;
         for (let localY = 0; localY < cellHeight; localY += 1) {
           for (let localX = 0; localX < CELL_WIDTH; localX += 1) {
@@ -410,8 +412,8 @@ function selectLocalPalettePairs(
           sample[0],
           sample[1],
           sample[2],
-          zxColor(attribute & 7, bright),
-          zxColor((attribute >> 3) & 7, bright),
+          zxColor(attribute & 7, bright, settings.zxPalette),
+          zxColor((attribute >> 3) & 7, bright, settings.zxPalette),
         );
         if (score < bestScore) {
           bestScore = score;
@@ -434,6 +436,7 @@ function renderLocalErrorDiffusion(
   engineId: ConversionSettings["ditherEngineId"],
   lineSuppression: number,
   customKernelEntries?: readonly CustomDiffusionKernelEntry[],
+  palette: ZxPalette = DEFAULT_ZX_PALETTE,
 ): Uint8Array {
   const colorKeys = new Uint8Array(ZX_SCREEN_WIDTH * ZX_SCREEN_HEIGHT);
   const decorrelated = engineId === "error-diffusion-decorrelated-v3";
@@ -483,12 +486,12 @@ function renderLocalErrorDiffusion(
         : [(attribute & 0x40) !== 0];
       let outputCode = 0;
       let outputBright = brightValues[0] ?? false;
-      let output = zxColor(0, outputBright);
+      let output = zxColor(0, outputBright, palette);
       let bestDistance = Number.POSITIVE_INFINITY;
       for (const bright of brightValues) {
         for (let code = 0; code < 8; code += 1) {
           if (!enabledColors.has(code)) continue;
-          const candidate = zxColor(code, bright);
+          const candidate = zxColor(code, bright, palette);
           const distance = squaredDistance(
             adjusted[0] ?? 0, adjusted[1] ?? 0, adjusted[2] ?? 0, candidate,
           );
@@ -551,12 +554,12 @@ function renderLocalErrorDiffusion(
         : [(attribute & 0x40) !== 0];
       let outputCode = 0;
       let outputBright = brightValues[0] ?? false;
-      let output = zxColor(0, outputBright);
+      let output = zxColor(0, outputBright, palette);
       let bestDistance = Number.POSITIVE_INFINITY;
       for (const bright of brightValues) {
         for (let code = 0; code < 8; code += 1) {
           if (!enabledColors.has(code)) continue;
-          const candidate = zxColor(code, bright);
+          const candidate = zxColor(code, bright, palette);
           const distance = squaredDistance(adjustedR, adjustedG, adjustedB, candidate);
           if (distance < bestDistance) {
             bestDistance = distance;
@@ -690,6 +693,7 @@ function renderCheckerPlacementV32(
   amount: number,
   randomization: number,
   lineSuppression: number,
+  palette: ZxPalette,
 ): { readonly pixels: Uint8Array; readonly plan: ReturnType<typeof planCheckerPlacement> | null } {
   if (lineSuppression <= 0) return { pixels: basePixels, plan: null };
   const placement = planCheckerPlacement(
@@ -702,7 +706,7 @@ function renderCheckerPlacementV32(
       const attribute = attributes[
         Math.floor(y / cellHeight) * ZX_ATTRIBUTE_COLUMNS + Math.floor(x / CELL_WIDTH)
       ] ?? 0;
-      const colors = decodeAttribute(attribute);
+      const colors = decodeAttribute(attribute, palette);
       return { paper: colors.paper, ink: colors.ink, key: attribute };
     },
     CELL_WIDTH,
@@ -777,7 +781,7 @@ function renderCheckerPlacementV32(
       const attribute = attributes[
         Math.floor(y / cellHeight) * ZX_ATTRIBUTE_COLUMNS + Math.floor(x / CELL_WIDTH)
       ] ?? 0;
-      const { ink, paper } = decodeAttribute(attribute);
+      const { ink, paper } = decodeAttribute(attribute, palette);
       const decision = isChangedBlock(x, y)
         ? plannedBit(x, y)
         : basePixels[pixel] ?? 0;
@@ -825,6 +829,7 @@ function renderCheckerPlacementV33(
   amount: number,
   randomization: number,
   lineSuppression: number,
+  palette: ZxPalette,
 ): { readonly pixels: Uint8Array; readonly plan: ReturnType<typeof planCheckerOnlyPlacementV33> | null } {
   const checkerStrength = checkerPlacementStrengthV33(lineSuppression);
   if (checkerStrength <= 0) return { pixels: basePixels, plan: null };
@@ -838,7 +843,7 @@ function renderCheckerPlacementV33(
       const attribute = attributes[
         Math.floor(y / cellHeight) * ZX_ATTRIBUTE_COLUMNS + Math.floor(x / CELL_WIDTH)
       ] ?? 0;
-      const colors = decodeAttribute(attribute);
+      const colors = decodeAttribute(attribute, palette);
       return { paper: colors.paper, ink: colors.ink, key: attribute };
     },
     CELL_WIDTH,
@@ -900,7 +905,7 @@ function renderCheckerPlacementV33(
       const adjustedG = Math.max(0, Math.min(255, (source[sourceOffset + 1] ?? 0) + Math.trunc(errors[errorOffset + 1] ?? 0) + diffusionNoiseOffset(x, y, 1, randomization, 8)));
       const adjustedB = Math.max(0, Math.min(255, (source[sourceOffset + 2] ?? 0) + Math.trunc(errors[errorOffset + 2] ?? 0) + diffusionNoiseOffset(x, y, 2, randomization, 8)));
       const attribute = attributes[Math.floor(y / cellHeight) * ZX_ATTRIBUTE_COLUMNS + Math.floor(x / CELL_WIDTH)] ?? 0;
-      const { ink, paper } = decodeAttribute(attribute);
+      const { ink, paper } = decodeAttribute(attribute, palette);
       const decision = isChangedBlock(x, y) ? plannedBit(x, y) : basePixels[pixel] ?? 0;
       pixels[pixel] = decision;
       const output = decision === 1 ? ink : paper;
@@ -942,6 +947,7 @@ function renderLocalOrderedDither(
   amount: number,
   enabledColors: ReadonlySet<number>,
   brightMode: BrightMode,
+  palette: ZxPalette = DEFAULT_ZX_PALETTE,
 ): Uint8Array {
   const colorKeys = new Uint8Array(ZX_SCREEN_WIDTH * ZX_SCREEN_HEIGHT);
   const levels = matrix.levels;
@@ -955,7 +961,7 @@ function renderLocalOrderedDither(
   const base = Math.floor((100 - amount) * 64 / 100);
   for (const bright of [false, true]) {
     for (let code = 0; code < 8; code += 1) {
-      const color = zxColor(code, bright);
+      const color = zxColor(code, bright, palette);
       for (let level = 0; level <= levels; level += 1) {
         for (const [channel, value] of [color.r, color.g, color.b].entries()) {
           levelTable[levelOffset(bright, code, level, channel)] =
@@ -1050,6 +1056,7 @@ function renderCoverageNormalizedOrderedDither(
   amount: number,
   enabledColors: ReadonlySet<number>,
   brightMode: BrightMode,
+  palette: ZxPalette = DEFAULT_ZX_PALETTE,
 ): Uint8Array {
   const colorKeys = new Uint8Array(ZX_SCREEN_WIDTH * ZX_SCREEN_HEIGHT);
   const brightValues = brightMode === "on"
@@ -1068,7 +1075,7 @@ function renderCoverageNormalizedOrderedDither(
       let bestDistance = Number.POSITIVE_INFINITY;
       for (const bright of brightValues) {
         for (const code of enabledColors) {
-          const color = zxColor(code, bright);
+          const color = zxColor(code, bright, palette);
           const dr = r - color.r;
           const dg = g - color.g;
           const db = b - color.b;
@@ -1091,6 +1098,7 @@ function optimizeAttributeBrightnessForEncodedPixels(
   pixels: Uint8Array,
   attributes: Uint8Array,
   cellHeight: AttributeHeight,
+  palette: ZxPalette = DEFAULT_ZX_PALETTE,
 ): void {
   const attributeRows = ZX_SCREEN_HEIGHT / cellHeight;
   for (let cellY = 0; cellY < attributeRows; cellY += 1) {
@@ -1110,8 +1118,8 @@ function optimizeAttributeBrightnessForEncodedPixels(
           const pixelOffset = y * ZX_SCREEN_WIDTH + x;
           const sourceOffset = pixelOffset * 4;
           const colorCode = (pixels[pixelOffset] ?? 0) === 1 ? inkCode : paperCode;
-          const normal = zxColor(colorCode, false);
-          const bright = zxColor(colorCode, true);
+          const normal = zxColor(colorCode, false, palette);
+          const bright = zxColor(colorCode, true, palette);
           const r = source[sourceOffset] ?? 0;
           const g = source[sourceOffset + 1] ?? 0;
           const b = source[sourceOffset + 2] ?? 0;
@@ -1134,6 +1142,7 @@ function renderToneCalibratedAttributePixels(
   cellHeight: AttributeHeight,
   matrix: OrderedMatrix,
   amount: number,
+  palette: ZxPalette = DEFAULT_ZX_PALETTE,
 ): Uint8Array {
   const pixels = new Uint8Array(ZX_SCREEN_WIDTH * ZX_SCREEN_HEIGHT);
   const papers = new Uint8Array(pixels.length);
@@ -1148,7 +1157,7 @@ function renderToneCalibratedAttributePixels(
       const attribute = attributes[
         Math.floor(y / cellHeight) * ZX_ATTRIBUTE_COLUMNS + Math.floor(x / CELL_WIDTH)
       ] ?? 0;
-      const { paper, ink } = decodeAttribute(attribute);
+      const { paper, ink } = decodeAttribute(attribute, palette);
       const paperDistance = squaredDistance(
         source[sourceOffset] ?? 0,
         source[sourceOffset + 1] ?? 0,
@@ -1206,7 +1215,7 @@ function renderToneCalibratedAttributePixels(
             const key = orderedThreshold(matrix, x, y) < count
               ? inks[pixel] ?? 0
               : papers[pixel] ?? 0;
-            const color = zxColor(key & 7, key >= 8);
+            const color = zxColor(key & 7, key >= 8, palette);
             outputR += color.r;
             outputG += color.g;
             outputB += color.b;
@@ -1239,11 +1248,11 @@ function colorKeyMatches(key: number, code: number, bright: boolean): boolean {
   return code === 0 || (key >= 8) === bright;
 }
 
-function renderGuideRgba(keys: Uint8Array): Uint8Array {
+function renderGuideRgba(keys: Uint8Array, palette: ZxPalette = DEFAULT_ZX_PALETTE): Uint8Array {
   const rgba = new Uint8Array(keys.length * 4);
   for (let index = 0; index < keys.length; index += 1) {
     const key = keys[index] ?? 0;
-    const color = zxColor(key & 7, key >= 8);
+    const color = zxColor(key & 7, key >= 8, palette);
     const offset = index * 4;
     rgba[offset] = color.r;
     rgba[offset + 1] = color.g;
@@ -1267,7 +1276,7 @@ function nearestGuideKeys(
     let bestKey = 0;
     for (const bright of brightValues) {
       for (const code of paletteSelection(settings, 0).enabledColorIds) {
-        const color = zxColor(code, bright);
+        const color = zxColor(code, bright, settings.zxPalette);
         const distance = squaredDistance(
           source[offset] ?? 0,
           source[offset + 1] ?? 0,
@@ -1324,6 +1333,7 @@ function renderComposerGuide(
   settings: ConversionSettings,
   enabledColors: ReadonlySet<number>,
 ): Uint8Array {
+  const palette = resolveZxPalette(settings.zxPalette);
   if (settings.ditheringAmount <= 0) return nearestGuideKeys(source, settings);
   const matrix = resolveComposerMatrix(settings);
   const orderedGuide = renderCoverageNormalizedOrderedDither(
@@ -1332,6 +1342,7 @@ function renderComposerGuide(
     settings.ditheringAmount,
     enabledColors,
     zxBrightMode(settings),
+    palette,
   );
   if (settings.composer.propagationId === "none") return orderedGuide;
   const customKernelEntries = resolveComposerKernelEntries(settings);
@@ -1345,6 +1356,7 @@ function renderComposerGuide(
     composerDiffusionEngineId(settings),
     settings.errorDiffusionLineSuppression,
     customKernelEntries,
+    palette,
   );
   const mixWeight = Math.max(0, Math.min(100, settings.composer.mixWeight));
   if (mixWeight >= 100) return diffusionGuide;
@@ -1420,8 +1432,8 @@ function attributeHaloSamples(
       let similarity: number;
       let edgeProtection = 1;
       if (haloV2) {
-        const haloColor = zxColor(haloKey & 7, (haloKey & 8) !== 0);
-        const edgeColor = zxColor(edgeKey & 7, (edgeKey & 8) !== 0);
+        const haloColor = zxColor(haloKey & 7, (haloKey & 8) !== 0, settings.zxPalette);
+        const edgeColor = zxColor(edgeKey & 7, (edgeKey & 8) !== 0, settings.zxPalette);
         const paletteDistance = squaredDistance(
           haloColor.r, haloColor.g, haloColor.b, edgeColor,
         );
@@ -1495,8 +1507,8 @@ function selectAttributesFromGuide(
         const inkCode = attribute & 7;
         const paperCode = (attribute >> 3) & 7;
         const bright = (attribute & 0x40) !== 0;
-        const ink = zxColor(inkCode, bright);
-        const paper = zxColor(paperCode, bright);
+        const ink = zxColor(inkCode, bright, settings.zxPalette);
+        const paper = zxColor(paperCode, bright, settings.zxPalette);
         const paletteScore = evaluatePaletteCandidate(
           source,
           cellX,
@@ -1647,9 +1659,10 @@ function rawPairDistanceForCell(
   inkCode: number,
   paperCode: number,
   bright: boolean,
+  palette: ZxPalette,
 ): number {
-  const ink = zxColor(inkCode, bright);
-  const paper = zxColor(paperCode, bright);
+  const ink = zxColor(inkCode, bright, palette);
+  const paper = zxColor(paperCode, bright, palette);
   let score = 0;
   for (let localY = 0; localY < cellHeight; localY += 1) {
     for (let localX = 0; localX < CELL_WIDTH; localX += 1) {
@@ -1707,10 +1720,10 @@ function selectReferenceAttributesFromGuide(
         bright = (draftBrightCells[cellOffset] ?? 0) === 1;
       } else {
         const normalScore = rawPairDistanceForCell(
-          source, cellX, cellY, cellHeight, inkCode, paperCode, false,
+          source, cellX, cellY, cellHeight, inkCode, paperCode, false, resolveZxPalette(settings.zxPalette),
         );
         const brightScore = rawPairDistanceForCell(
-          source, cellX, cellY, cellHeight, inkCode, paperCode, true,
+          source, cellX, cellY, cellHeight, inkCode, paperCode, true, resolveZxPalette(settings.zxPalette),
         );
         bright = brightScore < normalScore;
       }
@@ -1744,8 +1757,9 @@ function referenceColorForAttribute(
   attribute: number,
   x: number,
   y: number,
+  palette: ZxPalette,
 ): RgbColor {
-  const colors = decodeAttribute(attribute);
+  const colors = decodeAttribute(attribute, palette);
   return referenceBitForAttribute(guideKey, attribute, x, y) === 1
     ? colors.ink
     : colors.paper;
@@ -1758,6 +1772,7 @@ function rgbErrorForReferenceCell(
   cellY: number,
   cellHeight: AttributeHeight,
   attribute: number,
+  palette: ZxPalette,
 ): number {
   let error = 0;
   for (let localY = 0; localY < cellHeight; localY += 1) {
@@ -1770,7 +1785,7 @@ function rgbErrorForReferenceCell(
         source[offset] ?? 0,
         source[offset + 1] ?? 0,
         source[offset + 2] ?? 0,
-        referenceColorForAttribute(guideKeys[pixel] ?? 0, attribute, x, y),
+        referenceColorForAttribute(guideKeys[pixel] ?? 0, attribute, x, y, palette),
       );
     }
   }
@@ -1785,6 +1800,7 @@ function rgbHaloErrorForReferenceCell(
   cellHeight: AttributeHeight,
   attribute: number,
   settings: ConversionSettings,
+  palette: ZxPalette,
 ): number {
   let error = 0;
   for (const sample of attributeHaloSamples(
@@ -1800,6 +1816,7 @@ function rgbHaloErrorForReferenceCell(
         attribute,
         sample.x,
         sample.y,
+        palette,
       ),
     );
   }
@@ -1814,6 +1831,7 @@ function rgbBoundaryErrorForReferenceCell(
   cellY: number,
   cellHeight: AttributeHeight,
   attribute: number,
+  palette: ZxPalette,
 ): number {
   const rows = ZX_SCREEN_HEIGHT / cellHeight;
   let error = 0;
@@ -1827,13 +1845,14 @@ function rgbBoundaryErrorForReferenceCell(
     const pixel = y * ZX_SCREEN_WIDTH + x;
     const neighborPixel = neighborY * ZX_SCREEN_WIDTH + neighborX;
     const color = referenceColorForAttribute(
-      guideKeys[pixel] ?? 0, attribute, x, y,
+      guideKeys[pixel] ?? 0, attribute, x, y, palette,
     );
     const neighborColor = referenceColorForAttribute(
       guideKeys[neighborPixel] ?? 0,
       neighborAttribute,
       neighborX,
       neighborY,
+      palette,
     );
     const offset = pixel * 4;
     const neighborOffset = neighborPixel * 4;
@@ -1928,11 +1947,11 @@ function selectRgbGuardedHaloAttributes(
       const draftBright = (draftBrightCells[cellOffset] ?? 0) === 1;
       let bestAttribute = attributes[cellOffset] ?? 0;
       let bestRgb = rgbErrorForReferenceCell(
-        source, guideKeys, cellX, cellY, cellHeight, bestAttribute,
+        source, guideKeys, cellX, cellY, cellHeight, bestAttribute, resolveZxPalette(settings.zxPalette),
       );
       let bestSecondary =
         rgbHaloErrorForReferenceCell(
-          source, guideKeys, cellX, cellY, cellHeight, bestAttribute, settings,
+          source, guideKeys, cellX, cellY, cellHeight, bestAttribute, settings, resolveZxPalette(settings.zxPalette),
         ) +
         rgbBoundaryErrorForReferenceCell(
           source,
@@ -1942,6 +1961,7 @@ function selectRgbGuardedHaloAttributes(
           cellY,
           cellHeight,
           bestAttribute,
+          resolveZxPalette(settings.zxPalette),
         );
       for (let candidate = 0; candidate < 128; candidate += 1) {
         if (
@@ -1950,12 +1970,12 @@ function selectRgbGuardedHaloAttributes(
           )
         ) continue;
         const rgb = rgbErrorForReferenceCell(
-          source, guideKeys, cellX, cellY, cellHeight, candidate,
+          source, guideKeys, cellX, cellY, cellHeight, candidate, resolveZxPalette(settings.zxPalette),
         );
         if (rgb > bestRgb) continue;
         const secondary =
           rgbHaloErrorForReferenceCell(
-            source, guideKeys, cellX, cellY, cellHeight, candidate, settings,
+            source, guideKeys, cellX, cellY, cellHeight, candidate, settings, resolveZxPalette(settings.zxPalette),
           ) +
           rgbBoundaryErrorForReferenceCell(
             source,
@@ -1965,6 +1985,7 @@ function selectRgbGuardedHaloAttributes(
             cellY,
             cellHeight,
             candidate,
+            resolveZxPalette(settings.zxPalette),
           );
         if (
           rgb < bestRgb ||
@@ -2041,6 +2062,7 @@ function checkerPhaseArtifactCorrection(
   attributes: Uint8Array,
   cellHeight: AttributeHeight,
   provisionalBits: Uint8Array,
+  palette: ZxPalette,
 ): { readonly pixels: Uint8Array; readonly correctedPixelCount: number; readonly totalArtifactScore: number } {
   const pixels = provisionalBits.slice();
   const artifactScore = new Uint8Array(pixels.length);
@@ -2130,7 +2152,7 @@ function checkerPhaseArtifactCorrection(
       if (!smooth) continue;
       const block = Math.floor(y / 2) * Math.ceil(ZX_SCREEN_WIDTH / 2) + Math.floor(x / 2);
       if (correctedBlocks[block] !== 0) continue;
-      const colors = decodeAttribute(attributes[cellIndex(x, y)] ?? 0);
+      const colors = decodeAttribute(attributes[cellIndex(x, y)] ?? 0, palette);
       const sourceOffset = offset * 4;
       if (squaredDistance(source[sourceOffset] ?? 0, source[sourceOffset + 1] ?? 0, source[sourceOffset + 2] ?? 0, colors.ink) < 1024 ||
           squaredDistance(source[sourceOffset] ?? 0, source[sourceOffset + 1] ?? 0, source[sourceOffset + 2] ?? 0, colors.paper) < 1024) continue;
@@ -2165,12 +2187,13 @@ function dbsRenderedColor(
   cellHeight: AttributeHeight,
   x: number,
   y: number,
+  palette: ZxPalette,
 ): RgbColor {
   const attribute = attributes[
     Math.floor(y / cellHeight) * ZX_ATTRIBUTE_COLUMNS +
     Math.floor(x / CELL_WIDTH)
   ] ?? 0;
-  const colors = decodeAttribute(attribute);
+  const colors = decodeAttribute(attribute, palette);
   return (pixels[y * ZX_SCREEN_WIDTH + x] ?? 0) === 1
     ? colors.ink
     : colors.paper;
@@ -2187,6 +2210,7 @@ function dbsFilteredChannel(
   y: number,
   channel: 0 | 1 | 2,
   output: boolean,
+  palette: ZxPalette,
 ): number {
   let sum = 0;
   for (let dy = -1; dy <= 1; dy += 1) {
@@ -2196,7 +2220,7 @@ function dbsFilteredChannel(
       const weight = (DBS_FILTER[dx + 1] ?? 1) * (DBS_FILTER[dy + 1] ?? 1);
       if (output) {
         const color = dbsRenderedColor(
-          pixels, attributes, cellHeight, sampleX, sampleY,
+          pixels, attributes, cellHeight, sampleX, sampleY, palette,
         );
         sum += weight * (channel === 0 ? color.r : channel === 1 ? color.g : color.b);
       } else {
@@ -2229,6 +2253,7 @@ function dbsRegionScore(
   top: number,
   right: number,
   bottom: number,
+  palette: ZxPalette,
 ): number {
   const x0 = Math.max(0, left);
   const y0 = Math.max(0, top);
@@ -2244,10 +2269,10 @@ function dbsRegionScore(
       for (const channel of [0, 1, 2] as const) {
         const difference =
           dbsFilteredChannel(
-            source, pixels, attributes, cellHeight, x, y, channel, false,
+            source, pixels, attributes, cellHeight, x, y, channel, false, palette,
           ) -
           dbsFilteredChannel(
-            source, pixels, attributes, cellHeight, x, y, channel, true,
+            source, pixels, attributes, cellHeight, x, y, channel, true, palette,
           );
         reconstruction += difference * difference;
       }
@@ -2255,16 +2280,16 @@ function dbsRegionScore(
         const sourceGradient =
           dbsSourceLuma(source, x + 1, y) - dbsSourceLuma(source, x - 1, y);
         const outputGradient =
-          dbsLuma(dbsRenderedColor(pixels, attributes, cellHeight, x + 1, y)) -
-          dbsLuma(dbsRenderedColor(pixels, attributes, cellHeight, x - 1, y));
+          dbsLuma(dbsRenderedColor(pixels, attributes, cellHeight, x + 1, y, palette)) -
+          dbsLuma(dbsRenderedColor(pixels, attributes, cellHeight, x - 1, y, palette));
         edge += Math.abs(sourceGradient - outputGradient);
       }
       if (y > 0 && y < ZX_SCREEN_HEIGHT - 1) {
         const sourceGradient =
           dbsSourceLuma(source, x, y + 1) - dbsSourceLuma(source, x, y - 1);
         const outputGradient =
-          dbsLuma(dbsRenderedColor(pixels, attributes, cellHeight, x, y + 1)) -
-          dbsLuma(dbsRenderedColor(pixels, attributes, cellHeight, x, y - 1));
+          dbsLuma(dbsRenderedColor(pixels, attributes, cellHeight, x, y + 1, palette)) -
+          dbsLuma(dbsRenderedColor(pixels, attributes, cellHeight, x, y - 1, palette));
         edge += Math.abs(sourceGradient - outputGradient);
       }
       const bit = pixels[y * ZX_SCREEN_WIDTH + x] ?? 0;
@@ -2298,8 +2323,8 @@ function dbsRegionScore(
           dbsSourceLuma(source, x, y) - dbsSourceLuma(source, x - 1, y),
         );
         const outputJump = Math.abs(
-          dbsLuma(dbsRenderedColor(pixels, attributes, cellHeight, x, y)) -
-          dbsLuma(dbsRenderedColor(pixels, attributes, cellHeight, x - 1, y)),
+          dbsLuma(dbsRenderedColor(pixels, attributes, cellHeight, x, y, palette)) -
+          dbsLuma(dbsRenderedColor(pixels, attributes, cellHeight, x - 1, y, palette)),
         );
         boundary += Math.max(0, outputJump - sourceJump);
       }
@@ -2308,8 +2333,8 @@ function dbsRegionScore(
           dbsSourceLuma(source, x, y) - dbsSourceLuma(source, x, y - 1),
         );
         const outputJump = Math.abs(
-          dbsLuma(dbsRenderedColor(pixels, attributes, cellHeight, x, y)) -
-          dbsLuma(dbsRenderedColor(pixels, attributes, cellHeight, x, y - 1)),
+          dbsLuma(dbsRenderedColor(pixels, attributes, cellHeight, x, y, palette)) -
+          dbsLuma(dbsRenderedColor(pixels, attributes, cellHeight, x, y - 1, palette)),
         );
         boundary += Math.max(0, outputJump - sourceJump);
       }
@@ -2328,9 +2353,10 @@ function dbsCellPixelsForAttribute(
   cellY: number,
   cellHeight: AttributeHeight,
   attribute: number,
+  palette: ZxPalette,
 ): Uint8Array {
   const result = new Uint8Array(CELL_WIDTH * cellHeight);
-  const colors = decodeAttribute(attribute);
+  const colors = decodeAttribute(attribute, palette);
   for (let localY = 0; localY < cellHeight; localY += 1) {
     for (let localX = 0; localX < CELL_WIDTH; localX += 1) {
       const x = cellX * CELL_WIDTH + localX;
@@ -2362,6 +2388,7 @@ function optimizeLegalMaskDbs(
   enabledColors: ReadonlySet<number>,
   draftBrightCells: Uint8Array,
 ): Uint8Array {
+  const palette = resolveZxPalette(settings.zxPalette);
   const optimized = Uint8Array.from(pixels);
   const attributeRows = ZX_SCREEN_HEIGHT / cellHeight;
   if (level === "high") {
@@ -2379,9 +2406,9 @@ function optimizeLegalMaskDbs(
             enabledColors,
           )) continue;
           const candidatePixels = dbsCellPixelsForAttribute(
-            source, cellX, cellY, cellHeight, attribute,
+            source, cellX, cellY, cellHeight, attribute, palette,
           );
-          const colors = decodeAttribute(attribute);
+          const colors = decodeAttribute(attribute, palette);
           let score = 0;
           for (let localY = 0; localY < cellHeight; localY += 1) {
             for (let localX = 0; localX < CELL_WIDTH; localX += 1) {
@@ -2425,7 +2452,7 @@ function optimizeLegalMaskDbs(
         let bestPixels: Uint8Array | null = null;
         let bestScore = dbsRegionScore(
           source, optimized, attributes, cellHeight,
-          left - 1, top - 1, left + CELL_WIDTH, top + cellHeight,
+          left - 1, top - 1, left + CELL_WIDTH, top + cellHeight, palette,
         );
         const originalPixels = new Uint8Array(CELL_WIDTH * cellHeight);
         for (let localY = 0; localY < cellHeight; localY += 1) {
@@ -2445,7 +2472,7 @@ function optimizeLegalMaskDbs(
           }
           const candidateScore = dbsRegionScore(
             source, optimized, attributes, cellHeight,
-            left - 1, top - 1, left + CELL_WIDTH, top + cellHeight,
+            left - 1, top - 1, left + CELL_WIDTH, top + cellHeight, palette,
           );
           if (
             candidateScore < bestScore ||
@@ -2497,7 +2524,7 @@ function optimizeLegalMaskDbs(
           let bestMask = currentMask;
           let bestScore = dbsRegionScore(
             source, optimized, attributes, cellHeight,
-            left - 1, top - 1, left + 2, top + blockHeight,
+            left - 1, top - 1, left + 2, top + blockHeight, palette,
           );
           const bitCount = 2 * blockHeight;
           for (let bit = 0; bit < bitCount; bit += 1) {
@@ -2510,7 +2537,7 @@ function optimizeLegalMaskDbs(
             }
             const candidateScore = dbsRegionScore(
               source, optimized, attributes, cellHeight,
-              left - 1, top - 1, left + 2, top + blockHeight,
+              left - 1, top - 1, left + 2, top + blockHeight, palette,
             );
             if (candidateScore < bestScore) {
               bestScore = candidateScore;
@@ -2537,6 +2564,7 @@ function remapLocalColors(
   colorKeys: Uint8Array,
   attributes: Uint8Array,
   cellHeight: AttributeHeight,
+  palette: ZxPalette,
 ): Uint8Array {
   const pixels = new Uint8Array(ZX_SCREEN_WIDTH * ZX_SCREEN_HEIGHT);
   for (let y = 0; y < ZX_SCREEN_HEIGHT; y += 1) {
@@ -2558,7 +2586,7 @@ function remapLocalColors(
         pixels[pixelOffset] = 0;
       } else {
         const sourceOffset = pixelOffset * 4;
-        const colors = decodeAttribute(attribute);
+        const colors = decodeAttribute(attribute, palette);
         pixels[pixelOffset] = selectProjected(
           source[sourceOffset] ?? 0,
           source[sourceOffset + 1] ?? 0,
@@ -2581,6 +2609,7 @@ function renderPixels(
   cellHeight: AttributeHeight,
   settings: ConversionSettings,
 ): Uint8Array {
+  const palette = resolveZxPalette(settings.zxPalette);
   const pixels = new Uint8Array(ZX_SCREEN_WIDTH * ZX_SCREEN_HEIGHT);
   const matrix = ORDERED_MATRICES[settings.orderedMatrix];
 
@@ -2599,7 +2628,7 @@ function renderPixels(
           Math.floor(y / cellHeight) * ZX_ATTRIBUTE_COLUMNS +
           Math.floor(x / CELL_WIDTH)
         ] ?? 0;
-        const { ink, paper } = decodeAttribute(attribute);
+        const { ink, paper } = decodeAttribute(attribute, palette);
         const errorOffset = pixelOffset * 3;
         const incomingError = projectErrorOntoPair(
           errors[errorOffset] ?? 0,
@@ -2662,7 +2691,7 @@ function renderPixels(
         Math.floor(y / cellHeight) * ZX_ATTRIBUTE_COLUMNS +
         Math.floor(x / CELL_WIDTH)
       ] ?? 0;
-      const { ink, paper } = decodeAttribute(attribute);
+      const { ink, paper } = decodeAttribute(attribute, palette);
       pixels[pixelOffset] = (
         settings.dithering === "ordered" && settings.ditheringAmount > 0
       ) ? selectProjected(
@@ -2682,6 +2711,7 @@ function calculateRenderCost(
   cellHeight: AttributeHeight,
   settings: ConversionSettings,
 ): number {
+  const palette = resolveZxPalette(settings.zxPalette);
   const toneBlockRows = Math.ceil(cellHeight / TONE_BLOCK_SIZE);
   const sourceToneSums = new Int32Array(TONE_BLOCK_COLUMNS * toneBlockRows * 3);
   const outputToneSums = new Int32Array(TONE_BLOCK_COLUMNS * toneBlockRows * 3);
@@ -2693,6 +2723,7 @@ function calculateRenderCost(
       outputToneSums.fill(0);
       const colors = decodeAttribute(
         attributes[cellY * ZX_ATTRIBUTE_COLUMNS + cellX] ?? 0,
+        palette,
       );
       let detailScore = 0;
       for (let localY = 0; localY < cellHeight; localY += 1) {
@@ -2902,15 +2933,19 @@ function validateSettings(settings: ConversionSettings): void {
   }
 }
 
-export function renderScreenRgba(screen: ZxScreen): Uint8Array {
+export function renderScreenRgba(
+  screen: ZxScreen,
+  palette: ZxPalette = DEFAULT_ZX_PALETTE,
+): Uint8Array {
   assertValidScreen(screen);
-  return renderAttributeFrameRgba(screen.pixels, screen.attributes, 8);
+  return renderAttributeFrameRgba(screen.pixels, screen.attributes, 8, palette);
 }
 
 export function renderAttributeFrameRgba(
   pixels: Uint8Array,
   attributes: Uint8Array,
   attributeHeight: AttributeHeight,
+  palette: ZxPalette = DEFAULT_ZX_PALETTE,
 ): Uint8Array {
   if (pixels.length !== ZX_SCREEN_WIDTH * ZX_SCREEN_HEIGHT) {
     throw new RangeError("Converted pixel length is invalid.");
@@ -2924,7 +2959,7 @@ export function renderAttributeFrameRgba(
       const attribute = attributes[
         Math.floor(y / attributeHeight) * ZX_ATTRIBUTE_COLUMNS + Math.floor(x / CELL_WIDTH)
       ] ?? 0;
-      const colors = decodeAttribute(attribute);
+      const colors = decodeAttribute(attribute, palette);
       const color = pixels[y * ZX_SCREEN_WIDTH + x] === 1 ? colors.ink : colors.paper;
       const offset = (y * ZX_SCREEN_WIDTH + x) * 4;
       preview[offset] = color.r;
@@ -2941,6 +2976,7 @@ export function renderZxFlashPreview(
   encoded: Uint8Array,
   attributeHeight: AttributeHeight,
   invertedPhase: boolean,
+  palette: ZxPalette = DEFAULT_ZX_PALETTE,
 ): Uint8Array {
   const expectedBytes = zxSoftwareScrBytes(attributeHeight);
   if (encoded.length !== expectedBytes) {
@@ -2967,7 +3003,7 @@ export function renderZxFlashPreview(
       }
     }
   }
-  return renderAttributeFrameRgba(pixels, attributes, attributeHeight);
+  return renderAttributeFrameRgba(pixels, attributes, attributeHeight, palette);
 }
 
 export function convertToZx(
@@ -2976,6 +3012,7 @@ export function convertToZx(
   sourceHeight: number,
   settings: ConversionSettings,
   level: OptimizationLevel = "high",
+  palette: ZxPalette = resolveZxPalette(settings.zxPalette),
 ): ZxConversionResult {
   validateSettings(settings);
   const destination = destinationGeometryFor(settings.platformId, settings.modeId);
@@ -3055,11 +3092,13 @@ export function convertToZx(
       settings.attributeOptimizerId === "zx-vertical-spatial-detail-v1"
         ? "detail-preserving"
         : "uniform-blend",
+      palette,
     );
     const previewRgba = renderAttributeFrameRgba(
       optimized.pixelMasks,
       optimized.attributes,
       1,
+      palette,
     );
     const encoded = serializeSoftwareScr(
       optimized.pixelMasks,
@@ -3128,7 +3167,7 @@ export function convertToZx(
         : [false, true];
       return brightValues.flatMap((bright) =>
         enabledColorIds.map((code) => ({
-          ...zxColor(code, bright),
+          ...zxColor(code, bright, palette),
           code,
           bright,
         }))
@@ -3233,8 +3272,8 @@ export function convertToZx(
         jointFrames.secondAttributes,
         settings.attributeHeight,
       );
-      const firstPreview = renderEncodedSoftwareScrRgba(firstEncoded, settings.attributeHeight);
-      const secondPreview = renderEncodedSoftwareScrRgba(secondEncoded, settings.attributeHeight);
+      const firstPreview = renderEncodedSoftwareScrRgba(firstEncoded, settings.attributeHeight, palette);
+      const secondPreview = renderEncodedSoftwareScrRgba(secondEncoded, settings.attributeHeight, palette);
       const firstFrame = {
         hardwareModeId: "zx48-standard-256x192",
         nativeWidth: ZX_SCREEN_WIDTH,
@@ -3387,6 +3426,7 @@ export function convertToZx(
         paletteSelections: [{ ...firstSelection, screenIndex: 0 }],
       },
       level,
+      palette,
     );
     const second = convertToZx(
       endpointTwo,
@@ -3397,6 +3437,7 @@ export function convertToZx(
         paletteSelections: [{ ...secondSelection, screenIndex: 0 }],
       },
       level,
+      palette,
     );
     let firstPixels = first.pixels;
     let firstAttributes = first.attributes;
@@ -3436,11 +3477,13 @@ export function convertToZx(
         firstPixels,
         firstAttributes,
         settings.attributeHeight,
+        palette,
       );
       const secondPreview = renderAttributeFrameRgba(
         secondPixels,
         secondAttributes,
         settings.attributeHeight,
+        palette,
       );
       firstFrame = {
         ...firstFrame,
@@ -3531,11 +3574,13 @@ export function convertToZx(
       settings.orderedMatrix,
       settings.structured,
       level,
+      palette,
     );
     const previewRgba = renderAttributeFrameRgba(
       structured.pixels,
       structured.attributes,
       cellHeight,
+      palette,
     );
     const encoded = serializeSoftwareScr(
       structured.pixels,
@@ -3560,7 +3605,7 @@ export function convertToZx(
         paletteIndices: Uint8Array.from(structured.pixels),
         previewRgba,
       }],
-      preConstraintPreviewRgba: renderGuideRgba(structured.guideKeys),
+      preConstraintPreviewRgba: renderGuideRgba(structured.guideKeys, palette),
       mergedPreviewRgba: previewRgba,
       screen: {
         pixels: structured.pixels,
@@ -3630,8 +3675,8 @@ export function convertToZx(
           bright !== draftBright
         ) continue;
         if (!paletteColorEnabled(inkCode) || !paletteColorEnabled(paperCode)) continue;
-        const ink = zxColor(inkCode, bright);
-        const paper = zxColor(paperCode, bright);
+        const ink = zxColor(inkCode, bright, palette);
+        const paper = zxColor(paperCode, bright, palette);
         const score = evaluatePaletteCandidate(
           normalized,
           cellX,
@@ -3726,6 +3771,8 @@ export function convertToZx(
               ? "error-diffusion-checker-phase-v4-4"
               : settings.ditherEngineId,
             settings.errorDiffusionLineSuppression,
+            undefined,
+            palette,
           )
       : (settings.ditherEngineId === "ordered-tone-calibrated-v8" ||
         settings.ditherEngineId === "ordered-coverage-normalized-v7" ||
@@ -3737,6 +3784,7 @@ export function convertToZx(
           settings.ditheringAmount,
           enabledColors,
           zxBrightMode(settings),
+          palette,
         )
       : renderLocalOrderedDither(
           normalized,
@@ -3745,6 +3793,7 @@ export function convertToZx(
           settings.ditheringAmount,
           enabledColors,
           zxBrightMode(settings),
+          palette,
         );
     const optimizer = settings.attributeOptimizerId;
     if (optimizer === "zx-source-cell-v1") {
@@ -3757,7 +3806,7 @@ export function convertToZx(
         enabledColors,
         draftBrightCells,
       ));
-      pixels = remapLocalColors(normalized, guideKeys, attributes, cellHeight);
+      pixels = remapLocalColors(normalized, guideKeys, attributes, cellHeight, resolveZxPalette(settings.zxPalette));
     } else if (
       optimizer === "zx-guide-reference-halo-v1" ||
       optimizer === "zx-guide-reference-halo-v2" ||
@@ -3819,6 +3868,7 @@ export function convertToZx(
         guideKeys,
         attributes,
         cellHeight,
+        resolveZxPalette(settings.zxPalette),
       );
     }
     if (settings.ditherEngineId === "ordered-tone-calibrated-v8") {
@@ -3828,7 +3878,8 @@ export function convertToZx(
         cellHeight,
         matrix,
         settings.ditheringAmount,
-      );
+        palette,
+        );
     }
     if (
       settings.ditherEngineId === "ordered-bright-locked-cell-v9" &&
@@ -3850,6 +3901,7 @@ export function convertToZx(
         settings.ditheringAmount,
         enabledColors,
         zxBrightMode(settings),
+        palette,
       );
       pixels = remapReferenceGuide(
         cellLockedGuide,
@@ -3867,6 +3919,7 @@ export function convertToZx(
         pixels,
         attributes,
         cellHeight,
+        palette,
       );
     }
     if (checkerPhaseV41) {
@@ -3876,6 +3929,7 @@ export function convertToZx(
         attributes,
         cellHeight,
         pixels,
+        palette,
       );
       pixels = corrected.pixels;
       artifactCorrection = {
@@ -3894,7 +3948,7 @@ export function convertToZx(
           const attribute = attributes[
             Math.floor(y / cellHeight) * ZX_ATTRIBUTE_COLUMNS + Math.floor(x / CELL_WIDTH)
           ] ?? 0;
-          const colors = decodeAttribute(attribute);
+          const colors = decodeAttribute(attribute, resolveZxPalette(settings.zxPalette));
           return { paper: colors.paper, ink: colors.ink, key: attribute };
         },
         CELL_WIDTH,
@@ -3911,6 +3965,7 @@ export function convertToZx(
         settings.ditheringAmount,
         settings.errorDiffusionRandomization,
         settings.errorDiffusionLineSuppression,
+        resolveZxPalette(settings.zxPalette),
       );
       pixels = checkerResult.pixels;
       if (checkerResult.plan !== null) {
@@ -3937,6 +3992,7 @@ export function convertToZx(
         settings.ditheringAmount,
         settings.errorDiffusionRandomization,
         settings.errorDiffusionLineSuppression,
+        resolveZxPalette(settings.zxPalette),
       );
       pixels = checkerResult.pixels;
       if (checkerResult.plan !== null) {
@@ -3966,7 +4022,7 @@ export function convertToZx(
         enabledColors,
         draftBrightCells,
       ));
-      pixels = remapLocalColors(normalized, guideKeys, attributes, cellHeight);
+      pixels = remapLocalColors(normalized, guideKeys, attributes, cellHeight, resolveZxPalette(settings.zxPalette));
     } else if (
       settings.attributeOptimizerId === "zx-guide-reference-halo-v1" ||
       settings.attributeOptimizerId === "zx-guide-reference-halo-v2" ||
@@ -4006,7 +4062,7 @@ export function convertToZx(
         draftBrightCells,
         true,
       ));
-      pixels = remapLocalColors(normalized, guideKeys, attributes, cellHeight);
+      pixels = remapLocalColors(normalized, guideKeys, attributes, cellHeight, resolveZxPalette(settings.zxPalette));
     }
   } else {
     pixels = renderPixels(normalized, attributes, cellHeight, settings);
@@ -4016,6 +4072,7 @@ export function convertToZx(
       normalized, attributes, cellHeight, settings.ditheringAmount,
       settings.artisticPattern, pixels,
       settings.orderedMatrix === "bayer-2x2" ? 2 : 4,
+      "a", false, undefined, palette,
     );
   }
   if (settings.ditherEngineId === "artistic-ordered-tone-safe-v2") {
@@ -4026,6 +4083,7 @@ export function convertToZx(
       settings.ditheringAmount,
       settings.artisticPattern,
       artisticToneSafetyDiagnostics,
+      palette,
     );
   }
   if (settings.ditherEngineId === "artistic-chessboard-smooth-v1" && settings.ditheringAmount > 0) {
@@ -4034,6 +4092,7 @@ export function convertToZx(
       attributes,
       cellHeight,
       settings.ditheringAmount,
+      palette,
     );
   }
   if (checkerPhaseV44 && settings.ditheringAmount > 0 && settings.errorDiffusionLineSuppression > 0) {
@@ -4055,6 +4114,7 @@ export function convertToZx(
         stableCheckerCarrierV451 ? "b" : "a",
         stableCheckerCarrierV451,
         colorCarrierDiagnostics,
+        palette,
       );
     }
   }
@@ -4073,6 +4133,7 @@ export function convertToZx(
         "checkerboard",
         pixels,
         cellHeight === 1 ? 2 : 4,
+        "a", false, undefined, palette,
       );
     }
   }
@@ -4085,7 +4146,7 @@ export function convertToZx(
   );
   const screen: ZxScreen = { pixels, attributes };
   if (cellHeight === 8) assertValidScreen(screen);
-  const previewRgba = renderAttributeFrameRgba(pixels, attributes, cellHeight);
+  const previewRgba = renderAttributeFrameRgba(pixels, attributes, cellHeight, resolveZxPalette(settings.zxPalette));
   const encoded = serializeSoftwareScr(pixels, attributes, cellHeight);
   return {
     platformId: "zx-spectrum",
@@ -4105,7 +4166,7 @@ export function convertToZx(
       paletteIndices: Uint8Array.from(pixels),
       previewRgba,
     }],
-    preConstraintPreviewRgba: renderGuideRgba(guideKeys),
+    preConstraintPreviewRgba: renderGuideRgba(guideKeys, palette),
     mergedPreviewRgba: previewRgba,
     screen,
     pixels,

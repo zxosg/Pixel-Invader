@@ -53,7 +53,14 @@ export {
   validateCustomDiffusionKernel,
   type CustomDiffusionKernelEntry,
 } from "./diffusion.js";
-export { decodeAttribute, zxColor } from "./palette.js";
+export {
+  decodeAttribute,
+  zxColor,
+  resolveZxPalette,
+  isValidZxPaletteDefinition,
+  DEFAULT_ZX_PALETTE,
+  DEFAULT_ZX_PALETTE_DEFINITION,
+} from "./palette.js";
 export {
   outputScreenCount,
   paletteSelection,

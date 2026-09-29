@@ -30,7 +30,7 @@ import {
   ZX_SCREEN_WIDTH,
   zxBitmapOffset,
 } from "@retro-converter/zx-spectrum";
-import type { PlatformId } from "@retro-converter/conversion-core";
+import type { PlatformId, ZxPalette } from "@retro-converter/conversion-core";
 import {
   bitmapEditorBrushPixels,
   type BitmapEditorBrushSize,
@@ -47,6 +47,7 @@ export interface NativeResultFrameInput {
   readonly nativeWidth: number;
   readonly nativeHeight: number;
   readonly attributeHeight: 1 | 2 | 4 | 8 | null;
+  readonly zxPalette?: ZxPalette;
   readonly pmd85ForegroundPalette?: readonly Pmd85RgbColor[];
   readonly pmd85GapPolicy?: Pmd85GapPolicy;
   readonly pmd85ImportedGapBytes?: Uint8Array;
@@ -98,11 +99,12 @@ function packZxBitmap(pixels: Uint8Array, encoded: Uint8Array): Uint8Array {
   return next;
 }
 
-function renderZx(encoded: Uint8Array, attributeHeight: 1 | 2 | 4 | 8): Uint8Array {
+function renderZx(encoded: Uint8Array, attributeHeight: 1 | 2 | 4 | 8, palette?: ZxPalette): Uint8Array {
   return renderAttributeFrameRgba(
     unpackZxBitmap(encoded),
     encoded.subarray(ZX_BITMAP_BYTES),
     attributeHeight,
+    palette,
   );
 }
 
@@ -162,7 +164,7 @@ export function createNativeResultBitmap(input: NativeResultFrameInput): NativeR
       ...dimensions,
       paletteIndices: unpackZxBitmap(encoded),
       encoded,
-      rgba: renderZx(encoded, input.attributeHeight),
+      rgba: renderZx(encoded, input.attributeHeight, input.zxPalette),
     };
   }
   if (input.platformId === "sinclair-ql") {
@@ -227,7 +229,7 @@ export function applyNativeResultPixel(
   if (bitmap.platformId === "zx-spectrum") {
     const encoded = packZxBitmap(nextIndices, bitmap.encoded);
     if (input.attributeHeight === null) throw new RangeError("ZX result attribute height is missing.");
-    return { ...bitmap, paletteIndices: nextIndices, encoded, rgba: renderZx(encoded, input.attributeHeight) };
+    return { ...bitmap, paletteIndices: nextIndices, encoded, rgba: renderZx(encoded, input.attributeHeight, input.zxPalette) };
   }
 
   if (bitmap.platformId === "sinclair-ql") {

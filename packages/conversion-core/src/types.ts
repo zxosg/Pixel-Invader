@@ -194,6 +194,29 @@ export interface RgbColor {
   readonly b: number;
 }
 
+export interface ZxPalette {
+  readonly normal: readonly RgbColor[];
+  readonly bright: readonly RgbColor[];
+}
+
+export interface ZxChannelDriveRamp {
+  readonly singleChannel: number;
+  readonly doubleChannel: number;
+  readonly tripleChannel: number;
+}
+
+export type ZxPaletteDefinition =
+  | {
+      readonly kind: "explicit";
+      readonly normal: readonly RgbColor[];
+      readonly bright: readonly RgbColor[];
+    }
+  | {
+      readonly kind: "channel-drive-ramp-v1";
+      readonly normal: ZxChannelDriveRamp;
+      readonly bright: ZxChannelDriveRamp;
+    };
+
 export interface PixelCrop {
   readonly x: number;
   readonly y: number;
@@ -215,6 +238,7 @@ export interface ConversionSettings {
   readonly ditherEngineId: DitherEngineId;
   readonly qlMixedOptimizerId: QlMixedOptimizerId;
   readonly paletteSelections: readonly PaletteSelection[];
+  readonly zxPalette: ZxPaletteDefinition;
   readonly framing: FramingMode;
   readonly resampling: ResamplingMethod;
   readonly rotation: Rotation;
@@ -488,6 +512,11 @@ export const DEFAULT_CONVERSION_SETTINGS: ConversionSettings = {
     enabledColorIds: DEFAULT_ENABLED_PALETTE_COLORS,
     brightMode: "auto",
   }],
+  zxPalette: {
+    kind: "channel-drive-ramp-v1",
+    normal: { singleChannel: 205, doubleChannel: 205, tripleChannel: 205 },
+    bright: { singleChannel: 255, doubleChannel: 255, tripleChannel: 255 },
+  },
   dithering: "none",
   ditheringAmount: 0,
   errorDiffusionRandomization: 0,

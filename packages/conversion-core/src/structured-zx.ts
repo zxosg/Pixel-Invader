@@ -1,5 +1,5 @@
 import { ZX_ATTRIBUTE_COLUMNS, ZX_SCREEN_HEIGHT, ZX_SCREEN_WIDTH } from "@retro-converter/zx-spectrum";
-import { zxColor } from "./palette.js";
+import { DEFAULT_ZX_PALETTE, zxColor } from "./palette.js";
 import { ORDERED_MATRICES, orderedThreshold } from "./matrices.js";
 import type {
   AttributeHeight,
@@ -8,6 +8,7 @@ import type {
   OrderedMatrixId,
   StructuredConversionSettings,
   StructuredDiagnostics,
+  ZxPalette,
 } from "./types.js";
 
 const W = 1024;
@@ -231,6 +232,7 @@ function legalPairs(
   enabled: ReadonlySet<number>,
   brightMode: BrightMode,
   settings: StructuredConversionSettings,
+  palette: ZxPalette,
 ): readonly Pair[] {
   const brightValues = brightMode === "on"
     ? [true]
@@ -243,8 +245,8 @@ function legalPairs(
       for (let inkCode = paperCode; inkCode < 8; inkCode += 1) {
         if (!enabled.has(inkCode)) continue;
         if (paperCode === 0 && inkCode === 0 && bright) continue;
-        const paperRgb = zxColor(paperCode, bright);
-        const inkRgb = zxColor(inkCode, bright);
+        const paperRgb = zxColor(paperCode, bright, palette);
+        const inkRgb = zxColor(inkCode, bright, palette);
         const visualKey = `${paperRgb.r},${paperRgb.g},${paperRgb.b}:${inkRgb.r},${inkRgb.g},${inkRgb.b}`;
         if (seen.has(visualKey)) continue;
         seen.add(visualKey);
@@ -281,6 +283,7 @@ function createStructuredReferences(
   brightMode: BrightMode,
   amountPermille: number,
   matrixId: OrderedMatrixId,
+  palette: ZxPalette,
 ): StructuredReferences {
   const brightValues = brightMode === "on"
     ? [true]
@@ -298,7 +301,7 @@ function createStructuredReferences(
   for (const bright of brightValues) {
     for (let code = 0; code < 8; code += 1) {
       if (!enabled.has(code)) continue;
-      const rgb = zxColor(code, bright);
+      const rgb = zxColor(code, bright, palette);
       const visual = `${rgb.r},${rgb.g},${rgb.b}`;
       if (seen.has(visual)) continue;
       seen.add(visual);
@@ -324,7 +327,7 @@ function createStructuredReferences(
   const base = Math.floor((100 - amountPercent) * 64 / 100);
   for (const bright of [false, true]) {
     for (let code = 0; code < 8; code += 1) {
-      const color = zxColor(code, bright);
+      const color = zxColor(code, bright, palette);
       for (let level = 0; level <= matrix.levels; level += 1) {
         for (const [channel, value] of [color.r, color.g, color.b].entries()) {
           levelTable[levelOffset(bright, code, level, channel)] =
@@ -891,6 +894,7 @@ export function convertStructuredZx(
   orderedMatrixId: OrderedMatrixId,
   structured: StructuredConversionSettings,
   level: OptimizationLevel,
+  palette: ZxPalette = DEFAULT_ZX_PALETTE,
 ): StructuredZxOutput {
   validateStructuredSettings(structured);
   if (!Number.isInteger(amountPermille) || amountPermille < 0 || amountPermille > 1000) {
@@ -898,7 +902,7 @@ export function convertStructuredZx(
   }
   const labs = sourceLabs(source);
   const edgeImportance = sourceEdgeImportance(labs);
-  const pairs = legalPairs(enabledColors, brightMode, structured);
+  const pairs = legalPairs(enabledColors, brightMode, structured, palette);
   const references = structured.structuralModelId === "palette-topology-v1"
     ? createStructuredReferences(
         source,
@@ -906,6 +910,7 @@ export function convertStructuredZx(
         brightMode,
         amountPermille,
         orderedMatrixId,
+        palette,
       )
     : null;
   if (pairs.length === 0) throw new RangeError("Structured palette has no legal pair.");

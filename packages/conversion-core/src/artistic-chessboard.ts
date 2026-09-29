@@ -1,6 +1,6 @@
-import { decodeAttribute } from "./palette.js";
+import { decodeAttribute, DEFAULT_ZX_PALETTE } from "./palette.js";
 import { artisticCoverage } from "./artistic-ordered.js";
-import type { AttributeHeight, RgbColor } from "./types.js";
+import type { AttributeHeight, RgbColor, ZxPalette } from "./types.js";
 
 const WIDTH = 256;
 const HEIGHT = 192;
@@ -37,11 +37,12 @@ function pairAt(
   cellHeight: AttributeHeight,
   x: number,
   y: number,
+  palette: ZxPalette,
 ): Pair {
   const attribute = attributes[
     Math.floor(y / cellHeight) * 32 + Math.floor(x / 8)
   ] ?? 0;
-  const decoded = decodeAttribute(attribute);
+  const decoded = decodeAttribute(attribute, palette);
   return { paper: decoded.paper, ink: decoded.ink };
 }
 
@@ -79,6 +80,7 @@ export function renderSmoothChessboardZx(
   attributes: Uint8Array,
   cellHeight: AttributeHeight,
   amount: number,
+  palette: ZxPalette = DEFAULT_ZX_PALETTE,
 ): Uint8Array {
   const output = new Uint8Array(WIDTH * HEIGHT);
   const strength = Math.max(0, Math.min(100, amount)) / 100;
@@ -88,7 +90,7 @@ export function renderSmoothChessboardZx(
       const points: readonly [number, number][] = [
         [left, top], [left + 1, top], [left, top + 1], [left + 1, top + 1],
       ];
-      const pairs = points.map(([x, y]) => pairAt(attributes, cellHeight, x, y));
+      const pairs = points.map(([x, y]) => pairAt(attributes, cellHeight, x, y, palette));
       const pair = pairs[0]!;
       const samePair = pairs.every((candidate) =>
         sameColor(candidate.paper, pair.paper) && sameColor(candidate.ink, pair.ink),

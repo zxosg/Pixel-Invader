@@ -179,6 +179,15 @@
   persist as local startup preferences, No-dither switching preserves the retained
   amount, QL profile actions share a compact aligned row, and QL Ordered conversion
   uses matrix/amount-controlled virtual-palette coverage dithering.
+- Feature milestone 16 — ZX palette calibration: implemented. Explicit RGB
+  palettes and independently tunable single/double/triple channel-drive ramps
+  are persisted in conversion settings and applied across ZX optimization,
+  dithering, mixed/structured/spatial conversion, preview, flash rendering,
+  and result editing. The Palette workspace exposes both authoring modes and
+  a reset action; artifact metadata records the calibration and resolved-palette
+  hash. Static TypeScript checks pass; automated tests and browser acceptance
+  remain. CRT display simulation remains a separate feature. See
+  [Feature 006 — ZX Palette Calibration](docs/features/006-zx-palette-calibration.md).
 - Undo/redo is explicitly deferred by product direction.
 
 ### Vertical-spatial follow-up gates
@@ -201,6 +210,153 @@
 
 The shared mixer now has explicit regression vectors for black/white and
 red/green linear-light mixing, including row-order symmetry.
+
+### Feature milestone 16 — ZX palette calibration
+
+#### Problem statement
+
+ZX profiles already expose normal and BRIGHT RGB swatches, but the conversion
+core still uses hard-coded 205/255 channel values through `zxColor()`. Palette
+calibration therefore changes presentation in some UI locations without
+changing actual ZX conversion decisions. PMD calibration already demonstrates
+the required pattern: resolve a selected calibration to concrete RGB values,
+pass those values through the worker, and use the same values for conversion
+and decoding.
+
+The ZX feature adds explicit RGB palettes and computed channel-drive ramps while
+keeping the `.scr` color-code and BRIGHT representation unchanged.
+
+#### Product model
+
+- Provide explicit RGB editing for the eight semantic ZX colors.
+- Provide computed normal and BRIGHT ramps with independent single-, double-,
+  and triple-channel levels.
+- Keep black at zero in computed mode.
+- Use identical normal and BRIGHT ramps for the no-BRIGHT workflow.
+- Keep `auto`, `on`, and `off` BRIGHT policy semantics unchanged.
+- Use HSV only as an interaction aid for color pickers; persist validated RGB
+  values or computed ramp parameters.
+- Keep CRT display effects outside normative conversion and palette calibration.
+
+#### Compatibility contract
+
+- The current default palette resolves to normal 205 and BRIGHT 255 for every
+  active channel, with black at zero.
+- Default conversion output must remain byte-identical, including mixed,
+  structured, vertical-spatial, and preview paths.
+- Existing explicit profile colors remain valid.
+- Computed profile calibrations require an additive profile-schema extension and
+  a schema-version bump only when the generator descriptor is serialized.
+- `.scr` files remain palette-code artifacts; calibration identity and a
+  resolved palette hash belong in project/artifact metadata.
+- No global mutable current palette is permitted in the conversion core.
+
+#### Core implementation
+
+1. Define an immutable `ZxPalette` with eight normal and eight BRIGHT RGB
+   entries and a validated resolver for explicit and computed definitions.
+2. Add the channel-drive ramp resolver. For each non-black ZX code, count the
+   active RGB channels and assign the corresponding single/double/triple level
+   to every active channel.
+3. Preserve the existing default-palette API path for direct core callers.
+4. Add an explicit resolved-palette argument to `convertToZx` and thread it
+   through standard, mixed, structured, and vertical-spatial conversion.
+5. Replace hard-coded palette access in attribute scoring, dither candidate
+   generation, error diffusion, ordered coverage, temporal mixing, structured
+   scoring, vertical-spatial scoring, and frame rendering.
+6. Update decode, flash preview, inspection, and bitmap-editor display helpers
+   to use the same resolved palette.
+7. Pass the resolved ZX palette through the worker request in the same manner
+   as the PMD foreground palette.
+
+#### Profile, settings, and UI implementation
+
+1. Extend the palette-calibration descriptor so explicit profiles remain
+   compatible and computed definitions can be represented declaratively.
+2. Add selected ZX calibration state to conversion/project settings and validate
+   that the selected calibration exists for the active mode/profile.
+3. Add a user-authored custom calibration record for palettes created in the
+   application rather than imported from a profile.
+4. Add the Palette workspace controls: calibration selector, explicit RGB
+   color pickers, computed ramp controls, resolved swatches, plane comparison,
+   and reset behavior.
+5. Replace hard-coded `ZX_BASE_COLORS` display values wherever actual
+   calibrated output is shown while retaining its stable semantic names and
+   color-code labels.
+6. Include calibration identity, generator/version, and resolved palette hash
+   in settings, project, cache, and artifact projections.
+
+#### Delivery phases
+
+##### Phase 0 — Numeric contract and fixtures
+
+- Freeze the explicit palette shape and computed ramp schema.
+- Freeze sRGB byte interpretation, valid ranges, rounding, and black behavior.
+- Add fixtures for the standard 205/255 palette, the 128/160/192 ramp, equal
+  normal/BRIGHT ramps, and asymmetric explicit RGB colors.
+- Record current default output hashes before refactoring.
+
+Exit criteria: the resolver is deterministic and the default resolver produces
+the existing palette exactly.
+
+##### Phase 1 — Conversion-core palette plumbing
+
+- Introduce the immutable palette type and default palette.
+- Refactor all ZX color consumers to accept the palette explicitly.
+- Cover standard, mixed, structured, vertical-spatial, dither, and render
+  paths with palette-specific tests.
+- Prove that the default palette is byte-identical across all existing golden
+  fixtures.
+
+Exit criteria: core conversion is calibration-capable without any UI or profile
+dependency.
+
+##### Phase 2 — Worker, profile, and persistence integration
+
+- Resolve the selected calibration in the application/profile layer.
+- Pass it to conversion and PMD-style decode/import paths.
+- Add project/profile validation, migration, cache invalidation, and artifact
+  metadata.
+- Preserve legacy projects and profiles that contain only explicit palettes or
+  no ZX calibration field.
+
+Exit criteria: save/open, import/decode, and repeated worker conversion preserve
+the selected palette deterministically.
+
+##### Phase 3 — Palette workspace UI
+
+- Add explicit color-picker editing and computed ramp editing.
+- Show semantic ZX color codes, normal/BRIGHT swatches, and resolved RGB
+  values.
+- Add no-BRIGHT guidance when the two planes are identical.
+- Update result previews, inspection, palette usage, and bitmap editing to use
+  the resolved palette.
+
+Exit criteria: a user can create, inspect, apply, save, reopen, and reset both
+palette modes without editing profile JSON manually.
+
+##### Phase 4 — CRT-preview boundary and corpus verification
+
+- Keep palette calibration in exact conversion previews.
+- Define any future CRT display preview as a separate versioned transform.
+- Compare calibrated ramps on flat fields, gradients, saturated colors, text,
+  photographs, mixed output, and vertical-spatial output.
+- Run accessibility, malformed-input, cross-browser determinism, and stale-job
+  cancellation checks.
+
+Exit criteria: calibrated palette output is approved independently from any
+future CRT display effect and no display-only effect changes `.scr` bytes.
+
+#### Acceptance gates
+
+- Default 205/255 conversion remains byte-identical.
+- Explicit RGB changes alter both conversion decisions and exact previews.
+- The 128/160/192 ramp resolves to the documented values.
+- Normal and BRIGHT may be equal without invalid attributes or nondeterminism.
+- All ZX conversion families use one resolved palette consistently.
+- Palette changes invalidate cached and in-flight results safely.
+- Project and artifact metadata identify the palette interpretation.
+- Existing PMD calibration tests and behavior remain unchanged.
 
 ## 1. Objective
 

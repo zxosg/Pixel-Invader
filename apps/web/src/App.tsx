@@ -137,6 +137,7 @@ import {
   paletteSelectionsMatch,
   phaseBalancedDiffusionKernel,
   qlHardwareModesForTarget,
+  resolveZxPalette,
   renderZxFlashPreview,
   type AttributeOptimizerId,
   type AttributeHaloRadius,
@@ -160,6 +161,7 @@ import {
   type RgbColor,
   type StructuredConversionSettings,
   type TargetModeId,
+  type ZxPaletteDefinition,
 } from "@retro-converter/conversion-core";
 
 import { renderAttributeFrameRgba } from "@retro-converter/conversion-core";
@@ -1262,6 +1264,20 @@ export function App() {
       enabledColorIds: [...selection.enabledColorIds],
     })),
   );
+  const [zxPaletteDefinition, setZxPaletteDefinition] = useState<ZxPaletteDefinition>(
+    DEFAULT_CONVERSION_SETTINGS.zxPalette,
+  );
+  const resolvedZxPalette = resolveZxPalette(zxPaletteDefinition);
+  const zxPaletteOptions = ZX_BASE_COLORS.map((base) => ({
+    code: base.code,
+    name: base.name,
+    normal: rgbToHex(resolvedZxPalette.normal[base.code]!),
+    bright: rgbToHex(resolvedZxPalette.bright[base.code]!),
+  }));
+  const zxPalettePlanesMatch = resolvedZxPalette.normal.every((color, index) => {
+    const bright = resolvedZxPalette.bright[index];
+    return bright !== undefined && color.r === bright.r && color.g === bright.g && color.b === bright.b;
+  });
   const paletteModeCacheRef = useRef(new Map<string, PaletteSelection[]>());
   const [dithering, setDithering] = useState<DitheringMethod>(() =>
     startupApplicationSettings.dithering
@@ -3346,7 +3362,7 @@ export function App() {
       if (frame === undefined) return undefined;
       if (displayResult.platformId === "zx-spectrum" &&
           displayResult.attributeHeight !== null && flashPhase) {
-        return renderZxFlashPreview(frame.encoded, displayResult.attributeHeight, true);
+        return renderZxFlashPreview(frame.encoded, displayResult.attributeHeight, true, resolveZxPalette(zxPaletteDefinition));
       }
       return frame.previewRgba;
     };
@@ -3404,7 +3420,7 @@ export function App() {
       rgba = workspaceMode === "tilemap"
         ? charsetState.kind === "ready"
           ? flashPhase
-            ? renderZxFlashPreview(charsetState.result.decodedScr, 8, true)
+            ? renderZxFlashPreview(charsetState.result.decodedScr, 8, true, resolveZxPalette(zxPaletteDefinition))
             : charsetState.result.previewRgba
           : undefined
         : outputPreviewStage === "screen-2"
@@ -3747,6 +3763,7 @@ export function App() {
     attributeHaloVertical,
     screenFlickerSuppression,
     paletteSelections,
+    zxPalette: zxPaletteDefinition,
     dithering,
     ditheringAmount: dithering === "none" ? 0 : amount,
     errorDiffusionRandomization,
@@ -3940,7 +3957,7 @@ export function App() {
     background, borderColor, attributeHeight, attributeSmoothing, attributeHaloInfluence,
     attributeHaloHorizontal, attributeHaloVertical,
     screenFlickerSuppression,
-    paletteSelections, dithering, amount, errorDiffusionRandomization,
+    paletteSelections, zxPaletteDefinition, dithering, amount, errorDiffusionRandomization,
     errorDiffusionLineSuppression,
     orderedMatrix, artisticPattern, selectedProfileId, targetModeId, attributeOptimizerId,
     ditherEngineId, qlMixedOptimizerId, structuredSettings,
@@ -4328,6 +4345,7 @@ export function App() {
       ...selection,
       enabledColorIds: [...selection.enabledColorIds],
     })));
+    setZxPaletteDefinition(next.zxPalette ?? DEFAULT_CONVERSION_SETTINGS.zxPalette);
     if (next.platformId === "pmd-85") {
       setPmd85PaletteCalibrationId(next.pmd85.paletteCalibrationId);
       setPmd85GapPolicy(next.pmd85.gapPolicy);
@@ -5591,6 +5609,7 @@ export function App() {
       ...selection,
       enabledColorIds: [...selection.enabledColorIds],
     })));
+    setZxPaletteDefinition(next.zxPalette ?? DEFAULT_CONVERSION_SETTINGS.zxPalette);
     setDithering(next.dithering);
     if (next.dithering !== "none" || next.ditheringAmount > 0) {
       setAmountEntry(String(next.ditheringAmount));
@@ -6715,6 +6734,9 @@ export function App() {
       nativeWidth: frame.nativeWidth,
       nativeHeight: frame.nativeHeight,
       attributeHeight: result.attributeHeight,
+      ...(result.platformId === "zx-spectrum"
+        ? { zxPalette: resolveZxPalette(zxPaletteDefinition) }
+        : {}),
       ...(result.platformId === "pmd-85"
         ? {
             pmd85ForegroundPalette: overrides.pmd85Palette ?? pmd85ForegroundPalette,
@@ -7567,6 +7589,7 @@ export function App() {
       unpackZxBitmap(encoded),
       encoded.subarray(6144),
       height,
+      resolveZxPalette(zxPaletteDefinition),
     );
     const nextFrame = { ...frame, encoded, previewRgba };
     const nextResult: WorkerConversionResult = {
@@ -8071,13 +8094,13 @@ export function App() {
       const previewFrames = tilemapResult !== null
         ? hasFlash
           ? [false, true].map((invertedPhase) =>
-              renderZxFlashPreview(tilemapResult.decodedScr, 8, invertedPhase))
+              renderZxFlashPreview(tilemapResult.decodedScr, 8, invertedPhase, resolveZxPalette(zxPaletteDefinition)))
           : [tilemapResult.previewRgba]
         : hasFlash && lastFinal!.platformId === "zx-spectrum" &&
             lastFinal!.attributeHeight !== null
           ? [false, true].map((invertedPhase) => {
               const framePreviews = lastFinal!.frames.map((frame) =>
-                renderZxFlashPreview(frame.encoded, lastFinal!.attributeHeight!, invertedPhase));
+                renderZxFlashPreview(frame.encoded, lastFinal!.attributeHeight!, invertedPhase, resolveZxPalette(zxPaletteDefinition)));
               if (lastFinal!.modeId === "zx48-mixed-256x192" && framePreviews.length >= 2) {
                 return mergeTemporalRgba(framePreviews[0]!, framePreviews[1]!);
               }
@@ -8775,6 +8798,7 @@ export function App() {
             activeZxResultEncoded,
             displayedResult.attributeHeight,
             true,
+            resolveZxPalette(zxPaletteDefinition),
           ),
         }
       : target;
@@ -8802,11 +8826,13 @@ export function App() {
           firstFrame.encoded,
           displayedResult.attributeHeight,
           editorFlashPhase,
+          resolveZxPalette(zxPaletteDefinition),
         );
         const secondPhase = renderZxFlashPreview(
           secondFrame.encoded,
           displayedResult.attributeHeight,
           editorFlashPhase,
+          resolveZxPalette(zxPaletteDefinition),
         );
         const merged = mergeTemporalRgba(firstPhase, secondPhase);
         mergedFlashCanvas.width = displayedResult.width;
@@ -9020,7 +9046,7 @@ export function App() {
           <button className={`bitmap-editor-attribute-icon${bitmapEditorInkColor === null ? " selected" : ""}`} type="button" title="Preserve INK" aria-label="Preserve INK" aria-pressed={bitmapEditorInkColor === null} onClick={() => setBitmapEditorInkColor(null)}><span className="bitmap-editor-transparent-swatch" aria-hidden="true" /></button>
           <button className={`bitmap-editor-attribute-icon${bitmapEditorPaperColor === null ? " selected" : ""}`} type="button" title="Preserve PAPER" aria-label="Preserve PAPER" aria-pressed={bitmapEditorPaperColor === null} onClick={() => setBitmapEditorPaperColor(null)}><span className="bitmap-editor-transparent-swatch" aria-hidden="true" /></button>
         </div>
-        {ZX_BASE_COLORS.map((color) => <div className="bitmap-editor-attribute-color-row" key={color.code}>
+        {zxPaletteOptions.map((color) => <div className="bitmap-editor-attribute-color-row" key={color.code}>
           <button className={`bitmap-editor-attribute-color${bitmapEditorInkColor === color.code ? " selected" : ""}`} type="button" title={`Set INK to ${color.name}`} aria-label={`Set INK to ${color.name}`} aria-pressed={bitmapEditorInkColor === color.code} onClick={() => setBitmapEditorInkColor(color.code)}><span style={{ background: color.normal }} /></button>
           <button className={`bitmap-editor-attribute-color${bitmapEditorPaperColor === color.code ? " selected" : ""}`} type="button" title={`Set PAPER to ${color.name}`} aria-label={`Set PAPER to ${color.name}`} aria-pressed={bitmapEditorPaperColor === color.code} onClick={() => setBitmapEditorPaperColor(color.code)}><span style={{ background: color.normal }} /></button>
         </div>)}
@@ -9094,8 +9120,8 @@ export function App() {
               const y = Math.floor(pixelIndex / 8);
               const on = ((bitmapEditorCell.rows[y] ?? 0) & (0x80 >> x)) !== 0;
               const bright = (bitmapEditorCell.attribute & 0x40) !== 0;
-              const ink = ZX_BASE_COLORS[bitmapEditorCell.attribute & 7];
-              const paper = ZX_BASE_COLORS[(bitmapEditorCell.attribute >> 3) & 7];
+              const ink = zxPaletteOptions[bitmapEditorCell.attribute & 7];
+              const paper = zxPaletteOptions[(bitmapEditorCell.attribute >> 3) & 7];
               return <span className={`tile-editor-pixel${on ? " on" : ""}`} key={pixelIndex} role="gridcell" aria-label={`${x}, ${y}${on ? ": on" : ": off"}`} style={bitmapEditorUseColors ? { backgroundColor: on ? bright ? ink?.bright : ink?.normal : bright ? paper?.bright : paper?.normal } : undefined} />;
             })}
           </div>
@@ -9105,7 +9131,7 @@ export function App() {
               <div className="bitmap-editor-color-group" role="group" aria-label="INK color">
                 <span>INK</span>
                 <div className="palette-options">
-                  {ZX_BASE_COLORS.map((color) => {
+                  {zxPaletteOptions.map((color) => {
                     const selected = (bitmapEditorCell.attribute & 7) === color.code;
                     return <button className={`palette-option${selected ? " selected" : ""}`} type="button" key={color.code} aria-label={`Set INK to ${color.name}`} aria-pressed={selected} title={color.name} onClick={() => setBitmapEditorAttribute(7, color.code)}><span className="palette-swatch" style={{ background: (bitmapEditorCell.attribute & 0x40) !== 0 ? color.bright : color.normal }} aria-hidden="true" /></button>;
                   })}
@@ -9114,7 +9140,7 @@ export function App() {
               <div className="bitmap-editor-color-group" role="group" aria-label="PAPER color">
                 <span>PAPER</span>
                 <div className="palette-options">
-                  {ZX_BASE_COLORS.map((color) => {
+                  {zxPaletteOptions.map((color) => {
                     const selected = ((bitmapEditorCell.attribute >> 3) & 7) === color.code;
                     return <button className={`palette-option${selected ? " selected" : ""}`} type="button" key={color.code} aria-label={`Set PAPER to ${color.name}`} aria-pressed={selected} title={color.name} onClick={() => setBitmapEditorAttribute(0x38, color.code << 3)}><span className="palette-swatch" style={{ background: (bitmapEditorCell.attribute & 0x40) !== 0 ? color.bright : color.normal }} aria-hidden="true" /></button>;
                   })}
@@ -9212,8 +9238,8 @@ export function App() {
               </div>
               <p className="unified-transform-readout">{tileTransformLabel(selectedTransform)}{selectedAssignment?.inverted ? " · Inverted" : ""}{selectedFlash ? " · FLASH" : ""}</p>
               <div className="unified-cell-colors" aria-label="Selected cell color attributes">
-                <div className="unified-color-row"><strong>INK</strong><div className="unified-color-swatches">{ZX_BASE_COLORS.map((color) => <button className={`bitmap-editor-attribute-color${(selectedAttribute & 7) === color.code ? " selected" : ""}`} key={`ink-${color.code}`} type="button" disabled={!canEditSelectedCell} aria-label={`Set selected cell INK to ${color.name}`} aria-pressed={(selectedAttribute & 7) === color.code} title={`INK ${color.name}`} onClick={() => updateSelectedTilemapAttribute((attribute) => (attribute & ~7) | color.code)}><span style={{ background: selectedBright ? color.bright : color.normal }} /></button>)}</div></div>
-                <div className="unified-color-row"><strong>PAPER</strong><div className="unified-color-swatches">{ZX_BASE_COLORS.map((color) => <button className={`bitmap-editor-attribute-color${((selectedAttribute >> 3) & 7) === color.code ? " selected" : ""}`} key={`paper-${color.code}`} type="button" disabled={!canEditSelectedCell} aria-label={`Set selected cell PAPER to ${color.name}`} aria-pressed={((selectedAttribute >> 3) & 7) === color.code} title={`PAPER ${color.name}`} onClick={() => updateSelectedTilemapAttribute((attribute) => (attribute & ~0x38) | (color.code << 3))}><span style={{ background: selectedBright ? color.bright : color.normal }} /></button>)}</div></div>
+                <div className="unified-color-row"><strong>INK</strong><div className="unified-color-swatches">{zxPaletteOptions.map((color) => <button className={`bitmap-editor-attribute-color${(selectedAttribute & 7) === color.code ? " selected" : ""}`} key={`ink-${color.code}`} type="button" disabled={!canEditSelectedCell} aria-label={`Set selected cell INK to ${color.name}`} aria-pressed={(selectedAttribute & 7) === color.code} title={`INK ${color.name}`} onClick={() => updateSelectedTilemapAttribute((attribute) => (attribute & ~7) | color.code)}><span style={{ background: selectedBright ? color.bright : color.normal }} /></button>)}</div></div>
+                <div className="unified-color-row"><strong>PAPER</strong><div className="unified-color-swatches">{zxPaletteOptions.map((color) => <button className={`bitmap-editor-attribute-color${((selectedAttribute >> 3) & 7) === color.code ? " selected" : ""}`} key={`paper-${color.code}`} type="button" disabled={!canEditSelectedCell} aria-label={`Set selected cell PAPER to ${color.name}`} aria-pressed={((selectedAttribute >> 3) & 7) === color.code} title={`PAPER ${color.name}`} onClick={() => updateSelectedTilemapAttribute((attribute) => (attribute & ~0x38) | (color.code << 3))}><span style={{ background: selectedBright ? color.bright : color.normal }} /></button>)}</div></div>
                 <div className="unified-attribute-flags" aria-label="Selected cell attributes and pickers">
                   <div className="unified-segmented unified-cell-flag-buttons" role="group" aria-label="Cell color flags">
                     <button className={`secondary compact${selectedBright ? " active" : ""}`} type="button" disabled={!canEditSelectedCell} aria-pressed={selectedBright} onClick={() => updateSelectedTilemapAttribute((attribute) => attribute ^ 0x40)}>BRIGHT</button>
@@ -9393,6 +9419,9 @@ export function App() {
       bright: color.bright ?? color.normal,
     })),
   );
+  const effectivePaletteOptionsByScreen = isZx
+    ? Array.from({ length: paletteSelections.length }, () => zxPaletteOptions)
+    : paletteOptionsByScreen;
   const zxFlashPreviewPhaseActive = workspaceMode === "palette" && (
     bitmapEditorFlashPreviewMode === "inverted" ||
     (bitmapEditorFlashPreviewMode === "animate" && bitmapEditorFlashPreviewPhase)
@@ -9405,7 +9434,7 @@ export function App() {
     if (frame === undefined) return undefined;
     return result.platformId === "zx-spectrum" &&
         result.attributeHeight !== null && zxFlashPreviewPhaseActive
-      ? renderZxFlashPreview(frame.encoded, result.attributeHeight, true)
+      ? renderZxFlashPreview(frame.encoded, result.attributeHeight, true, resolvedZxPalette)
       : frame.previewRgba;
   };
   const liveMergedPreviewRgba = (result: WorkerConversionResult): Uint8Array => {
@@ -9454,15 +9483,15 @@ export function App() {
         if (selection === undefined) return [];
         return selection.enabledColorIds.flatMap((color) => {
           const option = (
-            paletteOptionsByScreen[screenIndex] ??
-            paletteOptionsByScreen[0] ??
+            effectivePaletteOptionsByScreen[screenIndex] ??
+            effectivePaletteOptionsByScreen[0] ??
             []
           ).find((candidate) => candidate.code === color);
           if (option === undefined) return [];
           const background = isZx && selection.brightMode === "auto"
-            ? `linear-gradient(90deg, ${option.normal} 0 50%, ${ZX_BASE_COLORS[color]?.bright ?? option.normal} 50% 100%)`
+            ? `linear-gradient(90deg, ${option.normal} 0 50%, ${option.bright} 50% 100%)`
             : isZx && selection.brightMode === "on"
-              ? ZX_BASE_COLORS[color]?.bright ?? option.normal
+              ? option.bright
               : option.normal;
           return [{
             key: `${screenIndex}-${color}`,
@@ -10511,8 +10540,8 @@ export function App() {
                 {paletteSelections.map((selection) => (
                   <section
                     className="palette-screen"
-                    data-color-count={(paletteOptionsByScreen[selection.screenIndex] ??
-                      paletteOptionsByScreen[0] ?? []).length}
+                    data-color-count={(effectivePaletteOptionsByScreen[selection.screenIndex] ??
+                      effectivePaletteOptionsByScreen[0] ?? []).length}
                     key={selection.screenIndex}
                   >
                     <div className="palette-screen-heading">
@@ -10543,8 +10572,8 @@ export function App() {
                       role="group"
                       aria-label={`Screen ${selection.screenIndex + 1} available colors`}
                     >
-                      {(paletteOptionsByScreen[selection.screenIndex] ??
-                        paletteOptionsByScreen[0] ??
+                      {(effectivePaletteOptionsByScreen[selection.screenIndex] ??
+                        effectivePaletteOptionsByScreen[0] ??
                         []).map((option) => {
                           const selected = selection.enabledColorIds.includes(option.code);
                           return (
@@ -10561,9 +10590,9 @@ export function App() {
                                 className="palette-swatch"
                                 style={{
                                   background: isZx && selection.brightMode === "auto"
-                                    ? `linear-gradient(90deg, ${option.normal} 0 50%, ${ZX_BASE_COLORS[option.code]?.bright ?? option.normal} 50% 100%)`
+                                    ? `linear-gradient(90deg, ${option.normal} 0 50%, ${option.bright} 50% 100%)`
                                     : isZx && selection.brightMode === "on"
-                                      ? ZX_BASE_COLORS[option.code]?.bright ?? option.normal
+                                      ? option.bright
                                       : option.normal,
                                 }}
                                 aria-hidden="true"
@@ -10575,6 +10604,110 @@ export function App() {
                   </section>
                 ))}
               </div>
+              {isZx ? (
+                <details className="zx-palette-calibration" open>
+                  <summary>Palette calibration</summary>
+                  <label>
+                    <span>Palette model</span>
+                    <select
+                      value={zxPaletteDefinition.kind}
+                      onChange={(event) => {
+                        if (event.target.value === "explicit") {
+                          setZxPaletteDefinition({
+                            kind: "explicit",
+                            normal: resolvedZxPalette.normal.map((color) => ({ ...color })),
+                            bright: resolvedZxPalette.bright.map((color) => ({ ...color })),
+                          });
+                        } else {
+                          setZxPaletteDefinition(DEFAULT_CONVERSION_SETTINGS.zxPalette);
+                        }
+                        setState({ kind: "idle" });
+                      }}
+                    >
+                      <option value="channel-drive-ramp-v1">Channel-drive ramp</option>
+                      <option value="explicit">Explicit RGB colors</option>
+                    </select>
+                  </label>
+                  <div className="zx-palette-calibration-actions">
+                    <button
+                      className="secondary compact"
+                      type="button"
+                      onClick={() => {
+                        setZxPaletteDefinition(DEFAULT_CONVERSION_SETTINGS.zxPalette);
+                        setState({ kind: "idle" });
+                      }}
+                    >Reset palette</button>
+                    {zxPalettePlanesMatch ? <span role="status">Normal and BRIGHT colors are identical.</span> : null}
+                  </div>
+                  {zxPaletteDefinition.kind === "channel-drive-ramp-v1" ? (
+                    <div className="zx-palette-ramp-grid">
+                      {(["normal", "bright"] as const).map((plane) => (
+                        <fieldset key={plane}>
+                          <legend>{plane === "normal" ? "Normal" : "BRIGHT"} channel levels</legend>
+                          {(["singleChannel", "doubleChannel", "tripleChannel"] as const).map((key, index) => (
+                            <label key={key}>
+                              <span>{["Single-channel", "Double-channel", "Triple-channel"][index]}</span>
+                              <input
+                                type="number"
+                                min={0}
+                                max={255}
+                                step={1}
+                                value={zxPaletteDefinition[plane][key]}
+                                onChange={(event) => {
+                                  const value = Number(event.target.value);
+                                  if (!Number.isInteger(value) || value < 0 || value > 255) return;
+                                  setZxPaletteDefinition((current) => current.kind !== "channel-drive-ramp-v1"
+                                    ? current
+                                    : { ...current, [plane]: { ...current[plane], [key]: value } });
+                                  setState({ kind: "idle" });
+                                }}
+                              />
+                            </label>
+                          ))}
+                        </fieldset>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="zx-palette-explicit-grid">
+                      {ZX_BASE_COLORS.map((color) => (
+                        <div className="zx-palette-explicit-row" key={color.code}>
+                          <span>{color.code} · {color.name}</span>
+                          {(["normal", "bright"] as const).map((plane) => (
+                            <label key={plane}>
+                              <span className="visually-hidden">{color.name} {plane} RGB</span>
+                              <input
+                                type="color"
+                                value={rgbToHex(resolvedZxPalette[plane][color.code]!)}
+                                aria-label={`${color.name} ${plane} RGB`}
+                                onChange={(event) => {
+                                  const entry = color.code;
+                                  const nextColor = hexToRgb(event.target.value);
+                                  setZxPaletteDefinition((current) => {
+                                    const resolved = resolveZxPalette(current);
+                                    const values = resolved[plane].map((item) => ({ ...item }));
+                                    values[entry] = nextColor;
+                                    return {
+                                      kind: "explicit",
+                                      normal: plane === "normal" ? values : resolved.normal.map((item) => ({ ...item })),
+                                      bright: plane === "bright" ? values : resolved.bright.map((item) => ({ ...item })),
+                                    };
+                                  });
+                                  setState({ kind: "idle" });
+                                }}
+                              />
+                            </label>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <p className="control-help">
+                    {zxPaletteDefinition.kind === "channel-drive-ramp-v1"
+                      ? "Each active RGB channel receives the level for its one-, two-, or three-channel color. Set BRIGHT levels equal to Normal to collapse the two color planes."
+                      : "Set each ZX color independently. Color values are used by conversion and exact output previews."}
+                  </p>
+                </details>
+              ) : null}
               {paletteValid ? null : (
                 <span className="field-error" id="palette-error">
                   Select at least one color for every screen.
@@ -12672,8 +12805,8 @@ export function App() {
                       <span className="mini-palette" aria-hidden="true">
                         {selection.enabledColorIds.map((color) => {
                           const option = (
-                            paletteOptionsByScreen[selection.screenIndex] ??
-                            paletteOptionsByScreen[0] ??
+                            effectivePaletteOptionsByScreen[selection.screenIndex] ??
+                            effectivePaletteOptionsByScreen[0] ??
                             []
                           ).find((candidate) => candidate.code === color);
                           return option === undefined ? null : (
@@ -12681,9 +12814,9 @@ export function App() {
                               key={color}
                               style={{
                                 background: isZx && selection.brightMode === "auto"
-                                  ? `linear-gradient(90deg, ${option.normal} 0 50%, ${ZX_BASE_COLORS[color]?.bright ?? option.normal} 50% 100%)`
+                                  ? `linear-gradient(90deg, ${option.normal} 0 50%, ${option.bright} 50% 100%)`
                                   : isZx && selection.brightMode === "on"
-                                    ? ZX_BASE_COLORS[color]?.bright ?? option.normal
+                                    ? option.bright
                                     : option.normal,
                               }}
                             />
@@ -12723,8 +12856,8 @@ export function App() {
                       role="group"
                       aria-label={`Screen ${selection.screenIndex + 1} available colors`}
                     >
-                      {(paletteOptionsByScreen[selection.screenIndex] ??
-                        paletteOptionsByScreen[0] ??
+                      {(effectivePaletteOptionsByScreen[selection.screenIndex] ??
+                        effectivePaletteOptionsByScreen[0] ??
                         []).map((option) => {
                         const selected = selection.enabledColorIds.includes(option.code);
                         return (
@@ -12741,9 +12874,9 @@ export function App() {
                               className="palette-swatch"
                               style={{
                                 background: isZx && selection.brightMode === "auto"
-                                  ? `linear-gradient(90deg, ${option.normal} 0 50%, ${ZX_BASE_COLORS[option.code]?.bright ?? option.normal} 50% 100%)`
+                                  ? `linear-gradient(90deg, ${option.normal} 0 50%, ${option.bright} 50% 100%)`
                                   : isZx && selection.brightMode === "on"
-                                    ? ZX_BASE_COLORS[option.code]?.bright ?? option.normal
+                                    ? option.bright
                                     : option.normal,
                               }}
                               aria-hidden="true"

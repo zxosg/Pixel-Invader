@@ -74,7 +74,7 @@ export function buildJointMixedPhysicalPalette(
   const brightValues = enabledBrightValues(zxBrightMode(settings, screenIndex));
   return brightValues.flatMap((bright) =>
     selection.enabledColorIds.map((code) => ({
-      ...zxColor(code, bright),
+      ...zxColor(code, bright, settings.zxPalette),
       code,
       bright,
     }))

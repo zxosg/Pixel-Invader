@@ -1,4 +1,4 @@
-import { decodeAttribute } from "./palette.js";
+import { decodeAttribute, DEFAULT_ZX_PALETTE } from "./palette.js";
 import { ARTISTIC_ROW_RANKS, ARTISTIC_SQUARE_RANKS } from "./artistic-ranks.js";
 import type {
   ArtisticToneSafetyDiagnostics,
@@ -6,6 +6,7 @@ import type {
   ArtisticPatternPreference,
   ColorCarrierDiagnostics,
   RgbColor,
+  ZxPalette,
 } from "./types.js";
 
 export const ARTISTIC_SEED = 1729;
@@ -792,9 +793,10 @@ export function renderArtisticOrdered(
   checkerPhase: "a" | "b" = "a",
   protectVerticalSpikes = false,
   diagnostics?: ColorCarrierDiagnostics,
+  palette: ZxPalette = DEFAULT_ZX_PALETTE,
 ): Uint8Array {
   const width = 256;
-  const pairs = Array.from({ length: 128 }, (_, attribute) => decodeAttribute(attribute));
+  const pairs = Array.from({ length: 128 }, (_, attribute) => decodeAttribute(attribute, palette));
   return renderArtisticPairField(
     source,
     width,
@@ -837,8 +839,9 @@ export function renderToneSafeZxOrdered(
   amount: number,
   preference: ArtisticPatternPreference = "auto",
   diagnostics?: ArtisticToneSafetyDiagnostics,
+  palette: ZxPalette = DEFAULT_ZX_PALETTE,
 ): Uint8Array {
-  const pairs = Array.from({ length: 128 }, (_, attribute) => decodeAttribute(attribute));
+  const pairs = Array.from({ length: 128 }, (_, attribute) => decodeAttribute(attribute, palette));
   return renderToneSafeCandidateField(
     source,
     256,

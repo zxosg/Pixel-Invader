@@ -1,5 +1,6 @@
 import {
   DEFAULT_CONVERSION_SETTINGS,
+  isValidZxPaletteDefinition,
   isCompatibleEnginePair,
   type ConversionSettings,
 } from "@retro-converter/conversion-core";
@@ -662,6 +663,7 @@ function validateSettings(value: unknown): value is ConversionSettings {
     !isObject(value.structured.boundaryParameters) ||
     !isObject(value.structured.candidateParameters)
   ) return false;
+  if (value.zxPalette !== undefined && !isValidZxPaletteDefinition(value.zxPalette)) return false;
   const integerRange = (candidate: unknown, minimum: number, maximum: number) =>
     Number.isInteger(candidate) && (candidate as number) >= minimum && (candidate as number) <= maximum;
   const expectedPaletteSelections = [
@@ -1035,6 +1037,9 @@ export async function parseImportedProfile(bytes: Uint8Array): Promise<Conversio
           panEdgeMode: raw.settings.panEdgeMode === undefined
             ? "background"
             : raw.settings.panEdgeMode,
+          zxPalette: raw.settings.zxPalette === undefined
+            ? DEFAULT_CONVERSION_SETTINGS.zxPalette
+            : raw.settings.zxPalette,
           orderedMatrix: migrateRetiredOrderedMatrix(raw.settings.orderedMatrix),
         }
       : raw.settings;

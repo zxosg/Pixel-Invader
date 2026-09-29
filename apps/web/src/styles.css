@@ -1257,6 +1257,90 @@ h1 {
   font-size: 0.75rem;
 }
 
+.zx-palette-calibration {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.75rem;
+  padding: 0.7rem;
+  border: 1px solid #344254;
+  border-radius: 0.45rem;
+  background: #111a25;
+}
+
+.zx-palette-calibration > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.zx-palette-calibration-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  color: #9eabbd;
+  font-size: 0.75rem;
+}
+
+.zx-palette-calibration > label,
+.zx-palette-ramp-grid label,
+.zx-palette-explicit-row label {
+  display: grid;
+  gap: 0.35rem;
+  color: #b9c5d3;
+  font-size: 0.75rem;
+}
+
+.zx-palette-calibration select,
+.zx-palette-ramp-grid input[type="number"] {
+  min-height: 2rem;
+  padding: 0.25rem 0.45rem;
+}
+
+.zx-palette-ramp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.6rem;
+}
+
+.zx-palette-ramp-grid fieldset {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0.6rem;
+  border: 1px solid #344254;
+  border-radius: 0.35rem;
+}
+
+.zx-palette-explicit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.35rem 0.7rem;
+}
+
+.zx-palette-explicit-row {
+  display: grid;
+  grid-template-columns: minmax(5rem, 1fr) auto auto;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.25rem 0;
+  border-bottom: 1px solid #283646;
+  font-size: 0.75rem;
+}
+
+.zx-palette-explicit-row input[type="color"] {
+  width: 2.5rem;
+  height: 2rem;
+  padding: 0.1rem;
+  border: 1px solid #536276;
+  border-radius: 0.25rem;
+  background: #172231;
+  cursor: pointer;
+}
+
+.zx-palette-calibration > .control-help {
+  margin: 0;
+}
+
 .palette-options {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(1.8rem, 1fr));

@@ -2,7 +2,7 @@ import type { QlRgbColor } from "@retro-converter/sinclair-ql";
 import type { Pmd85RgbColor } from "@retro-converter/pmd-85";
 import { decorrelatedDiffusionKernel, diffusionNoiseOffset } from "./diffusion.js";
 import { ORDERED_MATRICES, orderedThreshold } from "./matrices.js";
-import { zxColor } from "./palette.js";
+import { DEFAULT_ZX_PALETTE, zxColor } from "./palette.js";
 import type {
   BrightMode,
   DitheringMethod,
@@ -10,6 +10,7 @@ import type {
   RgbColor,
   VerticalSpatialDiagnostics,
   VerticalSpatialMixSettings,
+  ZxPalette,
 } from "./types.js";
 
 export const VERTICAL_SPATIAL_LINEAR_SCALE = 65_535;
@@ -704,6 +705,7 @@ export function optimizeVerticalSpatialZx(
   brightMode: BrightMode,
   ditherOptions: VerticalSpatialDitherOptions = DEFAULT_VERTICAL_SPATIAL_DITHER,
   optimizationStyle: "uniform-blend" | "detail-preserving" = "uniform-blend",
+  palette: ZxPalette = DEFAULT_ZX_PALETTE,
 ): CellPlanes {
   const width = 256;
   const height = 192;
@@ -719,8 +721,8 @@ export function optimizeVerticalSpatialZx(
         const paperCode = enabled[paperIndex] ?? inkCode;
         candidates.push({
           value: (bright ? 0x40 : 0) | (paperCode << 3) | inkCode,
-          paper: linearColor(zxColor(paperCode, bright)),
-          ink: linearColor(zxColor(inkCode, bright)),
+          paper: linearColor(zxColor(paperCode, bright, palette)),
+          ink: linearColor(zxColor(inkCode, bright, palette)),
         });
       }
     }
@@ -807,6 +809,7 @@ export function optimizeVerticalSpatialZx(
       colorCost,
       stripeCost,
       optimizationStyle === "detail-preserving" ? "vertical-spatial-detail-v1" : "vertical-spatial-uniform-v1",
+      palette,
     );
   }
   return { pixelMasks, attributes, diagnostics: diagnostics(new Uint8Array(), width, height, colorCost, stripeCost) };
@@ -819,12 +822,12 @@ function squaredColorDifference(left: LinearColor, right: LinearColor): number {
   return Math.floor((dr * dr + dg * dg + db * db) / 3);
 }
 
-function zxAttributePixel(attribute: number, mask: number, pixel: number): LinearColor {
+function zxAttributePixel(attribute: number, mask: number, pixel: number, palette: ZxPalette): LinearColor {
   const bright = (attribute & 0x40) !== 0;
   const code = (mask & (1 << (7 - pixel))) === 0
     ? (attribute >> 3) & 7
     : attribute & 7;
-  return linearColor(zxColor(code, bright));
+  return linearColor(zxColor(code, bright, palette));
 }
 
 /**
@@ -840,6 +843,7 @@ function refineVerticalSpatialZxOrientation(
   colorCost: number,
   stripeCost: number,
   algorithmId: "vertical-spatial-uniform-v1" | "vertical-spatial-detail-v1" = "vertical-spatial-detail-v1",
+  palette: ZxPalette = DEFAULT_ZX_PALETTE,
 ): CellPlanes {
   const width = 256;
   const bytesPerRow = 32;
@@ -876,8 +880,8 @@ function refineVerticalSpatialZxOrientation(
         const x = byteX * 8 + pixel;
         const sourceUpper = sourceLinear[(logicalY * 2) * width + x]!;
         const sourceLower = sourceLinear[(logicalY * 2 + 1) * width + x]!;
-        const outputUpper = zxAttributePixel(upperAttribute, upperMask, pixel);
-        const outputLower = zxAttributePixel(lowerAttribute, lowerMask, pixel);
+        const outputUpper = zxAttributePixel(upperAttribute, upperMask, pixel, palette);
+        const outputLower = zxAttributePixel(lowerAttribute, lowerMask, pixel, palette);
         directDetail += squaredColorDifference(sourceUpper, outputUpper) +
           squaredColorDifference(sourceLower, outputLower);
         swappedDetail += squaredColorDifference(sourceUpper, outputLower) +
