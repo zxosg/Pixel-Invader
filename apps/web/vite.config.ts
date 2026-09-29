@@ -9,11 +9,13 @@ export default defineConfig(({ mode }) => {
     || env.CF_PAGES_COMMIT_SHA
     || env.VERCEL_GIT_COMMIT_SHA
     || "";
+  const releaseDate = env.VITE_RELEASE_DATE || "";
 
   return {
     base,
     define: {
       "import.meta.env.VITE_BUILD_ID": JSON.stringify(buildId),
+      "import.meta.env.VITE_RELEASE_DATE": JSON.stringify(releaseDate),
     },
     plugins: [react()],
     build: {

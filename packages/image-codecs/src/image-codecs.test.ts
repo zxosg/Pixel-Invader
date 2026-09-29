@@ -64,7 +64,7 @@ function pngChunk(type: string, data: Uint8Array): Uint8Array {
   ]);
 }
 
-function recognizedSrgbIccp(): Uint8Array {
+function recognizedSrgbIccProfile(): Uint8Array {
   const description = "sRGB IEC61966-2.1";
   const tags = ["desc", "rXYZ", "gXYZ", "bXYZ", "rTRC", "gTRC", "bTRC"];
   const profileBuffer = new Uint8Array(1024);
@@ -122,11 +122,30 @@ function recognizedSrgbIccp(): Uint8Array {
 
   const profile = profileBuffer.slice(0, dataOffset);
   new DataView(profile.buffer).setUint32(0, profile.length, false);
-  const compressed = zlibSync(profile);
+  return profile;
+}
+
+function recognizedSrgbIccp(): Uint8Array {
+  const compressed = zlibSync(recognizedSrgbIccProfile());
   return Uint8Array.from([
     ...Array.from("sRGB", (character) => character.charCodeAt(0)), 0, 0,
     ...compressed,
   ]);
+}
+
+function injectJpegIccProfile(jpeg: Uint8Array, profile: Uint8Array): Uint8Array {
+  const signature = Uint8Array.from(Array.from("ICC_PROFILE\0", (character) => character.charCodeAt(0)));
+  const segmentSize = 64;
+  const total = Math.ceil(profile.length / segmentSize);
+  const chunks: number[] = [0xff, 0xd8];
+  for (let sequence = 1; sequence <= total; sequence += 1) {
+    const segment = profile.subarray((sequence - 1) * segmentSize, sequence * segmentSize);
+    const payload = Uint8Array.from([...signature, sequence, total, ...segment]);
+    const length = payload.length + 2;
+    chunks.push(0xff, 0xe2, length >> 8, length & 0xff, ...payload);
+  }
+  chunks.push(...jpeg.subarray(2));
+  return Uint8Array.from(chunks);
 }
 
 function packIndexedRows(
@@ -170,6 +189,17 @@ describe("content inspection", () => {
     const jpeg = Uint8Array.from(encodeJpeg({ width: 2, height: 1, data: new Uint8Array(8) }, 90).data);
     expect(inspectImage(png)).toMatchObject({ format: "png", width: 2, height: 1 });
     expect(inspectImage(jpeg)).toMatchObject({ format: "jpeg", width: 2, height: 1 });
+  });
+
+  it("accepts a recognized embedded JPEG sRGB profile split across APP2 segments", () => {
+    const raw = Uint8Array.from([
+      255, 0, 0, 255,
+      0, 255, 0, 255,
+    ]);
+    const jpeg = Uint8Array.from(encodeJpeg({ width: 2, height: 1, data: raw }, 100).data);
+    const tagged = injectJpegIccProfile(jpeg, recognizedSrgbIccProfile());
+    expect(inspectImage(tagged)).toMatchObject({ format: "jpeg", width: 2, height: 1 });
+    expect(decodeImage(tagged).rgba).toHaveLength(8);
   });
 
   it("rejects APNG and embedded ICC before decode", () => {

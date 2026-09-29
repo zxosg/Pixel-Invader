@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed — menu map and implementation direction; no UI implementation in this document.
+Implemented — classic menus are rendered above the dockable workbench and call the existing application actions.
 
 ## Summary
 
@@ -13,21 +13,21 @@ The menu bar is an action surface, not another workbench window. It does not own
 ## Code structure and design fit
 
 - `apps/web/src/App.tsx` owns the workbench React state, action handlers, import/export readiness, and the current rendering. It is the source of truth for menu state and callbacks.
-- `apps/web/src/workbench-preferences.ts` owns panel layout, open/minimized state, and dock assignments for Tools, Geometry, Image adjustments, Palette, Dithering, Tilemap, Source preview, and Result preview.
+- `apps/web/src/workbench-preferences.ts` owns panel visibility, disclosure/minimized state, and dock assignments for Tools, Geometry, Image adjustments, Palette, Dithering, Tilemap, Source preview, and Result preview.
 - `apps/web/src/workspace-preferences.ts` owns the active workspace preset, preview content, zoom, grids, and inspection preferences.
 - `apps/web/src/saved-workbench-layouts.ts` persists named combinations of workspace and workbench preferences.
 - `apps/web/src/projects.ts` owns `.rccproject` validation and serialization.
 - `apps/web/src/application-settings.ts` owns persisted application defaults. The existing Settings dialog in `App.tsx` edits these defaults and conversion settings.
 
-Several command handlers are already usable: `importImage`, `importPmd85`, `openProject`, the export functions, `exportProject`, `openApplicationSettings`, `switchWorkspaceConversionMode`, `selectProfile`, `selectPreset`, `switchTargetMode`, `convertImage`, `cancelHigh`, `setWorkbenchWindowOpen`, `applyWorkspaceLayout`, `saveCurrentWorkbenchLayout`, and `selectSavedWorkbenchLayout`. The menu should call these handlers or the same small wrappers used by the current controls. It should not duplicate their validation, dirty-work confirmation, output generation, or persistence logic.
+Several command handlers are already usable: `importImage`, `importPmd85`, `openProject`, the export functions, `exportProject`, `openApplicationSettings`, `switchWorkspaceConversionMode`, `selectProfile`, `selectPreset`, `switchTargetMode`, `convertImage`, `cancelHigh`, and `setWorkbenchWindowVisibility`. Workspace profile selection, snapshot application, dirty tracking, and persistence should be handled by a single small application-layer API rather than duplicated in menu presentation code.
 
 ## Proposed placement and behavior
 
 Render a compact menu bar as a sibling immediately before the `.workbench-workspace` section inside the application shell. This puts it above the workbench while keeping it outside `workbenchRootRef` and the dock surface. The existing workbench heading, preview area, title bars, drag/resize behavior, and left/right/bottom/floating dock geometry remain in place.
 
-Move the profile, preset, conversion mode, and hardware mode selectors out of the conversion form and into the **Convert** menu. Keep the current selection visible in a small context summary near the Convert command (for example, `Palette · ZX Spectrum · Standard 256×192 · Default`). Do not make these selectors panels or windows. The main Convert High action can remain in the form as the prominent action and also be available from the menu for keyboard access.
+Move the profile, preset, conversion mode, and hardware mode selectors out of the conversion form and into the **Convert** menu. Keep the current selection visible in a small context summary near the Convert command (for example, `Palette · ZX Spectrum · Standard 256×192 · Default`). Do not make these selectors panels or windows. The main Convert High action remains in the form as the prominent action and is also available from the menu for keyboard access.
 
-Use a declarative command map to describe labels, command IDs, visibility, enabled state, checked/radio state, and keyboard shortcuts. Keep callback resolution in `App.tsx`, where the relevant state and existing handlers live. The first implementation can define the command map alongside the menu component; extracting all workbench state from `App.tsx` is not a prerequisite.
+Implement `WorkbenchMenuBar` as a small component with typed state and callbacks. Keep authoritative app state and existing handlers in `App.tsx`; the menu component owns only its open menu, keyboard focus, and temporary layout-name input.
 
 ## Menu map
 
@@ -71,23 +71,21 @@ The profile and mode submenus must be generated from the same current profile an
 
 | Item | Behavior / command | Availability |
 | --- | --- | --- |
-| Workbench Panels → Tools | Show/restore or hide the Tools window | Always |
-| Workbench Panels → Geometry | Show/restore or hide Geometry | Always |
-| Workbench Panels → Image Adjustments | Show/restore or hide Image adjustments | Always |
-| Workbench Panels → Palette Controls | Show/restore or hide Palette controls | Always |
-| Workbench Panels → Dithering Controls | Show/restore or hide Dithering controls | Always |
-| Workbench Panels → Tilemap Controls | Show/restore or hide Tilemap controls | Tilemap mode only |
-| Workbench Panels → Source Preview | Show/restore or hide Source preview | Always |
-| Workbench Panels → Result Preview | Show/restore or hide Result preview | Always |
-| Workspace Layout → Conversion / Palette Tuning / Dithering Review / Tilemap Cleanup / Editor / Pixel Inspection | `applyWorkspaceLayout(layout)` | Tilemap Cleanup only in Tilemap mode; Editor only in Palette mode; radio item reflects selected layout |
-| Workspace Layout → [saved layout] | `selectSavedWorkbenchLayout(id)` | One item per saved layout; radio item reflects selected layout |
-| Save Current Layout… | Enter a name and call `saveCurrentWorkbenchLayout()` | Always; preserve the existing 40-character name limit and update behavior |
-| Delete Selected Layout | `deleteSavedWorkbenchLayout(id)` | A saved layout is selected |
+| Workspace Profiles → [default or saved profile] | `selectWorkspaceProfile(id)` | Radio selection tracks profile identity, not its underlying layout preset; selecting the active profile reapplies it |
+| Save Changes | `saveWorkspaceProfileChanges()` | Enabled when the active profile differs from its last saved snapshot; updates saved and default profiles in place |
+| Save as New Profile… | Enter a name and call `saveWorkspaceProfileAs(name)` | Preserve the 40-character name limit; reject duplicate names rather than silently overwriting |
+| Rename / Delete Profile | `renameWorkspaceProfile(id, name)` / `deleteWorkspaceProfile(id)` | Defaults can be renamed or removed; removed defaults can be restored |
+| Restore Default Profiles | `restoreDefaultWorkspaceProfiles()` | Restores deleted defaults and discards their edits while keeping custom profiles |
+| Reapply Profile | `selectWorkspaceProfile(activeId)` | Reloads the current profile even when it is already selected |
 | Reset Workspace Arrangement | `resetWorkspaceArrangement()` | Always |
 
-Panel items should show a check when their window is open. Selecting a closed item should reveal it; selecting a minimized item should restore it; selecting an expanded item can hide it by updating its existing `open` state. The menu must not rewrite its dock assignment or position. `setWorkbenchWindowOpen` changes only `open`, so add a small show/restore wrapper that also clears `minimized` when the user invokes a hidden or minimized panel command.
+Default and user-saved workspace profiles share one profile list and selection model. Each profile captures the conversion workspace and the complete dock/window arrangement. Default profiles can be edited, renamed, and removed; **Restore Default Profiles** restores the original defaults. The active profile remains selected while it is edited and shows an unsaved-change state until saved or reapplied. Preset application must set every window's dock/floating state from the profile so a window cannot retain floating state from the previous arrangement.
 
-Workspace presets and named workbench layouts remain distinct concepts: the former apply built-in view arrangements, while named layouts restore both workspace and dock/window preferences.
+### Window
+
+Each applicable workbench window appears as a checkbox item, labelled with its name. Its checked state maps only to the persisted `visible` field. Toggling it leaves its disclosure state, minimized state, dock assignment, and geometry unchanged. A hidden window is removed from the desktop layout and can only be shown again through this menu. Minimized, collapsed, and tiled windows remain distinct states.
+
+Palette and Dithering appear in Palette mode; Tilemap appears in Tilemap mode. Tools, Geometry, Image adjustments, Source preview, and Result preview are available in either mode. Keep the menu open after toggling an item so multiple windows can be changed in one pass.
 
 ### Settings
 
@@ -108,7 +106,7 @@ Do not add a Help menu in the first pass. The current app has no help/about acti
 - Derive enabled state from the same values currently used by form/footer controls (`isPmd`, `isZx`, `settingsValid`, conversion state, `artifactsReady`, and `resultSaveReady`). Avoid parallel readiness rules.
 - Keep asynchronous export failures in the existing `exportError` status area; the menu closes after dispatch and must not swallow errors.
 - Retain dirty-work confirmation in existing open handlers. Menu commands should not bypass or duplicate it.
-- Use radio semantics for mutually exclusive mode, profile, preset, hardware mode, and layout choices; use checked menu items for panel open state.
+- Use radio semantics for mutually exclusive mode, profile, preset, hardware mode, and layout choices; use checkbox menu items for panel visibility.
 - Support keyboard access: menu buttons respond to Enter/Space, arrow keys move among items, Escape closes the open menu, and focus returns to the trigger after dismissal. Show available shortcuts beside commands; implement them in the same command dispatcher and ignore shortcuts while the user is editing text or a form field.
 - Keep each menu short at the first level. Place the many export formats, panels, and layouts in submenus rather than turning the bar into a toolbar.
 - Preserve responsive behavior: menus should remain operable on narrow screens, using wrapping or a compact overflow menu without covering dock controls or making the workbench narrower than its existing minimum.
@@ -156,8 +154,12 @@ Dynamic IDs for profile, preset, hardware mode, panel, and layout instances may 
 - Existing panels remain dockable, floating, resizable, minimizable, and position-persistent after menu actions are added.
 - Open Image, Open Project, Save Project, and each applicable export produce the same results and confirmations as the current controls.
 - Conversion mode, profile, preset, and hardware mode can be changed from the Convert menu and display the active selection.
-- The View menu can reopen any hidden panel and restore minimized panels without changing their saved dock or position.
-- Built-in and saved workspace layouts remain available and retain their current persistence behavior.
+- The Window menu hides and restores each listed workbench window without changing its minimized state, disclosure state, dock, or geometry. Hidden windows consume no desktop layout space.
+- Default and saved workspace profiles share one selection model; selecting a saved profile never marks a default with the same layout category as selected.
+- Reapplying the selected profile is a direct action and does not require changing the selection to a placeholder first.
+- Save Changes updates the active profile when its captured arrangement is modified; Save as New creates a separate profile.
+- Default profiles can be renamed, edited, and deleted. Restore Default Profiles reinstates deleted profiles and original default configurations.
+- Applying any profile fully resets or restores every window's floating and docked state.
 - Application Settings opens the current Settings dialog.
 - Menu items expose correct dynamic visibility, enablement, selected state, accessible names, and keyboard operation.
 - Existing footer and selectors can be removed only after their actions are represented in the menu and the primary Convert High button remains easy to find.

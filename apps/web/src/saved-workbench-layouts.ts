@@ -10,7 +10,10 @@ export interface SavedWorkbenchLayout {
 }
 
 export const SAVED_WORKBENCH_LAYOUTS_KEY = "retro-converter.saved-workbench-layouts.v1";
-const MAX_SAVED_LAYOUTS = 12;
+export const HIDDEN_BUILTIN_WORKSPACE_PROFILES_KEY = "retro-converter.hidden-workspace-profiles.v1";
+export const ACTIVE_WORKSPACE_PROFILE_KEY = "retro-converter.active-workspace-profile.v1";
+// Six built-in profiles can have user overrides in addition to twelve custom profiles.
+const MAX_SAVED_LAYOUTS = 18;
 const MAX_LAYOUT_NAME_LENGTH = 40;
 
 interface LayoutStorage {
@@ -53,6 +56,39 @@ export function saveSavedWorkbenchLayouts(
     );
   } catch {
     // Saved layouts are optional; the current workbench remains usable without storage.
+  }
+}
+
+export function loadHiddenBuiltinWorkspaceProfiles(storage: LayoutStorage): readonly string[] {
+  try {
+    const parsed: unknown = JSON.parse(storage.getItem(HIDDEN_BUILTIN_WORKSPACE_PROFILES_KEY) ?? "[]");
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveHiddenBuiltinWorkspaceProfiles(storage: LayoutStorage, profileIds: readonly string[]): void {
+  try {
+    storage.setItem(HIDDEN_BUILTIN_WORKSPACE_PROFILES_KEY, JSON.stringify([...new Set(profileIds)]));
+  } catch {
+    // Workspace profile visibility is optional; the current workbench remains usable without storage.
+  }
+}
+
+export function loadActiveWorkspaceProfileId(storage: LayoutStorage): string | null {
+  try {
+    return storage.getItem(ACTIVE_WORKSPACE_PROFILE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function saveActiveWorkspaceProfileId(storage: LayoutStorage, profileId: string): void {
+  try {
+    storage.setItem(ACTIVE_WORKSPACE_PROFILE_KEY, profileId);
+  } catch {
+    // Active profile selection is optional; the current workbench remains usable without storage.
   }
 }
 

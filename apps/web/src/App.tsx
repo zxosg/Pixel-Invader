@@ -32,7 +32,9 @@ import {
   type Pmd85RgbColor,
 } from "@retro-converter/pmd-85";
 import {
-  APPLICATION_DISPLAY_VERSION,
+  APPLICATION_BUILD_ID,
+  APPLICATION_RELEASE_DATE,
+  APPLICATION_VERSION,
   buildConversionMetadata,
   canonicalJsonStringify,
   sanitizeArtifactBaseName,
@@ -231,6 +233,9 @@ import {
   type TextureBenchmarkMetrics,
 } from "./benchmark.js";
 import { distinctPreviewColors } from "./palette-display.js";
+import { BUILT_IN_WORKSPACE_LAYOUTS, WorkbenchMenuBar } from "./workbench-menu-bar.js";
+import { ZxPaletteEditorDialog } from "./zx-palette-editor-dialog.js";
+import { AboutDialog } from "./about-dialog.js";
 import {
   loadEnginePreferences,
   saveEnginePreferences,
@@ -257,8 +262,12 @@ import {
 } from "./workbench-preferences.js";
 import {
   createSavedWorkbenchLayoutId,
+  loadActiveWorkspaceProfileId,
+  loadHiddenBuiltinWorkspaceProfiles,
   loadSavedWorkbenchLayouts,
   normalizeSavedLayoutName,
+  saveActiveWorkspaceProfileId,
+  saveHiddenBuiltinWorkspaceProfiles,
   saveSavedWorkbenchLayouts,
   type SavedWorkbenchLayout,
 } from "./saved-workbench-layouts.js";
@@ -337,8 +346,7 @@ import {
   type NativeResultFrameInput,
 } from "./result-bitmap-editor.js";
 
-const NEW_WORKSPACE_VALUE = "__new_workspace__";
-const NEW_WORKSPACE_LABEL = "<new name>";
+const BUILTIN_WORKSPACE_PROFILE_PREFIX = "builtin:";
 const STARTUP_WORKSPACE_LAYOUTS: readonly WorkspaceLayoutId[] = [
   "conversion", "palette", "dithering", "tilemap", "editor", "inspection",
 ];
@@ -986,6 +994,7 @@ function RangeNumberControl({
 }
 
 export function App() {
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [invalidSliderIds, setInvalidSliderIds] =
     useState<ReadonlySet<string>>(() => new Set());
   const setSliderValidity = useCallback((id: string, valid: boolean) => {
@@ -1274,10 +1283,6 @@ export function App() {
     normal: rgbToHex(resolvedZxPalette.normal[base.code]!),
     bright: rgbToHex(resolvedZxPalette.bright[base.code]!),
   }));
-  const zxPalettePlanesMatch = resolvedZxPalette.normal.every((color, index) => {
-    const bright = resolvedZxPalette.bright[index];
-    return bright !== undefined && color.r === bright.r && color.g === bright.g && color.b === bright.b;
-  });
   const paletteModeCacheRef = useRef(new Map<string, PaletteSelection[]>());
   const [dithering, setDithering] = useState<DitheringMethod>(() =>
     startupApplicationSettings.dithering
@@ -1378,12 +1383,20 @@ export function App() {
   const [savedWorkbenchLayouts, setSavedWorkbenchLayouts] = useState<readonly SavedWorkbenchLayout[]>(
     () => loadSavedWorkbenchLayouts(localStorage),
   );
-  const [selectedSavedWorkbenchLayoutId, setSelectedSavedWorkbenchLayoutId] = useState("");
-  const [layoutNameEntry, setLayoutNameEntry] = useState("");
+  const [hiddenBuiltinWorkspaceProfileIds, setHiddenBuiltinWorkspaceProfileIds] = useState<readonly string[]>(
+    () => loadHiddenBuiltinWorkspaceProfiles(localStorage),
+  );
+  const [activeWorkspaceProfileId, setActiveWorkspaceProfileId] = useState(() =>
+    loadActiveWorkspaceProfileId(localStorage) ?? `${BUILTIN_WORKSPACE_PROFILE_PREFIX}${normalizeStartupWorkspaceLayout(startupApplicationSettings.workspaceLayout)}`,
+  );
+  const [workspaceProfileBaseline, setWorkspaceProfileBaseline] = useState("");
+  const [workspaceProfileBaselinePending, setWorkspaceProfileBaselinePending] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [zxPaletteEditorOpen, setZxPaletteEditorOpen] = useState(false);
   const [settingsDraft, setSettingsDraft] = useState<(ApplicationSettings & Record<string, unknown>) | null>(null);
   const [settingsBaseline, setSettingsBaseline] = useState<Record<string, unknown> | null>(null);
   const startupWorkspaceAppliedRef = useRef(false);
+  const workspaceProfileSelectionMadeRef = useRef(false);
   const [settingsSection, setSettingsSection] = useState<WorkbenchFocusTarget>("all");
   const [workbenchSettingsDock, setWorkbenchSettingsDock] = useState<WorkbenchDock>(
     startupWorkbenchPreferences.dock,
@@ -1661,6 +1674,18 @@ export function App() {
     return workbenchWindowLayouts[window];
   }
 
+  function preserveHiddenWorkbenchWindows(
+    currentLayouts: WorkbenchWindowLayouts,
+    nextLayouts: WorkbenchWindowLayouts,
+  ): WorkbenchWindowLayouts {
+    return Object.fromEntries(
+      Object.entries(nextLayouts).map(([window, layout]) => {
+        const id = window as ActiveWorkbenchWindowId;
+        return [id, { ...layout, visible: currentLayouts[id].visible && layout.visible }];
+      }),
+    ) as WorkbenchWindowLayouts;
+  }
+
   const workbenchToolsDock = workbenchWindowLayout("tools").dock as WorkbenchDock;
   const workbenchToolsOpen = workbenchWindowLayout("tools").open;
 
@@ -1674,6 +1699,8 @@ export function App() {
   }
 
   function workbenchDockWindowIsRendered(window: ActiveWorkbenchWindowId): boolean {
+    const layout = workbenchWindowLayout(window);
+    if (!layout.visible) return false;
     return window === "tilemap"
       ? workspaceMode === "tilemap"
       : window === "palette" || window === "dithering"
@@ -1857,6 +1884,10 @@ export function App() {
     }
   }
 
+  function setWorkbenchWindowVisibility(window: ActiveWorkbenchWindowId, visible: boolean): void {
+    updateWorkbenchWindowLayout(window, (layout) => ({ ...layout, visible }));
+  }
+
   function workbenchDockLayerFor(dock: WorkbenchWindowDock): HTMLDivElement | null {
     if (dock === "left") return workbenchLeftDockLayer;
     if (dock === "right") return workbenchRightDockLayer;
@@ -1982,19 +2013,27 @@ export function App() {
     );
   }
 
-  const workbenchHasFloatingSections = workbenchGeometryFloating || workbenchAdjustmentsFloating || workbenchPaletteFloating || workbenchDitheringFloating || (workspaceMode === "tilemap" && workbenchTilemapFloating);
+  const workbenchHasFloatingSections =
+    (workbenchWindowLayout("geometry").visible && workbenchGeometryFloating) ||
+    (workbenchWindowLayout("adjustments").visible && workbenchAdjustmentsFloating) ||
+    (workbenchWindowLayout("palette").visible && workspaceMode === "palette" && workbenchPaletteFloating) ||
+    (workbenchWindowLayout("dithering").visible && workspaceMode === "palette" && workbenchDitheringFloating) ||
+    (workbenchWindowLayout("tilemap").visible && workspaceMode === "tilemap" && workbenchTilemapFloating);
   const workbenchToolsFloating = workbenchToolsDock === "floating";
-  const workbenchHasLeftDock = Object.values(workbenchWindowLayouts).some((layout) => layout.dock === "left");
-  const workbenchHasRightDock = Object.values(workbenchWindowLayouts).some((layout) => layout.dock === "right");
+  const workbenchHasLeftDock = workbenchDockWindowOrder.some((window) => workbenchDockWindowIsRendered(window) && workbenchWindowLayout(window).dock === "left");
+  const workbenchHasRightDock = workbenchDockWindowOrder.some((window) => workbenchDockWindowIsRendered(window) && workbenchWindowLayout(window).dock === "right");
+  const workbenchHasBottomDockWindows = workbenchDockWindows("bottom").length > 0;
+  const sourcePreviewVisible = workbenchWindowLayout("source").visible;
+  const resultPreviewVisible = workbenchWindowLayout("result").visible;
   const previewLayout = workbenchSourceFloating
     ? workbenchResultFloating ? "both-floating" : "source-floating"
     : workbenchResultFloating ? "result-floating" : "both-docked";
   const workbenchHasDockedSettingsSections =
-    (workbenchWindowLayout("geometry").open && !workbenchGeometryFloating) ||
-    (workbenchWindowLayout("adjustments").open && !workbenchAdjustmentsFloating) ||
-    (workbenchWindowLayout("palette").open && !workbenchPaletteFloating) ||
-    (workbenchWindowLayout("dithering").open && !workbenchDitheringFloating) ||
-    (workbenchWindowLayout("tilemap").open && workspaceMode === "tilemap" && !workbenchTilemapFloating);
+    (workbenchWindowLayout("geometry").visible && !workbenchGeometryFloating) ||
+    (workbenchWindowLayout("adjustments").visible && !workbenchAdjustmentsFloating) ||
+    (workbenchWindowLayout("palette").visible && workspaceMode === "palette" && !workbenchPaletteFloating) ||
+    (workbenchWindowLayout("dithering").visible && workspaceMode === "palette" && !workbenchDitheringFloating) ||
+    (workbenchWindowLayout("tilemap").visible && workspaceMode === "tilemap" && !workbenchTilemapFloating);
   const workbenchSettingsDockEmpty = workbenchHasFloatingSections && !workbenchHasDockedSettingsSections;
   const workbenchSnapDistance = 16;
   const workbenchGridSize = 8;
@@ -2403,14 +2442,15 @@ export function App() {
     setWorkbenchResultDockedWidth(DEFAULT_WORKBENCH_PREFERENCES.resultDockedWidth);
     setWorkbenchWindowOrder([...DEFAULT_WORKBENCH_PREFERENCES.windowOrder]);
     setWorkbenchSectionsOpen({ ...DEFAULT_WORKBENCH_PREFERENCES.sectionsOpen });
-    setWorkbenchWindowLayouts({ ...DEFAULT_WORKBENCH_PREFERENCES.windowLayouts });
+    setWorkbenchWindowLayouts((current) => preserveHiddenWorkbenchWindows(current, DEFAULT_WORKBENCH_PREFERENCES.windowLayouts));
   }
 
   function resetWorkspaceArrangement(): void {
     resetWorkbenchLayout();
-    applyWorkbenchLayoutPreset(startupWorkspaceLayout);
-    setSelectedSavedWorkbenchLayoutId("");
-    setLayoutNameEntry("");
+    const profileId = `${BUILTIN_WORKSPACE_PROFILE_PREFIX}${startupWorkspaceLayout}`;
+    selectWorkspaceProfile(workspaceProfileOptions.some(({ id }) => id === profileId)
+      ? profileId
+      : `${BUILTIN_WORKSPACE_PROFILE_PREFIX}conversion`);
   }
 
   function restoreWorkbenchPreferences(): void {
@@ -2473,7 +2513,7 @@ export function App() {
     setWorkbenchResultDockedWidth(startupWorkbenchPreferences.resultDockedWidth);
     setWorkbenchWindowOrder([...startupWorkbenchPreferences.windowOrder]);
     setWorkbenchSectionsOpen({ ...startupWorkbenchPreferences.sectionsOpen });
-    setWorkbenchWindowLayouts({ ...startupWorkbenchPreferences.windowLayouts });
+    setWorkbenchWindowLayouts((current) => preserveHiddenWorkbenchWindows(current, startupWorkbenchPreferences.windowLayouts));
   }
 
   function setWorkbenchSectionOpen(section: WorkbenchSettingsSection, open: boolean): void {
@@ -3128,18 +3168,30 @@ export function App() {
     if (originalImage === null) return;
     const firstSource = !startupWorkspaceAppliedRef.current;
     startupWorkspaceAppliedRef.current = true;
+    const startupProfileId = `${BUILTIN_WORKSPACE_PROFILE_PREFIX}${startupWorkspaceLayout}`;
+    const keepSelectedProfile = firstSource && (
+      workspaceProfileSelectionMadeRef.current ||
+      activeWorkspaceProfileId !== startupProfileId ||
+      savedWorkbenchLayouts.some((layout) => layout.id === activeWorkspaceProfileId)
+    );
     if (firstSource) {
-      applyWorkspaceLayout(startupWorkspaceLayout);
-      restoreWorkbenchPreferences();
+      if (keepSelectedProfile) {
+        selectWorkspaceProfile(activeWorkspaceProfileId);
+      } else {
+        applyWorkspaceLayout(startupWorkspaceLayout);
+        restoreWorkbenchPreferences();
+      }
     } else {
       setSourcePreviewContent("image");
       setResultPreviewContent("image");
     }
-    setPreviewZoom("fit");
-    setSourcePreviewZoom("fit");
-    setResultPreviewZoom("fit");
-    setShowPixelGrid(false);
-    setShowAttributeGrid(false);
+    if (!keepSelectedProfile) {
+      setPreviewZoom("fit");
+      setSourcePreviewZoom("fit");
+      setResultPreviewZoom("fit");
+      setShowPixelGrid(false);
+      setShowAttributeGrid(false);
+    }
     setInspection(null);
     setBitmapEditorSelection(null);
     setBitmapEditorOriginalResult(null);
@@ -3218,9 +3270,9 @@ export function App() {
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
 
-  // Floating a preview moves its canvas into the root-level portal host. The
-  // canvas is a new DOM node after that move, so repaint it in the layout
-  // phase instead of waiting for another conversion or content change.
+  // Moving a preview between dock portal hosts can replace its canvas node.
+  // Repaint after dock/minimized changes rather than waiting for another
+  // conversion or preview-content change.
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
     if (canvas === null || image === null) return;
@@ -3337,6 +3389,8 @@ export function App() {
     destinationGeometry.width, destinationGeometry.height,
     isPmd, brightness, contrast, saturation, gamma, smoothing, sharpening,
     workbenchSourceFloating, workbenchResultFloating, workbenchPreviewLayer,
+    workbenchWindowLayouts.source.dock, workbenchWindowLayouts.source.minimized,
+    workbenchWindowLayouts.result.dock, workbenchWindowLayouts.result.minimized,
   ]);
 
   // Keep the converted canvas in sync for the same docked/floating transition
@@ -3475,6 +3529,8 @@ export function App() {
     tilemapStale, hideAttributes, qlMixedDisplayResolution,
     brightness, contrast, saturation, gamma, smoothing, sharpening,
     workbenchSourceFloating, workbenchResultFloating, workbenchPreviewLayer,
+    workbenchWindowLayouts.source.dock, workbenchWindowLayouts.source.minimized,
+    workbenchWindowLayouts.result.dock, workbenchWindowLayouts.result.minimized,
   ]);
 
   useEffect(() => {
@@ -4498,6 +4554,23 @@ export function App() {
     }
   }
 
+  function selectHardwareModeFromMenu(mode: TargetModeId): void {
+    void switchTargetMode(mode);
+    if (
+      isZx && mode === "zx48-mixed-256x192" &&
+      (attributeOptimizerId === "zx-block-dbs-global-v1" ||
+        attributeOptimizerId === "zx-structured-global-v1" ||
+        attributeOptimizerId === "zx-structured-global-v2" ||
+        attributeOptimizerId === "zx-structured-global-v3" ||
+        attributeOptimizerId === "zx-structured-global-v4")
+    ) {
+      setAttributeOptimizerId("zx-guide-reference-halo-v2");
+      setDitherEngineId(dithering === "ordered"
+        ? "ordered-mixed-phase-stable-v8"
+        : latestDitherEngineForMethod(dithering));
+    }
+  }
+
   async function changePmd85Calibration(calibrationId: string): Promise<void> {
     setPmd85PaletteCalibrationId(calibrationId);
     const raw = image?.format === "pmd85-bin" ? sourceArtifact?.bytes : undefined;
@@ -4634,6 +4707,8 @@ export function App() {
     } satisfies Record<WorkbenchSettingsSection, boolean>;
     setWorkbenchGeometryFloating(false);
     setWorkbenchAdjustmentsFloating(false);
+    setWorkbenchSourceFloating(false);
+    setWorkbenchResultFloating(false);
 
     if (layout === "conversion") {
       setWorkbenchSettingsDock("bottom");
@@ -4794,35 +4869,48 @@ export function App() {
     };
   }
 
-  function saveCurrentWorkbenchLayout(): void {
-    const selected = savedWorkbenchLayouts.find((layout) => layout.id === selectedSavedWorkbenchLayoutId);
-    const name = normalizeSavedLayoutName(selected?.name ?? layoutNameEntry);
-    if (name.length === 0) return;
-    const existing = savedWorkbenchLayouts.find((layout) =>
-      layout.name.toLocaleLowerCase() === name.toLocaleLowerCase(),
-    );
-    const nextLayout = { ...currentSavedWorkbenchLayout(name), id: existing?.id ?? createSavedWorkbenchLayoutId(name) };
-    const nextLayouts = existing === undefined
-      ? [nextLayout, ...savedWorkbenchLayouts]
-      : savedWorkbenchLayouts.map((layout) => layout.id === existing.id ? nextLayout : layout);
-    setSavedWorkbenchLayouts(nextLayouts);
-    saveSavedWorkbenchLayouts(localStorage, nextLayouts);
-    setSelectedSavedWorkbenchLayoutId(nextLayout.id);
-    setLayoutNameEntry(name);
+  function workspaceProfileSnapshotKey(layout: SavedWorkbenchLayout): string {
+    return JSON.stringify({ workspaceMode: layout.workspaceMode, workspace: layout.workspace, workbench: layout.workbench });
   }
 
-  function selectSavedWorkbenchLayout(value: string): void {
-    if (value === NEW_WORKSPACE_VALUE) {
-      setSelectedSavedWorkbenchLayoutId(NEW_WORKSPACE_VALUE);
-      setLayoutNameEntry("");
-      return;
+  function updateSavedWorkbenchLayouts(nextLayouts: readonly SavedWorkbenchLayout[]): void {
+    setSavedWorkbenchLayouts(nextLayouts);
+    saveSavedWorkbenchLayouts(localStorage, nextLayouts);
+  }
+
+  function saveWorkspaceProfileChanges(): void {
+    const activeProfile = workspaceProfileOptions.find(({ id }) => id === activeWorkspaceProfileId);
+    if (activeProfile === undefined) return;
+    const current = currentSavedWorkbenchLayout(activeProfile.name);
+    const nextLayout = { ...current, id: activeProfile.id, name: activeProfile.name };
+    const nextLayouts = savedWorkbenchLayouts.some(({ id }) => id === nextLayout.id)
+      ? savedWorkbenchLayouts.map((layout) => layout.id === nextLayout.id ? nextLayout : layout)
+      : [nextLayout, ...savedWorkbenchLayouts];
+    updateSavedWorkbenchLayouts(nextLayouts);
+    setWorkspaceProfileBaseline(workspaceProfileSnapshotKey(nextLayout));
+    setWorkspaceProfileBaselinePending(false);
+  }
+
+  function saveWorkspaceProfileAs(requestedName: string): boolean {
+    const name = normalizeSavedLayoutName(requestedName);
+    if (name.length === 0) return false;
+    const customProfileCount = savedWorkbenchLayouts.filter((layout) => !layout.id.startsWith(BUILTIN_WORKSPACE_PROFILE_PREFIX)).length;
+    if (customProfileCount >= 12) {
+      window.alert("You can save up to 12 custom workspace profiles. Delete one before saving another.");
+      return false;
     }
-    if (value.length === 0) {
-      setSelectedSavedWorkbenchLayoutId("");
-      setLayoutNameEntry("");
-      return;
+    const duplicate = workspaceProfileOptions.some(({ name: profileName }) => profileName.toLocaleLowerCase() === name.toLocaleLowerCase());
+    if (duplicate) {
+      window.alert(`A workspace profile named “${name}” already exists. Choose a different name.`);
+      return false;
     }
-    loadSavedWorkbenchLayout(value);
+    const nextLayout = { ...currentSavedWorkbenchLayout(name), id: createSavedWorkbenchLayoutId(name) };
+    updateSavedWorkbenchLayouts([nextLayout, ...savedWorkbenchLayouts]);
+    setActiveWorkspaceProfileId(nextLayout.id);
+    saveActiveWorkspaceProfileId(localStorage, nextLayout.id);
+    setWorkspaceProfileBaseline(workspaceProfileSnapshotKey(nextLayout));
+    setWorkspaceProfileBaselinePending(false);
+    return true;
   }
 
   function loadSavedWorkbenchLayout(id: string): void {
@@ -4906,37 +4994,113 @@ export function App() {
     setWorkbenchSourceDockedWidth(saved.workbench.sourceDockedWidth ?? 1);
     setWorkbenchResultDockedWidth(saved.workbench.resultDockedWidth ?? 1);
     setWorkbenchSectionsOpen({ ...saved.workbench.sectionsOpen });
-    const savedWindowLayouts = {
-      ...(saved.workbench.windowLayouts ?? startupWorkbenchPreferences.windowLayouts),
-    };
+    let savedWindowLayouts = Object.fromEntries(
+      Object.entries(saved.workbench.windowLayouts ?? startupWorkbenchPreferences.windowLayouts)
+        .map(([window, layout]) => [window, { ...layout, visible: layout.visible ?? true }]),
+    ) as WorkbenchWindowLayouts;
     if (saved.workbench.windowLayouts === undefined) {
-      savedWindowLayouts.tools = {
-        ...savedWindowLayouts.tools,
-        open: saved.workbench.toolsOpen,
+      savedWindowLayouts = {
+        ...savedWindowLayouts,
+        tools: {
+          ...savedWindowLayouts.tools,
+          open: saved.workbench.toolsOpen,
+        },
       };
     }
-    setWorkbenchWindowLayouts(savedWindowLayouts);
-    setSelectedSavedWorkbenchLayoutId(saved.id);
-    setLayoutNameEntry(saved.name);
+    setWorkbenchWindowLayouts((current) => preserveHiddenWorkbenchWindows(current, savedWindowLayouts));
+    setActiveWorkspaceProfileId(saved.id);
+    saveActiveWorkspaceProfileId(localStorage, saved.id);
+    setWorkspaceProfileBaselinePending(true);
   }
 
-  function deleteSavedWorkbenchLayout(id: string): void {
+  function selectWorkspaceProfile(id: string): void {
+    if (hiddenBuiltinWorkspaceProfileIds.some((hiddenId) => `${BUILTIN_WORKSPACE_PROFILE_PREFIX}${hiddenId}` === id)) return;
+    workspaceProfileSelectionMadeRef.current = true;
+    if (savedWorkbenchLayouts.some((layout) => layout.id === id)) {
+      loadSavedWorkbenchLayout(id);
+      return;
+    }
+    const builtIn = BUILT_IN_WORKSPACE_LAYOUTS.find((profile) => `${BUILTIN_WORKSPACE_PROFILE_PREFIX}${profile.id}` === id);
+    if (builtIn !== undefined) applyWorkspaceLayout(builtIn.id);
+  }
+
+  function renameWorkspaceProfile(id: string, requestedName: string): boolean {
+    const name = normalizeSavedLayoutName(requestedName);
+    if (name.length === 0) return false;
+    const duplicate = workspaceProfileOptions.some((profile) => profile.id !== id && profile.name.toLocaleLowerCase() === name.toLocaleLowerCase());
+    if (duplicate) {
+      window.alert(`A workspace profile named “${name}” already exists. Choose a different name.`);
+      return false;
+    }
+    const existing = savedWorkbenchLayouts.find((layout) => layout.id === id);
+    if (existing === undefined && workspaceProfileDirty) {
+      window.alert("Save the layout changes before renaming this default profile.");
+      return false;
+    }
+    const renamed = existing === undefined
+      ? { ...currentSavedWorkbenchLayout(name), id, name }
+      : { ...existing, name };
+    const nextLayouts = existing === undefined
+      ? [renamed, ...savedWorkbenchLayouts]
+      : savedWorkbenchLayouts.map((layout) => layout.id === id ? renamed : layout);
+    updateSavedWorkbenchLayouts(nextLayouts);
+    return true;
+  }
+
+  function deleteWorkspaceProfile(id: string): void {
+    const profile = workspaceProfileOptions.find(({ id: profileId }) => profileId === id);
+    if (profile === undefined) return;
+    const isBuiltIn = id.startsWith(BUILTIN_WORKSPACE_PROFILE_PREFIX);
+    if (isBuiltIn && workspaceProfileOptions.filter(({ kind }) => kind === "builtin").length <= 1) {
+      window.alert("At least one default workspace profile must remain available.");
+      return;
+    }
+    if (!window.confirm(`Delete the “${profile.name}” workspace profile? You can restore the default profiles later.`)) return;
     const nextLayouts = savedWorkbenchLayouts.filter((layout) => layout.id !== id);
-    setSavedWorkbenchLayouts(nextLayouts);
-    saveSavedWorkbenchLayouts(localStorage, nextLayouts);
-    if (selectedSavedWorkbenchLayoutId === id) {
-      setSelectedSavedWorkbenchLayoutId("");
-      setLayoutNameEntry("");
+    updateSavedWorkbenchLayouts(nextLayouts);
+    if (isBuiltIn) {
+      const builtInId = id.slice(BUILTIN_WORKSPACE_PROFILE_PREFIX.length);
+      const nextHidden = [...hiddenBuiltinWorkspaceProfileIds, builtInId];
+      setHiddenBuiltinWorkspaceProfileIds(nextHidden);
+      saveHiddenBuiltinWorkspaceProfiles(localStorage, nextHidden);
+    }
+    if (activeWorkspaceProfileId === id) {
+      const nextBuiltIn = BUILT_IN_WORKSPACE_LAYOUTS.find(({ id: builtInId }) =>
+        builtInId !== (isBuiltIn ? id.slice(BUILTIN_WORKSPACE_PROFILE_PREFIX.length) : "") &&
+        !hiddenBuiltinWorkspaceProfileIds.includes(builtInId),
+      ) ?? BUILT_IN_WORKSPACE_LAYOUTS[0];
+      if (nextBuiltIn !== undefined) applyWorkspaceLayout(nextBuiltIn.id);
+    }
+  }
+
+  function restoreDefaultWorkspaceProfiles(): void {
+    const hasOverrides = savedWorkbenchLayouts.some((layout) => layout.id.startsWith(BUILTIN_WORKSPACE_PROFILE_PREFIX));
+    if ((hiddenBuiltinWorkspaceProfileIds.length > 0 || hasOverrides) &&
+        !window.confirm("Restore the original default workspace profiles? This removes edits to defaults and brings back deleted defaults.")) return;
+    const nextLayouts = savedWorkbenchLayouts.filter((layout) => !layout.id.startsWith(BUILTIN_WORKSPACE_PROFILE_PREFIX));
+    updateSavedWorkbenchLayouts(nextLayouts);
+    setHiddenBuiltinWorkspaceProfileIds([]);
+    saveHiddenBuiltinWorkspaceProfiles(localStorage, []);
+    if (activeWorkspaceProfileId.startsWith(BUILTIN_WORKSPACE_PROFILE_PREFIX)) {
+      const activeLayoutId = activeWorkspaceProfileId.slice(BUILTIN_WORKSPACE_PROFILE_PREFIX.length);
+      const activeLayout = BUILT_IN_WORKSPACE_LAYOUTS.find(({ id }) => id === activeLayoutId);
+      applyWorkspaceLayout(activeLayout?.id ?? "conversion");
+    } else {
+      setWorkspaceProfileBaseline(currentWorkspaceProfileSnapshotKey);
+      setWorkspaceProfileBaselinePending(false);
     }
   }
 
   function applyWorkspaceLayout(layout: WorkspaceLayoutId): void {
+    if (layout === "custom") return;
     const tilemapViews = workspaceMode === "tilemap";
     setWorkspaceLayout(layout);
+    const profileId = `${BUILTIN_WORKSPACE_PROFILE_PREFIX}${layout}`;
+    setActiveWorkspaceProfileId(profileId);
+    saveActiveWorkspaceProfileId(localStorage, profileId);
+    setWorkspaceProfileBaselinePending(true);
     applyWorkbenchLayoutPreset(layout);
-    if (layout !== "custom") {
-      setSynchronizeZoom(layout !== "editor" && layout !== "inspection" && layout !== "tilemap");
-    }
+    setSynchronizeZoom(layout !== "editor" && layout !== "inspection" && layout !== "tilemap");
     if (layout === "palette") {
       setSourcePreviewContent("image");
       setResultPreviewContent("palette-usage");
@@ -9397,7 +9561,9 @@ export function App() {
       window.removeEventListener("resize", update);
     };
   }, [sourcePreviewContent, resultPreviewContent, sourceZoom, resultZoom, sourceStageAspectRatio,
-    resultStageAspectRatio, workbenchSourceFloating, workbenchResultFloating, workbenchPreviewLayer]);
+    resultStageAspectRatio, workbenchSourceFloating, workbenchResultFloating, workbenchPreviewLayer,
+    workbenchWindowLayouts.source.dock, workbenchWindowLayouts.source.minimized,
+    workbenchWindowLayouts.result.dock, workbenchWindowLayouts.result.minimized]);
   const selectedModePalette =
     selectedProfile.palette.modes[targetModeId] ??
     selectedProfile.palette.modes[
@@ -9630,33 +9796,131 @@ export function App() {
             : image === null
               ? "Import an image to begin."
               : "Ready for Tilemap High conversion."
-    : paletteConversionStatusText;
+      : paletteConversionStatusText;
+
+  const builtinWorkspaceOverrides = new Map(
+    savedWorkbenchLayouts
+      .filter((layout) => layout.id.startsWith(BUILTIN_WORKSPACE_PROFILE_PREFIX))
+      .map((layout) => [layout.id, layout]),
+  );
+  const workspaceProfileOptions = [
+    ...BUILT_IN_WORKSPACE_LAYOUTS
+      .filter(({ id }) => !hiddenBuiltinWorkspaceProfileIds.includes(id))
+      .map(({ id, label }) => ({
+        id: `${BUILTIN_WORKSPACE_PROFILE_PREFIX}${id}`,
+        name: builtinWorkspaceOverrides.get(`${BUILTIN_WORKSPACE_PROFILE_PREFIX}${id}`)?.name ?? label,
+        kind: "builtin" as const,
+        layout: id,
+      })),
+    ...savedWorkbenchLayouts
+      .filter((layout) => !layout.id.startsWith(BUILTIN_WORKSPACE_PROFILE_PREFIX))
+      .map((layout) => ({ id: layout.id, name: layout.name, kind: "saved" as const })),
+  ];
+  const currentWorkspaceProfileSnapshotKey = workspaceProfileSnapshotKey(currentSavedWorkbenchLayout(""));
+  const workspaceProfileDirty = workspaceProfileBaseline !== "" &&
+    currentWorkspaceProfileSnapshotKey !== workspaceProfileBaseline;
+
+  useEffect(() => {
+    if (workspaceProfileBaseline !== "" && !workspaceProfileBaselinePending) return;
+    const storedProfile = workspaceProfileBaselinePending
+      ? undefined
+      : savedWorkbenchLayouts.find((layout) => layout.id === activeWorkspaceProfileId);
+    setWorkspaceProfileBaseline(storedProfile === undefined
+      ? currentWorkspaceProfileSnapshotKey
+      : workspaceProfileSnapshotKey(storedProfile));
+    setWorkspaceProfileBaselinePending(false);
+  }, [currentWorkspaceProfileSnapshotKey, workspaceProfileBaseline, workspaceProfileBaselinePending, activeWorkspaceProfileId, savedWorkbenchLayouts]);
+
+  useEffect(() => {
+    if (workspaceProfileOptions.some(({ id }) => id === activeWorkspaceProfileId)) return;
+    const fallback = workspaceProfileOptions.find(({ kind }) => kind === "builtin") ?? workspaceProfileOptions[0];
+    if (fallback?.kind === "builtin" && fallback.layout !== undefined) applyWorkspaceLayout(fallback.layout);
+    else if (fallback !== undefined) selectWorkspaceProfile(fallback.id);
+  }, [activeWorkspaceProfileId, hiddenBuiltinWorkspaceProfileIds, savedWorkbenchLayouts]);
 
   return (
     <>
     <a className="skip-link" href="#workspace-title">Skip to converter</a>
     <main className="shell" id="main-content" style={uiTypographyCssVariables(uiTypography) as CSSProperties}>
       <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">{workbenchAnnouncement}</div>
-      <header className="hero">
-        <p className="eyebrow">{platformLabel} · conversion laboratory</p>
-        <h1>Pixel Invader</h1>
-        <p>
-          Image Convertor · powered by Void Engine · Version {APPLICATION_DISPLAY_VERSION} · OSG^Invaders
-        </p>
-      </header>
+      <WorkbenchMenuBar
+        isPmd={isPmd}
+        isZx={isZx}
+        workspaceMode={workspaceMode}
+        onWorkspaceModeChange={switchWorkspaceConversionMode}
+        profiles={profiles}
+        selectedProfile={selectedProfile}
+        selectedProfileId={selectedProfileId}
+        selectedPresetId={selectedPresetId}
+        targetModeId={targetModeId}
+        onProfileChange={selectProfile}
+        onPresetChange={selectPreset}
+        onTargetModeChange={(mode) => selectHardwareModeFromMenu(mode as TargetModeId)}
+        canDeleteSelectedProfile={!BUILT_IN_PROFILES.some((profile) => profile.id === selectedProfile.id)}
+        canDeleteImportedProfiles={profiles.length > BUILT_IN_PROFILES.length}
+        onDeleteSelectedProfile={deleteSelectedProfile}
+        onDeleteImportedProfiles={deleteAllImportedProfiles}
+        canConvert={image !== null && settingsValid && state.kind !== "running"}
+        conversionRunning={state.kind === "running"}
+        onConvert={() => void convertImage()}
+        onCancelConvert={cancelHigh}
+        canSaveProject={artifactsReady}
+        canExportResult={resultSaveReady}
+        canExportMetadata={paletteArtifactsReady && image !== null}
+        canExportInspection={resultSaveReady && isZx}
+        canExportTilemap={tilemapArtifactsReady}
+        onOpenImage={importImage}
+        onOpenPmd={importPmd85}
+        onOpenProject={openProject}
+        onImportProfile={importProfile}
+        onSaveProject={() => void exportProject()}
+        onExportPreview={exportPreviewPng}
+        onExportGif={exportAnimatedFlashGif}
+        onExportBinary={exportScr}
+        onExportMetadata={() => void exportMetadata()}
+        onExportInspection={exportInspectionReport}
+        onExportTilemap={exportCharsetArtifact}
+        onExportCharset={exportFinalCharset}
+        onExportPaletteSource={exportScr}
+        onExportTilemapPreview={exportCharsetPreview}
+        onExportTilemapDiagnostics={exportCharsetDiagnostics}
+        windowLayouts={workbenchWindowLayouts}
+        onWindowVisibilityChange={setWorkbenchWindowVisibility}
+        workspaceProfiles={workspaceProfileOptions}
+        activeWorkspaceProfileId={activeWorkspaceProfileId}
+        workspaceProfileDirty={workspaceProfileDirty}
+        onWorkspaceProfileSelect={selectWorkspaceProfile}
+        onSaveWorkspaceProfileChanges={saveWorkspaceProfileChanges}
+        onSaveWorkspaceProfileAs={saveWorkspaceProfileAs}
+        onRenameWorkspaceProfile={renameWorkspaceProfile}
+        onDeleteWorkspaceProfile={deleteWorkspaceProfile}
+        onRestoreDefaultWorkspaceProfiles={restoreDefaultWorkspaceProfiles}
+        onResetArrangement={resetWorkspaceArrangement}
+        onOpenSettings={openApplicationSettings}
+        onOpenPaletteEditor={() => setZxPaletteEditorOpen(true)}
+        onOpenAbout={() => setAboutOpen(true)}
+      />
+
+      <AboutDialog
+        open={aboutOpen}
+        version={APPLICATION_VERSION}
+        build={APPLICATION_BUILD_ID}
+        releaseDate={APPLICATION_RELEASE_DATE}
+        onClose={() => setAboutOpen(false)}
+      />
 
       <section
         ref={workbenchRootRef}
         className={`proof workspace workbench-workspace workbench-settings-${workbenchSettingsDock} workbench-settings-${workbenchSettingsMinimized ? "minimized" : "expanded"}`}
         data-preview-layout={previewLayout}
-        data-left-dock-collapsed={workbenchHasLeftDock && workbenchLeftWidth <= 0 ? "true" : "false"}
-        data-right-dock-collapsed={workbenchHasRightDock && workbenchRightWidth <= 0 ? "true" : "false"}
-        data-bottom-dock-collapsed={workbenchBottomHeight <= 0 ? "true" : "false"}
+        data-left-dock-collapsed={!workbenchHasLeftDock || workbenchLeftWidth <= 0 ? "true" : "false"}
+        data-right-dock-collapsed={!workbenchHasRightDock || workbenchRightWidth <= 0 ? "true" : "false"}
+        data-bottom-dock-collapsed={!workbenchHasBottomDockWindows || workbenchBottomHeight <= 0 ? "true" : "false"}
         style={{
           "--workbench-side-width": `${workbenchSettingsSideWidth}px`,
           "--workbench-left-dock-width": `${workbenchHasLeftDock ? workbenchLeftWidth : 0}px`,
           "--workbench-right-dock-width": `${workbenchHasRightDock ? workbenchRightWidth : 0}px`,
-          "--workbench-bottom-height": `${workbenchBottomHeight}px`,
+          "--workbench-bottom-height": `${workbenchHasBottomDockWindows ? workbenchBottomHeight : 0}px`,
           "--workbench-floating-x": `${workbenchFloatingX}px`,
           "--workbench-floating-y": `${workbenchFloatingY}px`,
           "--workbench-settings-floating-width": `${workbenchSettingsFloatingWidth}px`,
@@ -9732,124 +9996,26 @@ export function App() {
           </div>
           <div className="heading-actions">
             <label className="top-workspace-selector">
-                <span>Focus</span>
-                <select
-                  aria-label="Configuration focus"
-                  value={settingsSection}
-                  onChange={(event) => focusWorkbenchTarget(event.target.value as WorkbenchFocusTarget)}
-                >
-                  <option value="all">All controls</option>
-                  <optgroup label="Windows">
-                    <option value="tools">Tools</option>
-                    <option value="source">Source preview</option>
-                    <option value="result">Result preview</option>
-                  </optgroup>
-                  <optgroup label="Settings">
-                    <option value="geometry">Geometry</option>
-                    <option value="adjustments">Image adjustments</option>
-                    <option value="palette">Palette controls</option>
-                    <option value="dithering">Dithering controls</option>
-                    {workspaceMode === "tilemap" ? <option value="tilemap">Tilemap controls</option> : null}
-                  </optgroup>
-                </select>
-            </label>
-            <label className="top-workspace-selector">
-              <span>Layout</span>
+              <span>Focus</span>
               <select
-                aria-label="Workspace layout"
-                value={workspaceLayout}
-                onChange={(event) => {
-                  const nextLayout = event.target.value as WorkspaceLayoutId;
-                  if (nextLayout === "custom") {
-                    applyWorkspaceLayout("custom");
-                    return;
-                  }
-                  applyWorkspaceLayout(nextLayout);
-                }}
+                aria-label="Configuration focus"
+                value={settingsSection}
+                onChange={(event) => focusWorkbenchTarget(event.target.value as WorkbenchFocusTarget)}
               >
-                <option value="conversion">Conversion</option>
-                <option value="palette">Palette tuning</option>
-                <option value="dithering">Dithering review</option>
-                <option value="tilemap" disabled={workspaceMode !== "tilemap"}>Tilemap cleanup</option>
-                <option value="editor" disabled={workspaceMode !== "palette"}>Editor</option>
-                <option value="inspection">Pixel inspection</option>
-                <option value="custom">Custom</option>
+                <option value="all">All controls</option>
+                <optgroup label="Windows">
+                  <option value="tools">Tools</option>
+                  <option value="source">Source preview</option>
+                  <option value="result">Result preview</option>
+                </optgroup>
+                <optgroup label="Settings">
+                  <option value="geometry">Geometry</option>
+                  <option value="adjustments">Image adjustments</option>
+                  <option value="palette">Palette controls</option>
+                  <option value="dithering">Dithering controls</option>
+                  {workspaceMode === "tilemap" ? <option value="tilemap">Tilemap controls</option> : null}
+                </optgroup>
               </select>
-            </label>
-            <div className="saved-workspace-top-controls" aria-label="Saved workspaces">
-              {selectedSavedWorkbenchLayoutId === NEW_WORKSPACE_VALUE ? (
-                <input
-                  type="text"
-                  aria-label="New workspace name"
-                  placeholder={NEW_WORKSPACE_LABEL}
-                  maxLength={40}
-                  autoFocus
-                  value={layoutNameEntry}
-                  onChange={(event) => setLayoutNameEntry(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Escape") {
-                      event.preventDefault();
-                      setSelectedSavedWorkbenchLayoutId("");
-                      setLayoutNameEntry("");
-                    } else if (event.key === "Enter") {
-                      event.preventDefault();
-                      saveCurrentWorkbenchLayout();
-                    }
-                  }}
-                />
-              ) : (
-                <select
-                  aria-label="Saved workspaces"
-                  value={selectedSavedWorkbenchLayoutId}
-                  onChange={(event) => {
-                    if (event.target.value === "") resetWorkspaceArrangement();
-                    else selectSavedWorkbenchLayout(event.target.value);
-                  }}
-                >
-                  <option value="">Workspace</option>
-                  {savedWorkbenchLayouts.map((layout) => (
-                    <option key={layout.id} value={layout.id}>{layout.name}</option>
-                  ))}
-                  <option value={NEW_WORKSPACE_VALUE}>{NEW_WORKSPACE_LABEL}</option>
-                </select>
-              )}
-              <button
-                className="secondary compact saved-workspace-icon-button"
-                type="button"
-                aria-label="Save workspace"
-                title="Save workspace"
-                disabled={selectedSavedWorkbenchLayoutId === NEW_WORKSPACE_VALUE
-                  ? normalizeSavedLayoutName(layoutNameEntry).length === 0
-                  : selectedSavedWorkbenchLayoutId === ""}
-                onClick={saveCurrentWorkbenchLayout}
-              ><span aria-hidden="true">💾</span></button>
-              <button
-                className="secondary compact saved-workspace-icon-button"
-                type="button"
-                aria-label="Delete selected saved workspace"
-                title="Delete selected saved workspace"
-                disabled={selectedSavedWorkbenchLayoutId === "" || selectedSavedWorkbenchLayoutId === NEW_WORKSPACE_VALUE}
-                onClick={() => deleteSavedWorkbenchLayout(selectedSavedWorkbenchLayoutId)}
-              ><span aria-hidden="true">🗑</span></button>
-            </div>
-            <button className="secondary" type="button" onClick={openApplicationSettings}>Settings</button>
-            {isPmd ? (
-              <label className="file-picker">
-                <span>Open PMD binary</span>
-                <input
-                  type="file"
-                  accept="application/octet-stream,.bin"
-                  onChange={(event) => void importPmd85(event.currentTarget.files?.[0])}
-                />
-              </label>
-            ) : null}
-            <label className="file-picker">
-              <span>Open Image</span>
-              <input
-                type="file"
-                accept="image/png,image/jpeg,.png,.jpg,.jpeg"
-                onChange={(event) => void importImage(event.currentTarget.files?.[0])}
-              />
             </label>
           </div>
         </div>
@@ -9884,139 +10050,7 @@ export function App() {
           }}
         >
           <div className="controls">
-          <fieldset className={`profile-control ${isQl ? "ql-profile-control" : isPmd ? "pmd-profile-control" : ""}`}>
-            <legend>Profile and preset</legend>
-            <label>
-              <span>Conversion mode</span>
-              <select
-                id="workspace-conversion-mode"
-                data-testid="workspace-conversion-mode"
-                value={workspaceMode}
-                onChange={(event) =>
-                  switchWorkspaceConversionMode(
-                    event.target.value as WorkspaceConversionMode,
-                  )}
-              >
-                <option value="palette">Palette conversion</option>
-                <option value="tilemap" disabled={!isZx}>Tilemap conversion · ZX only</option>
-              </select>
-            </label>
-            <label>
-              <span>Profile</span>
-              <select value={selectedProfile.id} onChange={(event) => selectProfile(event.target.value)}>
-                {profiles
-                  .filter((profile) =>
-                    workspaceMode === "palette" ||
-                    profile.platform_id === "zx-spectrum")
-                  .map((profile) => (
-                    <option key={profile.id} value={profile.id}>
-                      {profile.name} · {profile.version}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            <label>
-              <span>Preset</span>
-              <select value={selectedPresetId} onChange={(event) => selectPreset(event.target.value)}>
-                {selectedProfile.presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
-              </select>
-            </label>
-            {workspaceMode === "tilemap" ? (
-              <label>
-                <span>Hardware target</span>
-                <select value="zx48-standard-256x192" disabled>
-                  <option value="zx48-standard-256x192">
-                    ZX standard · single screen · 8×8
-                  </option>
-                </select>
-              </label>
-            ) : isPmd ? (
-              <label>
-                <span>Hardware mode</span>
-                <select
-                  value={targetModeId}
-                  onChange={(event) => void switchTargetMode(event.target.value as TargetModeId)}
-                >
-                  <option value="pmd85-2-tv">PMD 85-2 / 2A TV/CV</option>
-                  <option value="pmd85-2-rgb">PMD 85-2 / 2A RGB modification/monitor</option>
-                  <option value="pmd85-3-tv">PMD 85-3 TV/CV · grayscale</option>
-                  <option value="pmd85-3-pal">PMD 85-3 PAL/video</option>
-                  <option value="pmd85-3-rgb">PMD 85-3 RGB</option>
-                  <option value="pmd85-colorace">PMD 85 ColorAce</option>
-                  <optgroup label="Vertical spatial mixing">
-                    <option value="pmd85-2-rgb-vertical-spatial">PMD 85-2 RGB · vertical spatial</option>
-                    <option value="pmd85-3-rgb-vertical-spatial">PMD 85-3 RGB · vertical spatial</option>
-                    <option value="pmd85-3-pal-vertical-spatial">PMD 85-3 PAL · vertical spatial</option>
-                  </optgroup>
-                </select>
-              </label>
-            ) : isQl ? (
-              <label>
-                <span>Hardware mode</span>
-                <select
-                  value={targetModeId}
-                  onChange={(event) => {
-                    const mode = event.target.value as TargetModeId;
-                    switchTargetMode(mode);
-                  }}
-                >
-                  <optgroup label="Two-screen color mixing">
-                    <option value="mode8-256x256">Low / Mode 8 · mixed 256×256</option>
-                    <option value="mode4-512x256">High / Mode 4 · mixed 512×256</option>
-                    <option value="mode8-mode4-mixed-512x256">
-                      Mixed Low + High · two screens
-                    </option>
-                  </optgroup>
-                  <optgroup label="Basic single screen">
-                    <option value="mode8-plain-256x256">Low / Mode 8 · plain 256×256</option>
-                    <option value="mode4-plain-512x256">High / Mode 4 · plain 512×256</option>
-                  </optgroup>
-                  <optgroup label="Vertical spatial mixing">
-                    <option value="mode8-vertical-spatial-256x256">Mode 8 · vertical spatial 256×128 perceived</option>
-                    <option value="mode4-vertical-spatial-512x256">Mode 4 · vertical spatial 512×128 perceived</option>
-                  </optgroup>
-                </select>
-              </label>
-            ) : (
-              <label>
-                <span>Hardware mode</span>
-                <select
-                  value={targetModeId}
-                  onChange={(event) => {
-                    const mode = event.target.value as TargetModeId;
-                    switchTargetMode(mode);
-                    if (
-                      mode === "zx48-mixed-256x192" &&
-                      (
-                        attributeOptimizerId === "zx-block-dbs-global-v1" ||
-                        attributeOptimizerId === "zx-structured-global-v1" ||
-                        attributeOptimizerId === "zx-structured-global-v2" ||
-                        attributeOptimizerId === "zx-structured-global-v3" ||
-                        attributeOptimizerId === "zx-structured-global-v4"
-                      )
-                    ) {
-                      setAttributeOptimizerId("zx-guide-reference-halo-v2");
-                      setDitherEngineId(dithering === "ordered"
-                        ? "ordered-mixed-phase-stable-v8"
-                        : latestDitherEngineForMethod(dithering));
-                    }
-                  }}
-                >
-                  <option value="zx48-standard-256x192">Standard · single screen</option>
-                  <option value="zx48-mixed-256x192">Mixed · two screens 50/50</option>
-                  <option value="zx48-vertical-spatial-256x192">
-                    Vertical spatial · 8×1 · 256×96 perceived
-                  </option>
-                </select>
-              </label>
-            )}
-            <label className="file-picker secondary-picker compact-picker">
-              <span>Import Profile</span>
-              <input type="file" accept="application/json,.json" onChange={(event) => void importProfile(event.currentTarget.files?.[0])} />
-            </label>
-            <button className="secondary compact destructive-profile" type="button" disabled={BUILT_IN_PROFILES.some((profile) => profile.id === selectedProfile.id)} onClick={deleteSelectedProfile}>Delete Profile</button>
-            <button className="secondary compact delete-retained" type="button" disabled={profiles.length === BUILT_IN_PROFILES.length} onClick={deleteAllImportedProfiles}>Delete retained profiles ({profiles.length - BUILT_IN_PROFILES.length})</button>
-          </fieldset>
+
           <div
             className={`workbench-window workbench-settings-window${workbenchSettingsDockEmpty ? " workbench-settings-empty-dock" : ""}`}
             ref={workbenchSettingsWindowRef}
@@ -10133,6 +10167,7 @@ export function App() {
             className={`workbench-settings-section workbench-window${workbenchGeometryFloating ? ` workbench-section-floating workbench-geometry-floating${workbenchGeometryFloatingAutoHeight ? " workbench-floating-auto-height" : ""}` : ""}`}
             {...workbenchWindowDragAttributes("geometry")}
             data-workbench-window="geometry"
+            hidden={!workbenchWindowLayout("geometry").visible}
             data-dock={workbenchWindowLayout("geometry").dock}
             data-minimized={workbenchWindowLayout("geometry").minimized ? "true" : "false"}
             open={workbenchWindowLayout("geometry").open && !workbenchWindowLayout("geometry").minimized}
@@ -10371,6 +10406,7 @@ export function App() {
             className={`workbench-settings-section workbench-window${workbenchAdjustmentsFloating ? ` workbench-section-floating workbench-adjustments-floating${workbenchAdjustmentsFloatingAutoHeight ? " workbench-floating-auto-height" : ""}` : ""}`}
             {...workbenchWindowDragAttributes("adjustments")}
             data-workbench-window="adjustments"
+            hidden={!workbenchWindowLayout("adjustments").visible}
             data-dock={workbenchWindowLayout("adjustments").dock}
             data-minimized={workbenchWindowLayout("adjustments").minimized ? "true" : "false"}
             open={workbenchWindowLayout("adjustments").open && !workbenchWindowLayout("adjustments").minimized}
@@ -10469,6 +10505,7 @@ export function App() {
             className={`workbench-settings-section workbench-window${workbenchPaletteFloating ? ` workbench-section-floating workbench-palette-floating${workbenchPaletteFloatingAutoHeight ? " workbench-floating-auto-height" : ""}` : ""}`}
             {...workbenchWindowDragAttributes("palette")}
             data-workbench-window="palette"
+            hidden={!workbenchWindowLayout("palette").visible}
             data-dock={workbenchWindowLayout("palette").dock}
             data-minimized={workbenchWindowLayout("palette").minimized ? "true" : "false"}
             open={workbenchWindowLayout("palette").open && !workbenchWindowLayout("palette").minimized}
@@ -10604,110 +10641,6 @@ export function App() {
                   </section>
                 ))}
               </div>
-              {isZx ? (
-                <details className="zx-palette-calibration" open>
-                  <summary>Palette calibration</summary>
-                  <label>
-                    <span>Palette model</span>
-                    <select
-                      value={zxPaletteDefinition.kind}
-                      onChange={(event) => {
-                        if (event.target.value === "explicit") {
-                          setZxPaletteDefinition({
-                            kind: "explicit",
-                            normal: resolvedZxPalette.normal.map((color) => ({ ...color })),
-                            bright: resolvedZxPalette.bright.map((color) => ({ ...color })),
-                          });
-                        } else {
-                          setZxPaletteDefinition(DEFAULT_CONVERSION_SETTINGS.zxPalette);
-                        }
-                        setState({ kind: "idle" });
-                      }}
-                    >
-                      <option value="channel-drive-ramp-v1">Channel-drive ramp</option>
-                      <option value="explicit">Explicit RGB colors</option>
-                    </select>
-                  </label>
-                  <div className="zx-palette-calibration-actions">
-                    <button
-                      className="secondary compact"
-                      type="button"
-                      onClick={() => {
-                        setZxPaletteDefinition(DEFAULT_CONVERSION_SETTINGS.zxPalette);
-                        setState({ kind: "idle" });
-                      }}
-                    >Reset palette</button>
-                    {zxPalettePlanesMatch ? <span role="status">Normal and BRIGHT colors are identical.</span> : null}
-                  </div>
-                  {zxPaletteDefinition.kind === "channel-drive-ramp-v1" ? (
-                    <div className="zx-palette-ramp-grid">
-                      {(["normal", "bright"] as const).map((plane) => (
-                        <fieldset key={plane}>
-                          <legend>{plane === "normal" ? "Normal" : "BRIGHT"} channel levels</legend>
-                          {(["singleChannel", "doubleChannel", "tripleChannel"] as const).map((key, index) => (
-                            <label key={key}>
-                              <span>{["Single-channel", "Double-channel", "Triple-channel"][index]}</span>
-                              <input
-                                type="number"
-                                min={0}
-                                max={255}
-                                step={1}
-                                value={zxPaletteDefinition[plane][key]}
-                                onChange={(event) => {
-                                  const value = Number(event.target.value);
-                                  if (!Number.isInteger(value) || value < 0 || value > 255) return;
-                                  setZxPaletteDefinition((current) => current.kind !== "channel-drive-ramp-v1"
-                                    ? current
-                                    : { ...current, [plane]: { ...current[plane], [key]: value } });
-                                  setState({ kind: "idle" });
-                                }}
-                              />
-                            </label>
-                          ))}
-                        </fieldset>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="zx-palette-explicit-grid">
-                      {ZX_BASE_COLORS.map((color) => (
-                        <div className="zx-palette-explicit-row" key={color.code}>
-                          <span>{color.code} · {color.name}</span>
-                          {(["normal", "bright"] as const).map((plane) => (
-                            <label key={plane}>
-                              <span className="visually-hidden">{color.name} {plane} RGB</span>
-                              <input
-                                type="color"
-                                value={rgbToHex(resolvedZxPalette[plane][color.code]!)}
-                                aria-label={`${color.name} ${plane} RGB`}
-                                onChange={(event) => {
-                                  const entry = color.code;
-                                  const nextColor = hexToRgb(event.target.value);
-                                  setZxPaletteDefinition((current) => {
-                                    const resolved = resolveZxPalette(current);
-                                    const values = resolved[plane].map((item) => ({ ...item }));
-                                    values[entry] = nextColor;
-                                    return {
-                                      kind: "explicit",
-                                      normal: plane === "normal" ? values : resolved.normal.map((item) => ({ ...item })),
-                                      bright: plane === "bright" ? values : resolved.bright.map((item) => ({ ...item })),
-                                    };
-                                  });
-                                  setState({ kind: "idle" });
-                                }}
-                              />
-                            </label>
-                          ))}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <p className="control-help">
-                    {zxPaletteDefinition.kind === "channel-drive-ramp-v1"
-                      ? "Each active RGB channel receives the level for its one-, two-, or three-channel color. Set BRIGHT levels equal to Normal to collapse the two color planes."
-                      : "Set each ZX color independently. Color values are used by conversion and exact output previews."}
-                  </p>
-                </details>
-              ) : null}
               {paletteValid ? null : (
                 <span className="field-error" id="palette-error">
                   Select at least one color for every screen.
@@ -10922,6 +10855,7 @@ export function App() {
             className={`workbench-settings-section workbench-window${workbenchDitheringFloating ? ` workbench-section-floating workbench-dithering-floating${workbenchDitheringFloatingAutoHeight ? " workbench-floating-auto-height" : ""}` : ""}`}
             {...workbenchWindowDragAttributes("dithering")}
             data-workbench-window="dithering"
+            hidden={!workbenchWindowLayout("dithering").visible}
             data-dock={workbenchWindowLayout("dithering").dock}
             data-minimized={workbenchWindowLayout("dithering").minimized ? "true" : "false"}
             open={workbenchWindowLayout("dithering").open && !workbenchWindowLayout("dithering").minimized}
@@ -11618,6 +11552,7 @@ export function App() {
             className={`workbench-settings-section workbench-window${workbenchTilemapFloating ? ` workbench-section-floating workbench-tilemap-floating${workbenchTilemapFloatingAutoHeight ? " workbench-floating-auto-height" : ""}` : ""}`}
             {...workbenchWindowDragAttributes("tilemap")}
             data-workbench-window="tilemap"
+            hidden={!workbenchWindowLayout("tilemap").visible}
             data-dock={workbenchWindowLayout("tilemap").dock}
             data-minimized={workbenchWindowLayout("tilemap").minimized ? "true" : "false"}
             open={workbenchWindowLayout("tilemap").open && !workbenchWindowLayout("tilemap").minimized}
@@ -12356,36 +12291,6 @@ export function App() {
               {state.kind === "running" ? (
                 <button className="secondary" type="button" onClick={cancelHigh}>Cancel High</button>
               ) : null}
-              {artifactsReady && workspaceMode === "tilemap" ? (
-                <>
-                  <span className="action-label">Download</span>
-                  <button className="secondary" type="button" onClick={exportCharsetArtifact}>Raw tilemap</button>
-                  <button className="secondary" type="button" onClick={exportFinalCharset}>Final charset</button>
-                  <button className="secondary" type="button" onClick={exportScr}>Palette source .scr</button>
-                  <button className="secondary" type="button" onClick={exportCharsetPreview}>Decoder preview PNG</button>
-                  <button className="secondary" type="button" onClick={exportAnimatedFlashGif}>GIF</button>
-                  <button className="secondary" type="button" onClick={exportCharsetDiagnostics}>Diagnostics JSON</button>
-                </>
-              ) : resultSaveReady ? (
-                <>
-                  <span className="action-label">Save</span>
-                  <button className="secondary" type="button" onClick={exportPreviewPng}>PNG</button>
-                  <button className="secondary" type="button" onClick={exportAnimatedFlashGif}>GIF</button>
-                  <button className="secondary" type="button" onClick={exportScr}>
-                    {isPmd
-                      ? "PMD binary"
-                      : isQl
-                      ? lastFinal?.frames.length === 1
-                        ? "Screen binary"
-                        : "Two screen binaries"
-                      : "Binary .scr"}
-                  </button>
-                  {artifactsReady ? <>
-                    <button className="secondary" type="button" onClick={() => void exportMetadata()}>Metadata JSON</button>
-                    {isZx ? <button className="secondary" type="button" onClick={exportInspectionReport}>Inspection JSON</button> : null}
-                  </> : null}
-                </>
-              ) : null}
               {developmentMode && comparisonKind === "palette" ? (
                 <button
                   className="secondary project-action comparison-project-action"
@@ -12424,18 +12329,7 @@ export function App() {
                   {tilemapBenchmarkRunning ? "Benchmarking…" : "Compare methods"}
                 </button>
               ) : null}
-              <span className="action-spacer" aria-hidden="true" />
-              <label className="file-picker secondary-picker project-action">
-                <span>Open Project</span>
-                <input
-                  type="file"
-                  accept=".rccproject,application/zip"
-                  onChange={(event) => void openProject(event.currentTarget.files?.[0])}
-                />
-              </label>
-              {artifactsReady ? (
-                <button className="secondary project-action" type="button" onClick={() => void exportProject()}>Save Project</button>
-              ) : null}
+
             </div>
 
           </div>
@@ -12477,6 +12371,17 @@ export function App() {
             />
           </div>
         </form>
+
+        {zxPaletteEditorOpen && isZx ? (
+          <ZxPaletteEditorDialog
+            definition={zxPaletteDefinition}
+            onChange={(definition) => {
+              setZxPaletteDefinition(definition);
+              setState({ kind: "idle" });
+            }}
+            onClose={() => setZxPaletteEditorOpen(false)}
+          />
+        ) : null}
 
         {settingsOpen && settingsDraft !== null ? (() => {
           const draftProfile = profiles.find(({ id }) => id === settingsDraft.profileId) ?? BUILT_IN_PROFILE;
@@ -12611,7 +12516,7 @@ export function App() {
 
         <section
           ref={workbenchPreviewWorkspaceRef}
-          className={`inspection-workspace${workbenchSourceFloating ? " preview-source-floating" : ""}${workbenchResultFloating ? " preview-result-floating" : ""}`}
+          className={`inspection-workspace${workbenchSourceFloating ? " preview-source-floating" : ""}${workbenchResultFloating ? " preview-result-floating" : ""}${sourcePreviewVisible ? "" : " preview-source-hidden"}${resultPreviewVisible ? "" : " preview-result-hidden"}`}
           aria-labelledby="inspection-title"
         >
           <div className="inspection-heading">
@@ -12626,6 +12531,7 @@ export function App() {
             className={`workbench-settings-section workbench-window${workbenchToolsFloating ? " workbench-section-floating workbench-tools-floating" : ""}`}
             {...workbenchWindowDragAttributes("tools")}
             data-workbench-window="tools"
+            hidden={!workbenchWindowLayout("tools").visible}
             data-dock={workbenchWindowLayout("tools").dock}
             data-minimized={workbenchWindowLayout("tools").minimized ? "true" : "false"}
             open={workbenchWindowLayout("tools").open && !workbenchWindowLayout("tools").minimized}
@@ -13019,6 +12925,7 @@ export function App() {
               className={`preview-panel source-panel${workbenchSourceFloating ? ` preview-panel-floating preview-source-window${workbenchSourceFloatingAutoHeight ? " workbench-floating-auto-height" : ""}` : " preview-panel-docked"} ${workspaceMode === "tilemap" ? "tilemap-preview-panel" : ""}`}
               {...workbenchWindowDragAttributes("source")}
               data-workbench-window="source"
+              hidden={!workbenchWindowLayout("source").visible}
               data-dock={sourceDock}
               data-minimized={workbenchWindowLayout("source").minimized ? "true" : "false"}
               aria-labelledby="source-preview-title"
@@ -13328,6 +13235,7 @@ export function App() {
               className={`preview-panel result-panel${workbenchResultFloating ? ` preview-panel-floating preview-result-window${workbenchResultFloatingAutoHeight ? " workbench-floating-auto-height" : ""}` : " preview-panel-docked"} ${workspaceMode === "tilemap" ? "tilemap-preview-panel" : ""}`}
               {...workbenchWindowDragAttributes("result")}
               data-workbench-window="result"
+              hidden={!workbenchWindowLayout("result").visible}
               data-dock={resultDock}
               data-minimized={workbenchWindowLayout("result").minimized ? "true" : "false"}
               aria-labelledby="result-preview-title"

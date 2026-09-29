@@ -43,6 +43,14 @@ export const APPLICATION_DISPLAY_VERSION = formatApplicationDisplayVersion(
   import.meta.env.VITE_BUILD_ID,
 );
 
+export const APPLICATION_BUILD_ID = import.meta.env.VITE_BUILD_ID
+  ?.trim()
+  .replace(/[^0-9A-Za-z._-]/g, "")
+  .slice(0, 12) || "Development";
+
+export const APPLICATION_RELEASE_DATE = import.meta.env.VITE_RELEASE_DATE?.trim()
+  || "Unreleased";
+
 export const DEFAULT_PROFILE = {
   id: "org.retroconverter.zx48.default",
   version: "1.0.0",

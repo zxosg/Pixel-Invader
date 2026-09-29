@@ -14,6 +14,8 @@ export type WorkbenchSettingsSection =
 
 export interface WorkbenchWindowLayout {
   readonly dock: WorkbenchWindowDock;
+  /** Whether this window is present on the desktop; independent of its other states. */
+  readonly visible: boolean;
   readonly minimized: boolean;
   readonly open: boolean;
   readonly dockSize: number;
@@ -42,7 +44,7 @@ function normalizeDockRatios(
   dock: WorkbenchDock,
 ): void {
   const windows = ACTIVE_WORKBENCH_WINDOWS.filter((window) =>
-    layouts[window].dock === dock && !layouts[window].minimized,
+    layouts[window].visible && layouts[window].dock === dock && !layouts[window].minimized,
   );
   if (windows.length === 0) return;
   const total = windows.reduce((sum, window) => sum + Math.max(0.15, layouts[window].dockRatio), 0);
@@ -256,6 +258,7 @@ export const DEFAULT_WORKBENCH_PREFERENCES: WorkbenchPreferences = {
   windowLayouts: {
     tools: {
       dock: "bottom",
+      visible: true,
       minimized: true,
       open: false,
       dockSize: 260,
@@ -268,6 +271,7 @@ export const DEFAULT_WORKBENCH_PREFERENCES: WorkbenchPreferences = {
     },
     geometry: {
       dock: "bottom",
+      visible: true,
       minimized: true,
       open: true,
       dockSize: 260,
@@ -280,6 +284,7 @@ export const DEFAULT_WORKBENCH_PREFERENCES: WorkbenchPreferences = {
     },
     adjustments: {
       dock: "bottom",
+      visible: true,
       minimized: true,
       open: true,
       dockSize: 260,
@@ -292,6 +297,7 @@ export const DEFAULT_WORKBENCH_PREFERENCES: WorkbenchPreferences = {
     },
     palette: {
       dock: "bottom",
+      visible: true,
       minimized: true,
       open: true,
       dockSize: 260,
@@ -304,6 +310,7 @@ export const DEFAULT_WORKBENCH_PREFERENCES: WorkbenchPreferences = {
     },
     dithering: {
       dock: "bottom",
+      visible: true,
       minimized: true,
       open: true,
       dockSize: 260,
@@ -316,6 +323,7 @@ export const DEFAULT_WORKBENCH_PREFERENCES: WorkbenchPreferences = {
     },
     tilemap: {
       dock: "bottom",
+      visible: true,
       minimized: true,
       open: true,
       dockSize: 260,
@@ -328,6 +336,7 @@ export const DEFAULT_WORKBENCH_PREFERENCES: WorkbenchPreferences = {
     },
     source: {
       dock: "center",
+      visible: true,
       minimized: false,
       open: true,
       dockSize: 260,
@@ -340,6 +349,7 @@ export const DEFAULT_WORKBENCH_PREFERENCES: WorkbenchPreferences = {
     },
     result: {
       dock: "center",
+      visible: true,
       minimized: false,
       open: true,
       dockSize: 260,
@@ -414,6 +424,7 @@ function loadWindowLayouts(value: unknown, legacy: Record<string, unknown> | nul
       autoHeight: unknown,
     ): WorkbenchWindowLayout => ({
       dock: boolOr(floating, false) ? "floating" : promotedDock,
+      visible: true,
       minimized: boolOr(legacy.minimized, DEFAULT_WORKBENCH_PREFERENCES.minimized),
       open: boolOr((legacy.sectionsOpen as Record<string, unknown> | undefined)?.[section], true),
       dockSize: promotedDock === "bottom" ? legacyBottomHeight : legacySideWidth,
@@ -429,6 +440,7 @@ function loadWindowLayouts(value: unknown, legacy: Record<string, unknown> | nul
         dock: legacy.toolsDock === "left" || legacy.toolsDock === "right" || legacy.toolsDock === "bottom" || legacy.toolsDock === "floating"
           ? legacy.toolsDock as WorkbenchDock
           : boolOr(legacy.toolsFloating, false) ? "floating" : "bottom",
+        visible: true,
         minimized: !boolOr(legacy.toolsOpen, false),
         open: boolOr(legacy.toolsOpen, false),
         dockSize: legacyBottomHeight,
@@ -446,6 +458,7 @@ function loadWindowLayouts(value: unknown, legacy: Record<string, unknown> | nul
       tilemap: sectionLayout("tilemap", legacy.tilemapFloating, legacy.tilemapFloatingX, legacy.tilemapFloatingY, legacy.tilemapFloatingWidth, legacy.tilemapFloatingHeight, legacy.tilemapFloatingAutoHeight),
       source: {
         dock: boolOr(legacy.sourceFloating, false) ? "floating" : "center",
+        visible: true,
         minimized: false,
         open: true,
         dockSize: legacyBottomHeight,
@@ -458,6 +471,7 @@ function loadWindowLayouts(value: unknown, legacy: Record<string, unknown> | nul
       },
       result: {
         dock: boolOr(legacy.resultFloating, false) ? "floating" : "center",
+        visible: true,
         minimized: false,
         open: true,
         dockSize: legacyBottomHeight,
@@ -476,6 +490,7 @@ function loadWindowLayouts(value: unknown, legacy: Record<string, unknown> | nul
     const candidate = value[window];
     if (!isRecord(candidate) ||
         typeof candidate.dock !== "string" || !WINDOW_DOCKS.has(candidate.dock as WorkbenchWindowDock) ||
+        (candidate.visible !== undefined && typeof candidate.visible !== "boolean") ||
         typeof candidate.minimized !== "boolean" ||
         typeof candidate.open !== "boolean" ||
         !isFiniteNumberInRange(candidate.dockSize, 0, 1200) ||
@@ -492,6 +507,7 @@ function loadWindowLayouts(value: unknown, legacy: Record<string, unknown> | nul
         : candidate.dock !== "center") {
       layouts[window] = {
         dock: candidate.dock as WorkbenchWindowDock,
+        visible: candidate.visible !== false,
         minimized: candidate.minimized,
         open: candidate.open,
         dockSize: candidate.dockSize,

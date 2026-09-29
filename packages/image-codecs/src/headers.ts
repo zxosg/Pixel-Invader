@@ -1,6 +1,6 @@
 import { ImageImportError } from "./errors.js";
 import { parseExifOrientation, type ExifOrientation } from "./exif.js";
-import { isRecognizedSrgbPngIccp } from "./icc.js";
+import { isRecognizedSrgbIccProfile, isRecognizedSrgbPngIccp } from "./icc.js";
 import { MAX_METADATA_BYTES, validateImageLimits } from "./limits.js";
 
 export type ImageFormat = "png" | "jpeg";
@@ -119,6 +119,8 @@ export function parseJpegHeader(bytes: Uint8Array): ImageHeader {
   let height = 0;
   let orientation: ExifOrientation = 1;
   let sawFrame = false;
+  let jpegIccTotal = 0;
+  const jpegIccSegments = new Map<number, Uint8Array>();
 
   while (offset < bytes.length) {
     while (offset < bytes.length && bytes[offset] !== 0xff) offset += 1;
@@ -154,10 +156,30 @@ export function parseJpegHeader(bytes: Uint8Array): ImageHeader {
       enforceLimits(bytes, width, height);
       sawFrame = true;
     } else if (marker === 0xe2 && ascii(bytes, dataOffset, Math.min(12, dataLength)) === "ICC_PROFILE\0") {
-      throw new ImageImportError(
-        "IMAGE_COLOR_PROFILE_UNSUPPORTED",
-        "Embedded JPEG ICC profiles are not in the v1.0 sRGB allow-list.",
-      );
+      if (dataLength < 14) {
+        throw new ImageImportError(
+          "IMAGE_COLOR_PROFILE_UNSUPPORTED",
+          "Embedded JPEG ICC profile is truncated.",
+        );
+      }
+      const sequence = bytes[dataOffset + 12] ?? 0;
+      const total = bytes[dataOffset + 13] ?? 0;
+      if (sequence < 1 || total < 1 || sequence > total || (jpegIccTotal !== 0 && total !== jpegIccTotal) || jpegIccSegments.has(sequence)) {
+        throw new ImageImportError(
+          "IMAGE_COLOR_PROFILE_UNSUPPORTED",
+          "Embedded JPEG ICC profile segments are invalid.",
+        );
+      }
+      const profileSegment = bytes.subarray(dataOffset + 14, dataOffset + dataLength);
+      const currentSize = Array.from(jpegIccSegments.values()).reduce((sum, segment) => sum + segment.length, 0);
+      if (currentSize + profileSegment.length > MAX_METADATA_BYTES) {
+        throw new ImageImportError(
+          "IMAGE_LIMIT_EXCEEDED",
+          "Embedded JPEG ICC profile exceeds 4 MiB.",
+        );
+      }
+      jpegIccTotal = total;
+      jpegIccSegments.set(sequence, profileSegment);
     } else if (
       marker === 0xe1 &&
       dataLength >= 6 &&
@@ -171,6 +193,34 @@ export function parseJpegHeader(bytes: Uint8Array): ImageHeader {
     offset += length;
   }
   if (!sawFrame) invalid("JPEG frame header is missing.");
+  if (jpegIccSegments.size > 0) {
+    if (jpegIccSegments.size !== jpegIccTotal) {
+      throw new ImageImportError(
+        "IMAGE_COLOR_PROFILE_UNSUPPORTED",
+        "Embedded JPEG ICC profile segments are incomplete.",
+      );
+    }
+    const profileSize = Array.from(jpegIccSegments.values()).reduce((sum, segment) => sum + segment.length, 0);
+    const profile = new Uint8Array(profileSize);
+    let profileOffset = 0;
+    for (let sequence = 1; sequence <= jpegIccTotal; sequence += 1) {
+      const segment = jpegIccSegments.get(sequence);
+      if (segment === undefined) {
+        throw new ImageImportError(
+          "IMAGE_COLOR_PROFILE_UNSUPPORTED",
+          "Embedded JPEG ICC profile segments are incomplete.",
+        );
+      }
+      profile.set(segment, profileOffset);
+      profileOffset += segment.length;
+    }
+    if (!isRecognizedSrgbIccProfile(profile)) {
+      throw new ImageImportError(
+        "IMAGE_COLOR_PROFILE_UNSUPPORTED",
+        "Embedded JPEG ICC profile is malformed or not a recognized sRGB profile.",
+      );
+    }
+  }
   return { format: "jpeg", width, height, orientation };
 }
 

@@ -113,8 +113,12 @@ function hasTransferCurves(profile: Uint8Array, tags: Map<string, IccTag>): bool
   });
 }
 
-function isSrgbIccProfile(profile: Uint8Array): boolean {
-  if (profile.length < ICC_HEADER_BYTES || readU32(profile, 0) !== profile.length) return false;
+export function isRecognizedSrgbIccProfile(profile: Uint8Array): boolean {
+  if (
+    profile.length < ICC_HEADER_BYTES ||
+    profile.length > MAX_METADATA_BYTES ||
+    readU32(profile, 0) !== profile.length
+  ) return false;
   if (ascii(profile, ICC_SIGNATURE_OFFSET, 4) !== "acsp") return false;
   if (ascii(profile, 12, 4) !== "mntr" || ascii(profile, 16, 4) !== "RGB " || ascii(profile, 20, 4) !== "XYZ ") {
     return false;
@@ -138,7 +142,7 @@ export function isRecognizedSrgbPngIccp(chunk: Uint8Array): boolean {
   if (compressed.length === 0 || compressed.length > MAX_METADATA_BYTES) return false;
   try {
     const profile = unzlibSync(compressed);
-    return profile.length <= MAX_METADATA_BYTES && isSrgbIccProfile(profile);
+    return isRecognizedSrgbIccProfile(profile);
   } catch {
     return false;
   }
