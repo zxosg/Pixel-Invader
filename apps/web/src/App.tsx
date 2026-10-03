@@ -9530,11 +9530,16 @@ export function App() {
   const sourceShowsImage = framing !== "crop" &&
     (sourcePreviewContent === "image" || sourcePreviewContent === "source-image") &&
     image !== null;
-  const sourceStageAspect = framing === "crop"
-    ? cropSourceSize ?? destinationGeometry
-    : sourceShowsImage
-      ? { width: image.width, height: image.height }
-      : previewAspect;
+  const sourceShowsConvertedResult = sourcePreviewContent === "result-image" ||
+    (targetModeId.includes("vertical-spatial") &&
+      (sourcePreviewContent === "screen-1" || sourcePreviewContent === "screen-2"));
+  const sourceStageAspect = sourceShowsConvertedResult
+    ? previewAspect
+    : framing === "crop"
+      ? cropSourceSize ?? destinationGeometry
+      : sourceShowsImage
+        ? { width: image.width, height: image.height }
+        : previewAspect;
   const sourceStageAspectRatio = `${sourceStageAspect.width} / ${sourceStageAspect.height}`;
   const sourceStageWidth = sourceZoom !== "fit"
     ? `${sourceStageAspect.width * Number(sourceZoom)}px`
