@@ -19,8 +19,8 @@ import type {
   CharsetDiagnostics,
 } from "@retro-converter/zx-charset";
 
-const PROJECT_SCHEMA_VERSION = "13.0.0";
-const LEGACY_PROJECT_SCHEMA_VERSIONS = new Set(["10.0.0", "11.0.0", "12.0.0"]);
+const PROJECT_SCHEMA_VERSION = "14.0.0";
+const LEGACY_PROJECT_SCHEMA_VERSIONS = new Set(["10.0.0", "11.0.0", "12.0.0", "13.0.0"]);
 const MAX_PROJECT_BYTES = 64 * 1024 * 1024;
 const MAX_UNCOMPRESSED_BYTES = 128 * 1024 * 1024;
 const FIXED_ZIP_TIME = new Date("1980-01-01T00:00:00.000Z");
@@ -43,6 +43,15 @@ interface ManifestEntry {
 
 export type WorkspaceConversionMode = "palette" | "tilemap";
 export type TilemapConversionSettings = CharsetConversionOptions;
+export type ProjectResultQuality = "Draft" | "High";
+
+export function normalizeProjectName(value: string): string {
+  return value
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .trim()
+    .slice(0, 120)
+    .trim() || "Untitled project";
+}
 
 export interface ProjectCreateInput {
   readonly sourceBytes: Uint8Array;
@@ -54,6 +63,8 @@ export interface ProjectCreateInput {
   readonly previewPng: Uint8Array;
   readonly metadataJson: Uint8Array;
   readonly profile: unknown;
+  readonly projectName?: string;
+  readonly resultQuality?: ProjectResultQuality;
   readonly workingSourcePng?: Uint8Array;
   readonly resultEdited?: boolean;
   readonly workspaceMode?: WorkspaceConversionMode;
@@ -78,9 +89,11 @@ export interface ValidatedProject {
   readonly previewPng: Uint8Array;
   readonly metadataJson: Uint8Array;
   readonly profile: unknown;
+  readonly projectName: string;
   readonly workspaceMode: WorkspaceConversionMode;
   readonly sourceFormat: "png" | "jpeg" | "pmd85-bin";
   readonly resultOrigin: "direct-import" | "converted";
+  readonly resultQuality: ProjectResultQuality;
   readonly workingSourcePng?: Uint8Array;
   readonly resultEdited: boolean;
   /** True when the project explicitly carries the result_edited field. */
@@ -247,7 +260,7 @@ export async function createCompletedProject(input: ProjectCreateInput): Promise
   const profileBytes = jsonBytes(input.profile);
   const settingsBytes = jsonBytes({
     schema_version: PROJECT_SCHEMA_VERSION,
-    quality_level: "High",
+    quality_level: input.resultQuality ?? "High",
     seed: "none",
     settings: input.settings,
   });
@@ -260,6 +273,7 @@ export async function createCompletedProject(input: ProjectCreateInput): Promise
     "artifacts/metadata.json": input.metadataJson,
     "settings/workspace.json": jsonBytes({
       conversion_mode: input.workspaceMode ?? "palette",
+      project_name: normalizeProjectName(input.projectName ?? "Untitled project"),
       source_kind: input.sourceFormat === "pmd85-bin" ? "pmd85-bin" : "image",
       selected_interpretation: input.settings.platformId === "pmd-85"
         ? input.settings.modeId
@@ -394,6 +408,14 @@ export async function validateCompletedProject(bytes: Uint8Array): Promise<Valid
     files["settings/workspace.json"] ?? new Uint8Array(),
     "settings/workspace.json",
   ) as Record<string, unknown>;
+  if (workspaceDocument.project_name !== undefined && typeof workspaceDocument.project_name !== "string") {
+    throw new Error("PROJECT_SCHEMA_INVALID: project name is invalid.");
+  }
+  const projectName = normalizeProjectName(
+    typeof workspaceDocument.project_name === "string"
+      ? workspaceDocument.project_name
+      : "Untitled project",
+  );
   const workingSourcePath = workspaceDocument.working_source_path === undefined
     ? null
     : workspaceDocument.working_source_path;
@@ -432,9 +454,11 @@ export async function validateCompletedProject(bytes: Uint8Array): Promise<Valid
   for (const path of required) if (files[path] === undefined) throw new Error(`PROJECT_ENTRY_MISSING: ${path}.`);
   const settingsDocument = parseJson(files["settings/conversion.json"] ?? new Uint8Array(), "settings/conversion.json") as Record<string, unknown>;
   const profile = parseJson(files["profile/profile.json"] ?? new Uint8Array(), "profile/profile.json");
+  const resultQuality = settingsDocument.quality_level;
   if (
     settingsDocument.schema_version !== schemaVersion ||
-    settingsDocument.quality_level !== "High"
+    (resultQuality !== "High" && resultQuality !== "Draft") ||
+    (schemaVersion !== PROJECT_SCHEMA_VERSION && resultQuality !== "High")
   ) {
     throw new Error("PROJECT_SCHEMA_INVALID: conversion settings are incompatible.");
   }
@@ -692,9 +716,11 @@ export async function validateCompletedProject(bytes: Uint8Array): Promise<Valid
     previewPng: Uint8Array.from(files["artifacts/preview.png"] ?? new Uint8Array()),
     metadataJson: Uint8Array.from(files["artifacts/metadata.json"] ?? new Uint8Array()),
     profile,
+    projectName,
     workspaceMode,
     sourceFormat,
     resultOrigin,
+    resultQuality: resultQuality as ProjectResultQuality,
     resultEdited,
     resultEditedFieldPresent,
     ...(workingSourcePng === undefined ? {} : { workingSourcePng }),

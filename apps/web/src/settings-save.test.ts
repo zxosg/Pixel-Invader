@@ -4,6 +4,36 @@ import { BUILT_IN_PROFILE, BUILT_IN_PROFILES, PMD85_PROFILE_ID, QL_PROFILE_ID } 
 import { canonicalizeSettingsForSave } from "./settings-save.js";
 
 describe("canonical Settings Save", () => {
+  it("keeps export border and zoom preferences out of conversion settings", () => {
+    const draft = {
+      profileId: BUILT_IN_PROFILE.id,
+      presetId: BUILT_IN_PROFILE.presets[0]!.id,
+      modeId: DEFAULT_CONVERSION_SETTINGS.modeId,
+      framing: DEFAULT_CONVERSION_SETTINGS.framing,
+      dithering: DEFAULT_CONVERSION_SETTINGS.dithering,
+      ditheringAmount: DEFAULT_CONVERSION_SETTINGS.ditheringAmount,
+    };
+    const baseline = canonicalizeSettingsForSave({ current: DEFAULT_CONVERSION_SETTINGS, profiles: BUILT_IN_PROFILES, draft });
+    const exportOnly = canonicalizeSettingsForSave({
+      current: DEFAULT_CONVERSION_SETTINGS,
+      profiles: BUILT_IN_PROFILES,
+      draft: {
+        ...draft,
+        exportBorderEnabled: false,
+        exportBorderWidth: 0,
+        exportBorderColor: { r: 12, g: 34, b: 56 },
+        exportZoomFactor: 4,
+      },
+    });
+    expect(exportOnly.conversion).toEqual(baseline.conversion);
+    expect(exportOnly.application).toMatchObject({
+      exportBorderEnabled: false,
+      exportBorderWidth: 0,
+      exportBorderColor: { r: 12, g: 34, b: 56 },
+      exportZoomFactor: 4,
+    });
+  });
+
   it("preserves the experimental joint Mixed engine pair", () => {
     const paletteSelections = [
       { screenIndex: 0, enabledColorIds: [0, 2, 7], brightMode: "off" as const },

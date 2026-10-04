@@ -46,6 +46,10 @@ describe("application settings", () => {
     delete legacy.uiLabelFontWeight;
     delete legacy.uiBodyFontSize;
     delete legacy.uiBodyFontWeight;
+    delete legacy.exportBorderEnabled;
+    delete legacy.exportBorderWidth;
+    delete legacy.exportBorderColor;
+    delete legacy.exportZoomFactor;
     expect(validateApplicationSettings(legacy)).toMatchObject(DEFAULT_APPLICATION_SETTINGS);
   });
 
@@ -62,6 +66,22 @@ describe("application settings", () => {
       windowTitleFontSize: DEFAULT_APPLICATION_SETTINGS.windowTitleFontSize,
       uiLabelFontWeight: DEFAULT_APPLICATION_SETTINGS.uiLabelFontWeight,
       uiBodyFontSize: 16,
+    });
+  });
+
+  it("normalizes export-only border and pixel-zoom preferences", () => {
+    const result = validateApplicationSettings({
+      ...DEFAULT_APPLICATION_SETTINGS,
+      exportBorderEnabled: false,
+      exportBorderWidth: 999,
+      exportBorderColor: { r: 12, g: 34, b: 56 },
+      exportZoomFactor: 3,
+    });
+    expect(result).toMatchObject({
+      exportBorderEnabled: false,
+      exportBorderWidth: DEFAULT_APPLICATION_SETTINGS.exportBorderWidth,
+      exportBorderColor: { r: 12, g: 34, b: 56 },
+      exportZoomFactor: 3,
     });
   });
 

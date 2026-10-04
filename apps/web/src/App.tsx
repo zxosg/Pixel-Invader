@@ -22,6 +22,7 @@ import {
 } from "@retro-converter/zx-spectrum";
 import { encodeRgbaPng, MAX_IMAGE_DIMENSION, MAX_IMAGE_PIXELS } from "@retro-converter/image-codecs";
 import { addGifBorder, encodeAnimatedGif } from "./animated-gif.js";
+import { scaleRgbaNearest } from "./export-image.js";
 import { assertValidQlScreen, type QlMode } from "@retro-converter/sinclair-ql";
 import {
   PMD85_SCREEN_HEIGHT,
@@ -42,6 +43,7 @@ import {
 } from "./artifacts.js";
 import {
   createCompletedProject,
+  normalizeProjectName,
   validateCompletedProject,
   type WorkspaceConversionMode,
 } from "./projects.js";
@@ -1022,6 +1024,7 @@ export function App() {
     readonly completedAtUtc: string;
   } | null>(null);
   const pendingOpenedResultEditedRef = useRef(false);
+  const pendingOpenedResultQualityRef = useRef<"Draft" | "High">("High");
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const convertedCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const sourceConvertedCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -1147,6 +1150,7 @@ export function App() {
   const [bitmapEditorResultOriginal, setBitmapEditorResultOriginal] = useState<NativeResultBitmap | null>(null);
   const [bitmapEditorResultOriginalResult, setBitmapEditorResultOriginalResult] = useState<WorkerConversionResult | null>(null);
   const [bitmapEditorResultEdited, setBitmapEditorResultEdited] = useState(false);
+  const [bitmapEditorResultQuality, setBitmapEditorResultQuality] = useState<"Draft" | "High">("High");
   const [bitmapEditorResultPaletteIndex, setBitmapEditorResultPaletteIndex] = useState(1);
   const [bitmapEditorSourceColor, setBitmapEditorSourceColor] = useState<readonly [number, number, number, number] | null>(null);
   const [workspaceMode, setWorkspaceMode] =
@@ -1175,6 +1179,7 @@ export function App() {
   const [lastFinalCompletedAt, setLastFinalCompletedAt] = useState<string | null>(null);
   const [resultOrigin, setResultOrigin] = useState<ResultOrigin>("converted");
   const [sourceArtifact, setSourceArtifact] = useState<SourceArtifactInfo | null>(null);
+  const [projectName, setProjectName] = useState("Untitled project");
   const [exportError, setExportError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [profiles, setProfiles] = useState<ConversionProfile[]>(() => [
@@ -1234,7 +1239,10 @@ export function App() {
       ? { r: 0, g: 0, b: 0 }
       : DEFAULT_CONVERSION_SETTINGS.background,
   );
-  const [gifBorderWidth, setGifBorderWidth] = useState(32);
+  const [exportBorderEnabled, setExportBorderEnabled] = useState(startupApplicationSettings.exportBorderEnabled);
+  const [exportBorderWidth, setExportBorderWidth] = useState(startupApplicationSettings.exportBorderWidth);
+  const [exportBorderColor, setExportBorderColor] = useState<RgbColor>(startupApplicationSettings.exportBorderColor);
+  const [exportZoomFactor, setExportZoomFactor] = useState<ApplicationSettings["exportZoomFactor"]>(startupApplicationSettings.exportZoomFactor);
   const [cropXEntry, setCropXEntry] = useState(String(DEFAULT_CONVERSION_SETTINGS.crop.x));
   const [cropYEntry, setCropYEntry] = useState(String(DEFAULT_CONVERSION_SETTINGS.crop.y));
   const [cropWidthEntry, setCropWidthEntry] = useState(String(DEFAULT_CONVERSION_SETTINGS.crop.width));
@@ -1392,6 +1400,8 @@ export function App() {
   const [workspaceProfileBaseline, setWorkspaceProfileBaseline] = useState("");
   const [workspaceProfileBaselinePending, setWorkspaceProfileBaselinePending] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [projectSaveDialogOpen, setProjectSaveDialogOpen] = useState(false);
+  const [projectNameDraft, setProjectNameDraft] = useState("");
   const [zxPaletteEditorOpen, setZxPaletteEditorOpen] = useState(false);
   const [settingsDraft, setSettingsDraft] = useState<(ApplicationSettings & Record<string, unknown>) | null>(null);
   const [settingsBaseline, setSettingsBaseline] = useState<Record<string, unknown> | null>(null);
@@ -3210,8 +3220,11 @@ export function App() {
   }, [originalImage]);
 
   useEffect(() => {
-    if (!pendingOpenedResultEditedRef.current || lastFinal === null) return;
+    if (lastFinal === null) return;
+    const resultWasEdited = pendingOpenedResultEditedRef.current;
     pendingOpenedResultEditedRef.current = false;
+    setBitmapEditorResultQuality(pendingOpenedResultQualityRef.current);
+    if (!resultWasEdited) return;
     const bitmap = initializeResultEditor(lastFinal, 0);
     if (bitmap !== null) setBitmapEditorResultEdited(true);
   }, [lastFinal]);
@@ -3621,6 +3634,7 @@ export function App() {
       setPmd85GapPolicy("preserve-imported");
       setResultOrigin("direct-import");
       setSourceFileName(file.name);
+      setProjectName(normalizeProjectName(sanitizeArtifactBaseName(file.name)));
       setSourceArtifact({
         sha256: await sha256Hex(bytes),
         baseName: sanitizeArtifactBaseName(file.name),
@@ -3694,6 +3708,7 @@ export function App() {
       setOriginalImage({ ...decoded, rgba: decoded.rgba.slice() });
       setResultOrigin("converted");
       setDirty(true);
+      setProjectName(normalizeProjectName(sanitizeArtifactBaseName(file.name)));
       setSourceArtifact({
         sha256: sourceSha256,
         baseName: sanitizeArtifactBaseName(file.name),
@@ -4075,7 +4090,7 @@ export function App() {
       )
     ) return;
     pendingModeHighRef.current = null;
-    if (image !== null && settingsValid) void convertImage();
+    if (image !== null && settingsValid) void convertImage({ confirmEdited: false });
   }, [
     workspaceMode,
     selectedProfileId,
@@ -5900,6 +5915,10 @@ export function App() {
       synchronizePan,
       synchronizeZoom,
       developmentMode,
+      exportBorderEnabled,
+      exportBorderWidth,
+      exportBorderColor,
+      exportZoomFactor,
       ...uiTypography,
     });
     setSettingsDraft(draft as ApplicationSettings & Record<string, unknown>);
@@ -5919,20 +5938,29 @@ export function App() {
       current: conversionSettings,
       profiles,
     });
-    finalJobRef.current += 1;
-    finalRunningRef.current = false;
-    workerRef.current?.dispose();
-    workerRef.current = new ConversionWorkerClient();
-    draftWorkerRef.current?.dispose();
-    draftWorkerRef.current = null;
-    setDraftState({ kind: "idle" });
+    setExportBorderEnabled(canonical.application.exportBorderEnabled);
+    setExportBorderWidth(canonical.application.exportBorderWidth);
+    setExportBorderColor(canonical.application.exportBorderColor);
+    setExportZoomFactor(canonical.application.exportZoomFactor);
+    const conversionChanged = canonicalJsonStringify(canonical.conversion) !== canonicalJsonStringify(conversionSettings);
+    if (conversionChanged) {
+      finalJobRef.current += 1;
+      finalRunningRef.current = false;
+      workerRef.current?.dispose();
+      workerRef.current = new ConversionWorkerClient();
+      draftWorkerRef.current?.dispose();
+      draftWorkerRef.current = null;
+      setDraftState({ kind: "idle" });
+    }
     setSelectedProfileId(canonical.profile.id);
     setSelectedPresetId(canonical.application.presetId);
-    applySettings(canonical.conversion);
-    setBackground(canonical.conversion.background);
-    setDitherEngineId(canonical.conversion.ditherEngineId);
-    setDithering(canonical.conversion.dithering);
-    setAmountEntry(String(canonical.conversion.ditheringAmount));
+    if (conversionChanged) {
+      applySettings(canonical.conversion);
+      setBackground(canonical.conversion.background);
+      setDitherEngineId(canonical.conversion.ditherEngineId);
+      setDithering(canonical.conversion.dithering);
+      setAmountEntry(String(canonical.conversion.ditheringAmount));
+    }
     setMouseWheelZoom(canonical.application.mouseWheelZoom);
     setSynchronizePan(canonical.application.synchronizePan);
     setSynchronizeZoom(canonical.application.synchronizeZoom);
@@ -6477,7 +6505,22 @@ export function App() {
     selectProfile(BUILT_IN_PROFILE_ID);
   }
 
-  async function convertImage() {
+  function bitmapEditorHasUnsavedEdits(): boolean {
+    return bitmapEditorRevertSource !== null ||
+      bitmapEditorOriginalResult !== null ||
+      bitmapEditorResultEdited ||
+      bitmapEditorResultOriginalResult !== null;
+  }
+
+  function confirmBitmapEditorAction(action: "convert" | "revert"): boolean {
+    if (!bitmapEditorHasUnsavedEdits()) return true;
+    return action === "convert"
+      ? window.confirm("Reconvert image? This will reprocess the current working source and may replace manual bitmap edits. Continue?")
+      : window.confirm("Revert bitmap edits? This will discard all manual changes and restore the original or last converted image.");
+  }
+
+  async function convertImage(options: { readonly confirmEdited?: boolean } = {}) {
+    if (options.confirmEdited !== false && !confirmBitmapEditorAction("convert")) return;
     const worker = workerRef.current;
     if (worker === null || image === null || !settingsValid) {
       setState({ kind: "error", message: "Conversion settings are invalid." });
@@ -7413,6 +7456,11 @@ export function App() {
     }
     if (bitmapEditorResultOriginal === null) setBitmapEditorResultOriginal(cloneNativeResultBitmap(current));
     if (bitmapEditorResultOriginalResult === null) setBitmapEditorResultOriginalResult(result);
+    if (!bitmapEditorResultEdited) {
+      const editedDraft = bitmapEditorResultQuality === "Draft" || draftPreviewResult(draftState) === result;
+      setBitmapEditorResultQuality(editedDraft ? "Draft" : "High");
+      if (editedDraft) setLastFinalCompletedAt(null);
+    }
     const nextResult = resultWithEditedFrame(result, frameIndex, next);
     bitmapEditorEncodedRef.current = next.encoded.slice();
     bitmapEditorCurrentResultRef.current = nextResult;
@@ -7692,7 +7740,7 @@ export function App() {
   function revertFullResult(): void {
     const originalResult = bitmapEditorResultOriginalResult;
     if (originalResult === null) return;
-    if (!window.confirm("Revert converted-result edits? This will restore the result from the last High conversion.")) return;
+    if (!confirmBitmapEditorAction("revert")) return;
     draftWorkerRef.current?.dispose();
     draftWorkerRef.current = null;
     setDraftState({ kind: "idle" });
@@ -7706,6 +7754,7 @@ export function App() {
     setBitmapEditorResultOriginal(null);
     setBitmapEditorResultOriginalResult(null);
     setBitmapEditorResultEdited(false);
+    setBitmapEditorResultQuality("High");
     setBitmapEditorFlashPreviewMode("normal");
     setBitmapEditorFlashPreviewPhase(false);
     setImageStatus("Converted result restored to the last High conversion.");
@@ -7717,7 +7766,7 @@ export function App() {
     bitmapEditorPointerRef.current = null;
     panDragRef.current = null;
     if (bitmapEditorRevertSource === null) return;
-    if (!window.confirm("Revert source edits? This will discard all manual bitmap changes and restore the original imported source.")) return;
+    if (!confirmBitmapEditorAction("revert")) return;
     const restored = { ...bitmapEditorRevertSource, rgba: bitmapEditorRevertSource.rgba.slice() };
     setImage(restored);
     bitmapEditorFullBufferRef.current = null;
@@ -7818,6 +7867,7 @@ export function App() {
 
   function revertBitmapEditorChanges(): void {
     if (bitmapEditorOriginalResult === null) return;
+    if (!confirmBitmapEditorAction("revert")) return;
     draftWorkerRef.current?.dispose();
     draftWorkerRef.current = null;
     setLastFinal(bitmapEditorOriginalResult);
@@ -8174,7 +8224,8 @@ export function App() {
 
   function exportCharsetPreview(): void {
     if (charsetState.kind !== "ready" || sourceArtifact === null) return;
-    const png = encodeRgbaPng(charsetState.result.previewRgba, 256, 192);
+    const preview = scaleRgbaNearest(charsetState.result.previewRgba, 256, 192, exportZoomFactor);
+    const png = encodeRgbaPng(preview.rgba, preview.width, preview.height);
     downloadBytes(
       png,
       "image/png",
@@ -8265,11 +8316,8 @@ export function App() {
             width: lastFinal.width,
             height: lastFinal.height,
           };
-      const png = encodeRgbaPng(
-        preview.rgba,
-        preview.width,
-        preview.height,
-      );
+      const scaledPreview = scaleRgbaNearest(preview.rgba, preview.width, preview.height, exportZoomFactor);
+      const png = encodeRgbaPng(scaledPreview.rgba, scaledPreview.width, scaledPreview.height);
       downloadBytes(
         png,
         "image/png",
@@ -8313,14 +8361,16 @@ export function App() {
               return framePreviews[0]!;
             })
           : [lastFinal!.mergedPreviewRgba];
-      const gifFrames = previewFrames.map((rgba) => addGifBorder({
-        rgba,
-        width: previewWidth,
-        height: previewHeight,
-      }, {
-        width: gifBorderWidth,
-        color: [background.r, background.g, background.b],
-      }));
+      const gifFrames = previewFrames.map((rgba) => {
+        const frame = { rgba, width: previewWidth, height: previewHeight };
+        const bordered = exportBorderEnabled
+          ? addGifBorder(frame, {
+              width: exportBorderWidth,
+              color: [exportBorderColor.r, exportBorderColor.g, exportBorderColor.b],
+            })
+          : frame;
+        return scaleRgbaNearest(bordered.rgba, bordered.width, bordered.height, exportZoomFactor);
+      });
       const gif = encodeAnimatedGif(gifFrames, 50);
       downloadBytes(
         gif,
@@ -8333,27 +8383,37 @@ export function App() {
     }
   }
 
-  async function createCurrentMetadataJson(): Promise<Uint8Array> {
+  async function createCurrentMetadataJson(options: {
+    readonly result?: WorkerConversionResult;
+    readonly resultQuality?: "Draft" | "High";
+    readonly allowDraft?: boolean;
+  } = {}): Promise<Uint8Array> {
+    const result = options.result ?? lastFinal;
+    const resultQuality = options.resultQuality ?? "High";
+    const draftResultIsCurrent = draftState.kind === "ready" && result === draftState.result;
+    const draftResultAllowed = options.allowDraft === true && resultQuality === "Draft" &&
+      (draftResultIsCurrent || bitmapEditorResultEdited || lastFinal === result);
     if (
-      state.kind !== "ready" || lastFinal === null || sourceArtifact === null ||
-      image === null || lastFinalCompletedAt === null
+      result === null || sourceArtifact === null || image === null ||
+      (state.kind !== "ready" && !draftResultAllowed) ||
+      (lastFinalCompletedAt === null && !draftResultAllowed)
     ) throw new Error("A current completed High result is required.");
-    if (lastFinal.platformId === "zx-spectrum") {
-      for (const frame of lastFinal.frames) {
-        assertValidSoftwareScr(frame.encoded, attributeHeight);
+    if (result.platformId === "zx-spectrum") {
+      for (const frame of result.frames) {
+        assertValidSoftwareScr(frame.encoded, result.attributeHeight ?? attributeHeight);
       }
-    } else if (lastFinal.platformId === "sinclair-ql") {
+    } else if (result.platformId === "sinclair-ql") {
       const hardwareModes = qlHardwareModesForTarget(
-        lastFinal.modeId as QlTargetModeId,
+        result.modeId as QlTargetModeId,
       );
-      for (const [index, frame] of lastFinal.frames.entries()) {
+      for (const [index, frame] of result.frames.entries()) {
         assertValidQlScreen(
           frame.encoded,
           hardwareModes[index]!,
         );
       }
     } else {
-      assertValidPmd85Screen(lastFinal.artifact);
+      assertValidPmd85Screen(result.artifact);
     }
     const metadata = await buildConversionMetadata({
       sourceSha256: sourceArtifact.sha256,
@@ -8361,19 +8421,19 @@ export function App() {
       sourceWidth: (originalImage ?? image).width,
       sourceHeight: (originalImage ?? image).height,
       settings: conversionSettings,
-      scr: lastFinal.scr,
-      previewRgba: lastFinal.mergedPreviewRgba,
-      frames: lastFinal.frames.map((frame) => frame.encoded),
-      width: lastFinal.width,
-      height: lastFinal.height,
-      score: lastFinal.score,
-      ...(lastFinal.structuredDiagnostics === undefined
+      scr: result.scr,
+      previewRgba: result.mergedPreviewRgba,
+      frames: result.frames.map((frame) => frame.encoded),
+      width: result.width,
+      height: result.height,
+      score: result.score,
+      ...(result.structuredDiagnostics === undefined
         ? {}
-        : { structuredDiagnostics: lastFinal.structuredDiagnostics }),
-      ...(lastFinal.verticalSpatialDiagnostics === undefined
+        : { structuredDiagnostics: result.structuredDiagnostics }),
+      ...(result.verticalSpatialDiagnostics === undefined
         ? {}
-        : { verticalSpatialDiagnostics: lastFinal.verticalSpatialDiagnostics }),
-      completedAtUtc: lastFinalCompletedAt,
+        : { verticalSpatialDiagnostics: result.verticalSpatialDiagnostics }),
+      completedAtUtc: lastFinalCompletedAt ?? new Date().toISOString(),
       profile: selectedProfile,
     });
     return new TextEncoder().encode(`${JSON.stringify(metadata, null, 2)}\n`);
@@ -8418,8 +8478,20 @@ export function App() {
     }
   }
 
-  async function exportProject() {
-    if (lastFinal === null || sourceArtifact === null || image === null) return;
+  function openProjectSaveDialog(): void {
+    setProjectNameDraft(projectName || sourceArtifact?.baseName || "Untitled project");
+    setProjectSaveDialogOpen(true);
+  }
+
+  async function exportProject(requestedProjectName: string): Promise<void> {
+    const quickResult = workspaceMode === "palette" && draftState.kind === "ready"
+      ? draftState.result
+      : null;
+    const projectResult = bitmapEditorResultEdited ? lastFinal : quickResult ?? lastFinal;
+    const resultQuality = bitmapEditorResultEdited
+      ? bitmapEditorResultQuality
+      : quickResult !== null ? "Draft" : "High";
+    if (projectResult === null || sourceArtifact === null || image === null) return;
     try {
       if (bitmapEditorRevertSource !== null && originalImage !== null &&
           (image.width !== originalImage.width || image.height !== originalImage.height)) {
@@ -8427,23 +8499,29 @@ export function App() {
           "PROJECT_WORKING_SOURCE_INVALID: result-sized bitmap edits cannot be saved as a working source. Edit the source image or revert the result edit first.",
         );
       }
-      const metadataJson = await createCurrentMetadataJson();
-      const spatialPreview = lastFinal.verticalSpatialDiagnostics;
+      const metadataJson = await createCurrentMetadataJson({
+        result: projectResult,
+        resultQuality,
+        allowDraft: true,
+      });
+      const spatialPreview = projectResult.verticalSpatialDiagnostics;
       const previewPng = encodeRgbaPng(
-        spatialPreview?.analyticPreviewRgba ?? lastFinal.mergedPreviewRgba,
-        spatialPreview?.logicalWidth ?? lastFinal.width,
-        spatialPreview?.logicalHeight ?? lastFinal.height,
+        spatialPreview?.analyticPreviewRgba ?? projectResult.mergedPreviewRgba,
+        spatialPreview?.logicalWidth ?? projectResult.width,
+        spatialPreview?.logicalHeight ?? projectResult.height,
       );
       const project = await createCompletedProject({
         sourceBytes: sourceArtifact.bytes,
         sourceFormat: (originalImage ?? image).format,
         resultOrigin,
         settings: conversionSettings,
-        scr: lastFinal.scr,
-        frames: lastFinal.frames.map((frame) => frame.encoded),
+        scr: projectResult.scr,
+        frames: projectResult.frames.map((frame) => frame.encoded),
         previewPng,
         metadataJson,
         profile: selectedProfile,
+        projectName: normalizeProjectName(requestedProjectName),
+        resultQuality,
         resultEdited: bitmapEditorResultEdited,
         ...(bitmapEditorRevertSource === null || image === null
           ? {}
@@ -8511,7 +8589,10 @@ export function App() {
             }
           : {}),
       });
-      downloadBytes(project, "application/zip", `${sourceArtifact.baseName}.rccproject`);
+      const savedProjectName = normalizeProjectName(requestedProjectName);
+      downloadBytes(project, "application/zip", `${sanitizeArtifactBaseName(savedProjectName)}.rccproject`);
+      setProjectName(savedProjectName);
+      setProjectSaveDialogOpen(false);
       setDirty(false);
       setExportError(null);
     } catch (error: unknown) {
@@ -8652,7 +8733,8 @@ export function App() {
       const legacyArchivedResultEdited = !validated.resultEdited &&
         !validated.resultEditedFieldPresent && archivedFramesDiffer;
       const archivedResultEdited = validated.resultEdited || legacyArchivedResultEdited;
-      const verifyArchivedResult = !archivedResultEdited &&
+      const archivedResultSnapshot = archivedResultEdited || validated.resultQuality === "Draft";
+      const verifyArchivedResult = !archivedResultSnapshot &&
         (validated.workingSourcePng === undefined || recoveredWorkingSource);
       if (verifyArchivedResult && archivedFramesDiffer) {
         throw new Error("PROJECT_REPRODUCTION_FAILED: screen bytes differ.");
@@ -8667,7 +8749,7 @@ export function App() {
           expectedArchivedPreview?.analyticPreviewRgba ?? recomputed.mergedPreviewRgba,
         )
       )) throw new Error("PROJECT_REPRODUCTION_FAILED: decoded preview pixels differ.");
-      if (archivedResultEdited) {
+      if (archivedResultSnapshot) {
         const editedFrames = recomputed.frames.map((frame, index) => {
           const encoded = validated.frames[index];
           if (encoded === undefined) throw new Error("PROJECT_SCHEMA_INVALID: edited result frame is missing.");
@@ -8824,6 +8906,7 @@ export function App() {
       const next = validated.settings;
       pendingOpenedFinalRef.current = { result: recomputed, completedAtUtc };
       pendingOpenedResultEditedRef.current = archivedResultEdited;
+      pendingOpenedResultQualityRef.current = validated.resultQuality;
       applySettings(next, decoded);
       if (!profiles.some((profile) => profile.id === projectProfile.id)) {
         setProfiles((current) => [...current, projectProfile]);
@@ -8891,6 +8974,9 @@ export function App() {
         setBitmapEditorBuffer(bitmapEditorFullBufferRef.current);
       }
       setSourceFileName(file.name);
+      setProjectName(validated.projectName === "Untitled project"
+        ? normalizeProjectName(sanitizeArtifactBaseName(file.name))
+        : validated.projectName);
       setSourceArtifact({
         sha256: await sha256Hex(sourceBytes),
         baseName: sanitizeArtifactBaseName(file.name),
@@ -8898,7 +8984,9 @@ export function App() {
       });
       setImageStatus(
         `Opened validated project · ${decoded.width} × ${decoded.height} source · ` +
-        `reproduced ${recomputed.scr.length.toLocaleString()}-byte High result.` +
+        (validated.resultQuality === "Draft"
+          ? `restored archived Quick result · ${recomputed.scr.length.toLocaleString()} bytes.`
+          : `reproduced ${recomputed.scr.length.toLocaleString()}-byte High result.`) +
         (repairedLegacyCharsetSelection
           ? " Corrected legacy charset-selection mapping."
           : "") +
@@ -9132,11 +9220,16 @@ export function App() {
   const borderHex = ZX_BASE_COLORS[borderColor]?.normal ?? "#000000";
   const paletteArtifactsReady = state.kind === "ready" && lastFinal !== null &&
     lastFinalCompletedAt !== null && sourceArtifact !== null;
+  const editedPaletteProjectReady = workspaceMode === "palette" &&
+    state.kind === "ready" && lastFinal !== null && sourceArtifact !== null &&
+    bitmapEditorResultEdited;
+  const draftProjectReady = workspaceMode === "palette" &&
+    draftState.kind === "ready" && image !== null && sourceArtifact !== null;
   const tilemapArtifactsReady = paletteArtifactsReady &&
     charsetState.kind === "ready" && !tilemapStale;
   const artifactsReady = workspaceMode === "tilemap"
     ? tilemapArtifactsReady
-    : paletteArtifactsReady;
+    : paletteArtifactsReady || editedPaletteProjectReady || draftProjectReady;
   const resultSaveReady = state.kind === "ready" && lastFinal !== null && sourceArtifact !== null;
   const glyphCharset = charsetState.kind === "ready"
     ? charsetState.result.charset
@@ -9921,7 +10014,7 @@ export function App() {
         onOpenPmd={importPmd85}
         onOpenProject={openProject}
         onImportProfile={importProfile}
-        onSaveProject={() => void exportProject()}
+        onSaveProject={openProjectSaveDialog}
         onExportPreview={exportPreviewPng}
         onExportGif={exportAnimatedFlashGif}
         onExportBinary={exportScr}
@@ -10033,6 +10126,7 @@ export function App() {
               : <span className="imported-file-name" title={sourceFileName}>
                   {sourceFileName}
                 </span>}
+            {sourceArtifact === null ? null : <span className="current-project-name" title={`Project: ${projectName}`}>{projectName}</span>}
             <span>{conversionStatusText}</span>
             <span className="source-format-status">
               {imageStatus}{image === null
@@ -10429,22 +10523,6 @@ export function App() {
               <legend>Background</legend>
               <input className="background-picker" type="color" aria-label="Background color" title="Choose background color; the color dialog supports manual RGB entry" value={rgbToHex(background)} onChange={(event) => { setBackground(hexToRgb(event.target.value)); setState({ kind: "idle" }); }} />
             </fieldset>
-            <label className="gif-border-control">
-              <span>GIF border (px)</span>
-              <input
-                type="number"
-                min="0"
-                max="256"
-                step="1"
-                value={gifBorderWidth}
-                aria-label="GIF border width in pixels"
-                title="Symmetric padding on each GIF edge; filled with the Geometry background color."
-                onChange={(event) => {
-                  const value = Number(event.target.value);
-                  if (Number.isInteger(value)) setGifBorderWidth(Math.max(0, Math.min(256, value)));
-                }}
-              />
-            </label>
           </div>
           </fieldset>
           </details>
@@ -12419,6 +12497,45 @@ export function App() {
             />
           </div>
         </form>
+
+        {projectSaveDialogOpen ? (
+          <div className="settings-modal-backdrop" role="presentation" onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setProjectSaveDialogOpen(false);
+          }}>
+            <form className="settings-modal project-save-modal" role="dialog" aria-modal="true" aria-labelledby="project-save-title" onSubmit={(event) => {
+              event.preventDefault();
+              void exportProject(projectNameDraft);
+            }} onKeyDown={(event) => {
+              if (event.key === "Escape") setProjectSaveDialogOpen(false);
+            }}>
+              <div className="settings-modal-header">
+                <div>
+                  <h2 id="project-save-title">Save project</h2>
+                  <p>Choose a name for the project file. The project will use this name after saving.</p>
+                </div>
+                <button className="secondary compact" type="button" aria-label="Close save project dialog" onClick={() => setProjectSaveDialogOpen(false)}>×</button>
+              </div>
+              <div className="project-save-content">
+                <label htmlFor="project-save-name">Project name</label>
+                <input
+                  id="project-save-name"
+                  autoFocus
+                  type="text"
+                  maxLength={120}
+                  value={projectNameDraft}
+                  onChange={(event) => setProjectNameDraft(event.target.value)}
+                  placeholder="Untitled project"
+                />
+                <p>The downloaded file will be named <strong>{sanitizeArtifactBaseName(normalizeProjectName(projectNameDraft))}.rccproject</strong>.</p>
+              </div>
+              <div className="settings-modal-actions">
+                <span className="action-spacer" aria-hidden="true" />
+                <button className="secondary" type="button" onClick={() => setProjectSaveDialogOpen(false)}>Cancel</button>
+                <button className="primary" type="submit" disabled={projectNameDraft.trim().length === 0}>Save Project</button>
+              </div>
+            </form>
+          </div>
+        ) : null}
 
         {zxPaletteEditorOpen && isZx ? (
           <ZxPaletteEditorDialog

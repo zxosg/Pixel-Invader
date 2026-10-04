@@ -20,6 +20,10 @@ export interface ApplicationSettings extends UiTypographySettings {
   readonly synchronizePan: boolean;
   readonly synchronizeZoom: boolean;
   readonly developmentMode: boolean;
+  readonly exportBorderEnabled: boolean;
+  readonly exportBorderWidth: number;
+  readonly exportBorderColor: { readonly r: number; readonly g: number; readonly b: number };
+  readonly exportZoomFactor: 1 | 2 | 3 | 4;
 }
 
 export interface ApplicationSettingsCatalog {
@@ -43,6 +47,10 @@ export const DEFAULT_APPLICATION_SETTINGS: ApplicationSettings = {
   synchronizePan: true,
   synchronizeZoom: true,
   developmentMode: false,
+  exportBorderEnabled: true,
+  exportBorderWidth: 32,
+  exportBorderColor: { r: 255, g: 255, b: 255 },
+  exportZoomFactor: 1,
 };
 
 const FRAMINGS = new Set(["fill", "fit", "crop", "stretch"]);
@@ -90,6 +98,19 @@ export function validateApplicationSettings(value: unknown): ApplicationSettings
         ? DEFAULT_APPLICATION_SETTINGS.developmentMode
         : value.showCompareEngines
       : value.developmentMode,
+    exportBorderEnabled: typeof value.exportBorderEnabled === "boolean"
+      ? value.exportBorderEnabled
+      : DEFAULT_APPLICATION_SETTINGS.exportBorderEnabled,
+    exportBorderWidth: typeof value.exportBorderWidth === "number" && Number.isInteger(value.exportBorderWidth) && value.exportBorderWidth >= 0 && value.exportBorderWidth <= 256
+      ? value.exportBorderWidth
+      : DEFAULT_APPLICATION_SETTINGS.exportBorderWidth,
+    exportBorderColor: isRecord(value.exportBorderColor) &&
+      [value.exportBorderColor.r, value.exportBorderColor.g, value.exportBorderColor.b].every((channel) => typeof channel === "number" && Number.isInteger(channel) && channel >= 0 && channel <= 255)
+      ? { r: value.exportBorderColor.r as number, g: value.exportBorderColor.g as number, b: value.exportBorderColor.b as number }
+      : DEFAULT_APPLICATION_SETTINGS.exportBorderColor,
+    exportZoomFactor: value.exportZoomFactor === 1 || value.exportZoomFactor === 2 || value.exportZoomFactor === 3 || value.exportZoomFactor === 4
+      ? value.exportZoomFactor
+      : DEFAULT_APPLICATION_SETTINGS.exportZoomFactor,
   };
 }
 
@@ -119,6 +140,10 @@ export function saveApplicationSettings(storage: Storage, settings: ApplicationS
       synchronizePan: settings.synchronizePan,
       synchronizeZoom: settings.synchronizeZoom,
       developmentMode: settings.developmentMode,
+      exportBorderEnabled: settings.exportBorderEnabled,
+      exportBorderWidth: settings.exportBorderWidth,
+      exportBorderColor: settings.exportBorderColor,
+      exportZoomFactor: settings.exportZoomFactor,
       uiFontFamily: settings.uiFontFamily,
       windowTitleFontSize: settings.windowTitleFontSize,
       windowTitleFontWeight: settings.windowTitleFontWeight,

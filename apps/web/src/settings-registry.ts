@@ -17,7 +17,8 @@ export type SettingCategory =
   | "adjustments"
   | "palette"
   | "editor"
-  | "appearance";
+  | "appearance"
+  | "export";
 
 export type SettingScope = "application" | "conversion" | "project";
 export type SettingPresetId =
@@ -96,11 +97,16 @@ const categories: Record<SettingCategory, string> = {
   startup: "Startup", workspace: "Workspace", mouse: "Mouse behavior", dithering: "Dithering",
   geometry: "Geometry", adjustments: "Image adjustments", palette: "Palette and attributes", editor: "Editor",
   appearance: "Appearance",
+  export: "Export",
 };
 
 export const SETTING_CATEGORIES = categories;
 
 export const SETTINGS_REGISTRY: readonly SettingDefinition[] = [
+  { id: "exportBorderEnabled", category: "export", label: "GIF border", description: "Add a symmetric border to GIF exports. This is an export-only preference and does not run conversion.", scope: "application", control: { kind: "boolean" }, defaultValue: true, validate: bool, keywords: ["gif", "padding", "frame"] },
+  { id: "exportBorderWidth", category: "export", label: "GIF border width", description: "Border width in source pixels on each edge when GIF border is enabled.", scope: "application", control: { kind: "number", min: 0, max: 256, step: 1 }, defaultValue: 32, validate: integerNumber(0, 256), isEnabled: (values) => values.exportBorderEnabled === true, disabledReason: "Available when GIF border is enabled.", keywords: ["gif", "padding"] },
+  { id: "exportBorderColor", category: "export", label: "GIF border color", description: "Fill color for the GIF-only border. Independent of Geometry background and does not run conversion.", scope: "application", control: { kind: "color" }, defaultValue: { r: 255, g: 255, b: 255 }, validate: rgbColor, isEnabled: (values) => values.exportBorderEnabled === true, disabledReason: "Available when GIF border is enabled.", keywords: ["gif", "padding", "background"] },
+  { id: "exportZoomFactor", category: "export", label: "Export image zoom", description: "Magnify PNG and GIF exports by repeating each source pixel without smoothing.", scope: "application", control: { kind: "select", options: [{ value: 1, label: "1×" }, { value: 2, label: "2×" }, { value: 3, label: "3×" }, { value: 4, label: "4×" }] }, defaultValue: 1, validate: oneOf([1, 2, 3, 4] as const, 1), keywords: ["png", "gif", "scale", "nearest neighbor", "pixel multiplication"] },
   { id: "profileId", category: "startup", label: "Profile", description: "The conversion profile used at startup.", scope: "application", control: { kind: "select", options: [] }, optionProvider: "profiles", defaultValue: "org.retroconverter.zx48.default", validate: text, keywords: ["startup", "target"] },
   { id: "presetId", category: "startup", label: "Preset", description: "A curated conversion recipe for the selected profile.", scope: "application", control: { kind: "select", options: [] }, optionProvider: "presets", defaultValue: "default", validate: text, keywords: ["recipe"] },
   { id: "modeId", category: "startup", label: "Hardware mode", description: "The target hardware mode used for new conversions.", scope: "application", control: { kind: "select", options: [] }, optionProvider: "modes", defaultValue: "zx48-standard-256x192", validate: text, keywords: ["target", "hardware"] },

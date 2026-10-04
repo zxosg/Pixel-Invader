@@ -120,7 +120,7 @@ describe("completed project containers", () => {
     const second = await createCompletedProject(projectInput());
     expect(first).toEqual(second);
     const validated = await validateCompletedProject(first);
-    expect(validated.manifest.schema_version).toBe("13.0.0");
+    expect(validated.manifest.schema_version).toBe("14.0.0");
     expect(validated.sourcePath).toBe("source/original.png");
     expect(validated.settings).toEqual(DEFAULT_CONVERSION_SETTINGS);
     expect(validated.scr).toEqual(projectInput().scr);
@@ -132,6 +132,46 @@ describe("completed project containers", () => {
     expect((await validateCompletedProject(edited)).resultEdited).toBe(true);
     const legacyCompatible = await createCompletedProject(projectInput());
     expect((await validateCompletedProject(legacyCompatible)).resultEdited).toBe(false);
+  });
+
+  it("preserves Draft provenance for manually edited quick-conversion results", async () => {
+    const project = await createCompletedProject({
+      ...projectInput(),
+      projectName: "Neon City",
+      resultQuality: "Draft",
+      resultEdited: true,
+    });
+    const settings = JSON.parse(projectDecoder.decode(unzipSync(project)["settings/conversion.json"]));
+    expect(settings.quality_level).toBe("Draft");
+    const validated = await validateCompletedProject(project);
+    expect(validated.resultQuality).toBe("Draft");
+    expect(validated.resultEdited).toBe(true);
+    expect(validated.projectName).toBe("Neon City");
+  });
+
+  it("preserves an unedited Quick result as the archived project snapshot", async () => {
+    const quickBytes = projectInput().scr.slice();
+    quickBytes[0] = 0x80;
+    const project = await createCompletedProject({
+      ...projectInput(),
+      scr: quickBytes,
+      frames: [quickBytes],
+      resultQuality: "Draft",
+    });
+    const validated = await validateCompletedProject(project);
+    expect(validated.resultQuality).toBe("Draft");
+    expect(validated.resultEdited).toBe(false);
+    expect(validated.frames[0]).toEqual(quickBytes);
+  });
+
+  it("normalizes saved project names and provides a fallback for older projects", async () => {
+    const named = await validateCompletedProject(await createCompletedProject({
+      ...projectInput(),
+      projectName: "  New\nProject  ",
+    }));
+    expect(named.projectName).toBe("NewProject");
+    const unnamed = await validateCompletedProject(await createCompletedProject(projectInput()));
+    expect(unnamed.projectName).toBe("Untitled project");
   });
 
   it("preserves editor-set ZX FLASH bits in completed project frames", async () => {
@@ -187,7 +227,7 @@ describe("completed project containers", () => {
       profile: QL_BUILT_IN_PROFILE,
     });
     const validated = await validateCompletedProject(project);
-    expect(validated.manifest.schema_version).toBe("13.0.0");
+    expect(validated.manifest.schema_version).toBe("14.0.0");
     expect(validated.settings).toEqual(settings);
     expect(validated.frames).toEqual([screen]);
   });
@@ -403,7 +443,7 @@ describe("completed project containers", () => {
     const validated = await validateCompletedProject(project);
 
     expect(validated.settings).toEqual(settings);
-    expect(validated.manifest.schema_version).toBe("13.0.0");
+    expect(validated.manifest.schema_version).toBe("14.0.0");
   });
 
   it.each(["auto", "checkerboard", "horizontal", "vertical"] as const)("round-trips artistic hybrid %s and seed metadata", async (artisticPattern) => {
@@ -461,7 +501,7 @@ describe("completed project containers", () => {
     const validated = await validateCompletedProject(project);
 
     expect(validated.settings).toEqual(settings);
-    expect(validated.manifest.schema_version).toBe("13.0.0");
+    expect(validated.manifest.schema_version).toBe("14.0.0");
   });
 
   it("round-trips the source-color-balanced structured Version 3 pair", async () => {
@@ -491,7 +531,7 @@ describe("completed project containers", () => {
     const validated = await validateCompletedProject(project);
 
     expect(validated.settings).toEqual(settings);
-    expect(validated.manifest.schema_version).toBe("13.0.0");
+    expect(validated.manifest.schema_version).toBe("14.0.0");
   });
 
   it("round-trips the topology-preserving structured Version 4 pair", async () => {
@@ -532,7 +572,7 @@ describe("completed project containers", () => {
     const validated = await validateCompletedProject(project);
 
     expect(validated.settings).toEqual(settings);
-    expect(validated.manifest.schema_version).toBe("13.0.0");
+    expect(validated.manifest.schema_version).toBe("14.0.0");
   });
 
   it("round-trips non-neutral filters and attribute smoothing", async () => {

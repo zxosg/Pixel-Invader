@@ -1737,21 +1737,6 @@ h1 {
   cursor: pointer;
 }
 
-.gif-border-control {
-  display: grid;
-  min-width: 0;
-  align-content: start;
-  gap: 0.2rem;
-  color: #d6deea;
-  font-size: var(--ui-label-font-size);
-  font-weight: 700;
-}
-
-.gif-border-control input {
-  width: 5rem;
-  min-width: 0;
-}
-
 .adjustment-control {
   display: grid;
   grid-column: 1 / -1;
@@ -4935,6 +4920,43 @@ input[type="range"] {
   border: 1px solid var(--line, #4f75a2);
   border-radius: .6rem;
   box-shadow: 0 1rem 4rem rgb(0 0 0 / 45%);
+}
+
+.project-save-modal {
+  width: min(34rem, 100%);
+  max-height: 92vh;
+  grid-template-rows: auto 1fr auto;
+}
+
+.project-save-content {
+  display: grid;
+  gap: .55rem;
+  padding: .25rem 1.25rem 1rem;
+}
+
+.project-save-content label {
+  font-weight: 700;
+}
+
+.project-save-content input {
+  width: 100%;
+  min-height: 2.5rem;
+  padding: .5rem .65rem;
+  color: var(--text, #eef4ff);
+  background: var(--input, #0b1320);
+  border: 1px solid var(--line, #4f75a2);
+  border-radius: .35rem;
+}
+
+.project-save-content p {
+  margin: 0;
+  font-size: .88rem;
+  opacity: .75;
+}
+
+.current-project-name {
+  color: var(--accent, #79baff);
+  font-weight: 700;
 }
 
 .settings-modal-header,
