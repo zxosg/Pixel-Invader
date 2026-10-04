@@ -904,6 +904,7 @@ interface RangeNumberControlProps {
   readonly min: number;
   readonly max: number;
   readonly unit?: string;
+  readonly resetValue?: number;
   readonly disabled?: boolean;
   readonly onChange: (value: number) => void;
   readonly onValidityChange: (id: string, valid: boolean) => void;
@@ -916,6 +917,7 @@ function RangeNumberControl({
   min,
   max,
   unit = "",
+  resetValue,
   disabled = false,
   onChange,
   onValidityChange,
@@ -940,9 +942,8 @@ function RangeNumberControl({
     onChange(next);
     onValidityChange(id, true);
   };
-  return (
-    <label>
-      <span>{label}</span>
+  const inputs = (
+    <>
       <span className="filter-inputs">
         <input
           aria-label={`${label} slider`}
@@ -991,7 +992,27 @@ function RangeNumberControl({
       {valid || disabled ? null : (
         <span className="field-error">Invalid value</span>
       )}
-    </label>
+    </>
+  );
+  if (resetValue === undefined) {
+    return <label><span>{label}</span>{inputs}</label>;
+  }
+  return (
+    <div className="range-number-control">
+      <button
+        className="range-number-label"
+        type="button"
+        disabled={disabled}
+        title={`Reset ${label}`}
+        aria-label={`Reset ${label} to ${resetValue}${unit}`}
+        onClick={() => {
+          setEntry(String(resetValue));
+          onChange(resetValue);
+          onValidityChange(id, true);
+        }}
+      >{label}</button>
+      {inputs}
+    </div>
   );
 }
 
@@ -1253,6 +1274,10 @@ export function App() {
   const [brightness, setBrightness] = useState(DEFAULT_CONVERSION_SETTINGS.brightness);
   const [contrast, setContrast] = useState(DEFAULT_CONVERSION_SETTINGS.contrast);
   const [saturation, setSaturation] = useState(DEFAULT_CONVERSION_SETTINGS.saturation);
+  const [hueShift, setHueShift] = useState(DEFAULT_CONVERSION_SETTINGS.hueShift ?? 0);
+  const [hslSaturation, setHslSaturation] = useState(DEFAULT_CONVERSION_SETTINGS.hslSaturation ?? 0);
+  const [lightness, setLightness] = useState(DEFAULT_CONVERSION_SETTINGS.lightness ?? 0);
+  const [colorize, setColorize] = useState(DEFAULT_CONVERSION_SETTINGS.colorize ?? false);
   const [gamma, setGamma] = useState(DEFAULT_CONVERSION_SETTINGS.gamma);
   const [smoothing, setSmoothing] = useState(DEFAULT_CONVERSION_SETTINGS.smoothing);
   const [sharpening, setSharpening] = useState(DEFAULT_CONVERSION_SETTINGS.sharpening);
@@ -3400,7 +3425,7 @@ export function App() {
     resultPreviewContent,
     tilemapStale, hideAttributes, selectedPlatformId, targetModeId,
     destinationGeometry.width, destinationGeometry.height,
-    isPmd, brightness, contrast, saturation, gamma, smoothing, sharpening,
+    isPmd, brightness, contrast, saturation, hueShift, hslSaturation, lightness, colorize, gamma, smoothing, sharpening,
     workbenchSourceFloating, workbenchResultFloating, workbenchPreviewLayer,
     workbenchWindowLayouts.source.dock, workbenchWindowLayouts.source.minimized,
     workbenchWindowLayouts.result.dock, workbenchWindowLayouts.result.minimized,
@@ -3540,7 +3565,7 @@ export function App() {
     bitmapEditorFlashPreviewMode, bitmapEditorFlashPreviewPhase,
     sourcePreviewContent, resultPreviewContent,
     tilemapStale, hideAttributes, qlMixedDisplayResolution,
-    brightness, contrast, saturation, gamma, smoothing, sharpening,
+    brightness, contrast, saturation, hueShift, hslSaturation, lightness, colorize, gamma, smoothing, sharpening,
     workbenchSourceFloating, workbenchResultFloating, workbenchPreviewLayer,
     workbenchWindowLayouts.source.dock, workbenchWindowLayouts.source.minimized,
     workbenchWindowLayouts.result.dock, workbenchWindowLayouts.result.minimized,
@@ -3863,7 +3888,12 @@ export function App() {
     cropAspectRatio,
     brightness,
     contrast,
+    // Preserve imported legacy Color Intensity values without exposing a duplicate control.
     saturation,
+    hueShift,
+    hslSaturation,
+    lightness,
+    colorize,
     gamma,
     smoothing,
     sharpening,
@@ -4066,7 +4096,7 @@ export function App() {
     mirrorVertical, fillOffsetX, fillOffsetY, panOffsetX, panOffsetY, panEdgeMode,
     cropX, cropY, cropWidth, cropHeight,
     cropAspectRatio,
-    brightness, contrast, saturation, gamma, smoothing, sharpening,
+    brightness, contrast, saturation, hueShift, hslSaturation, lightness, colorize, gamma, smoothing, sharpening,
     background, borderColor, attributeHeight, attributeSmoothing, attributeHaloInfluence,
     attributeHaloHorizontal, attributeHaloVertical,
     screenFlickerSuppression,
@@ -5799,6 +5829,10 @@ export function App() {
     setBrightness(next.brightness);
     setContrast(next.contrast);
     setSaturation(next.saturation);
+    setHueShift(next.hueShift ?? 0);
+    setHslSaturation(next.hslSaturation ?? 0);
+    setLightness(next.lightness ?? 0);
+    setColorize(next.colorize ?? false);
     setGamma(next.gamma);
     setSmoothing(next.smoothing ?? DEFAULT_CONVERSION_SETTINGS.smoothing);
     setSharpening(next.sharpening ?? DEFAULT_CONVERSION_SETTINGS.sharpening);
@@ -6309,7 +6343,7 @@ export function App() {
     downloadBytes(
       format === "json" ? benchmarkExportJson(document) : benchmarkExportCsv(document),
       format === "json" ? "application/json" : "text/csv",
-      `${sourceArtifact?.baseName ?? "benchmark"}-engine-benchmark.${format}`,
+      `${projectFileBaseName()}-engine-benchmark.${format}`,
     );
   }
 
@@ -8200,12 +8234,18 @@ export function App() {
     URL.revokeObjectURL(url);
   }
 
+  function projectFileBaseName(): string {
+    return sourceArtifact === null
+      ? "retro-converter"
+      : sanitizeArtifactBaseName(projectName || sourceArtifact.baseName);
+  }
+
   function exportCharsetArtifact(): void {
     if (charsetState.kind !== "ready" || sourceArtifact === null) return;
     downloadBytes(
       charsetState.result.artifact,
       "application/octet-stream",
-      `${sourceArtifact.baseName}-tilemap.bin`,
+      `${projectFileBaseName()}-tilemap.bin`,
     );
   }
 
@@ -8218,7 +8258,7 @@ export function App() {
     downloadBytes(
       charsetState.result.charset,
       "application/octet-stream",
-      `${sourceArtifact.baseName}-charset.chr`,
+      `${projectFileBaseName()}-charset.chr`,
     );
   }
 
@@ -8229,7 +8269,7 @@ export function App() {
     downloadBytes(
       png,
       "image/png",
-      `${sourceArtifact.baseName}-charset-preview.png`,
+      `${projectFileBaseName()}-charset-preview.png`,
     );
   }
 
@@ -8253,7 +8293,7 @@ export function App() {
     downloadBytes(
       bytes,
       "application/json",
-      `${sourceArtifact.baseName}-charset-diagnostics.json`,
+      `${projectFileBaseName()}-charset-diagnostics.json`,
     );
   }
 
@@ -8272,7 +8312,7 @@ export function App() {
           downloadBytes(
             frame.encoded,
             "application/octet-stream",
-            `${sourceArtifact.baseName}-screen-${index + 1}${
+            `${projectFileBaseName()}-screen-${index + 1}${
               lastFinal.modeId === "mode8-mode4-mixed-512x256"
                 ? index === 0 ? "-mode8" : "-mode4"
                 : ""
@@ -8281,7 +8321,7 @@ export function App() {
         }
       } else if (lastFinal.platformId === "pmd-85") {
         assertValidPmd85Screen(lastFinal.artifact);
-        downloadBytes(lastFinal.artifact, "application/octet-stream", "screen.bin");
+        downloadBytes(lastFinal.artifact, "application/octet-stream", `${projectFileBaseName()}.bin`);
       } else {
         for (const [index, frame] of lastFinal.frames.entries()) {
           assertValidSoftwareScr(frame.encoded, attributeHeight);
@@ -8289,8 +8329,8 @@ export function App() {
             frame.encoded,
             "application/octet-stream",
             lastFinal.frames.length > 1
-              ? `${sourceArtifact.baseName}-screen-${index + 1}.scr`
-              : `${sourceArtifact.baseName}.scr`,
+              ? `${projectFileBaseName()}-screen-${index + 1}.scr`
+              : `${projectFileBaseName()}.scr`,
           );
         }
       }
@@ -8321,7 +8361,7 @@ export function App() {
       downloadBytes(
         png,
         "image/png",
-        `${sourceArtifact.baseName}${
+        `${projectFileBaseName()}${
           lastFinal.frames.length > 1
             ? "-merged"
             : ""
@@ -8375,7 +8415,7 @@ export function App() {
       downloadBytes(
         gif,
         "image/gif",
-        `${sourceArtifact.baseName}${hasFlash ? "-flashing" : ""}-preview.gif`,
+        `${projectFileBaseName()}${hasFlash ? "-flashing" : ""}-preview.gif`,
       );
       setExportError(null);
     } catch (error: unknown) {
@@ -8443,7 +8483,7 @@ export function App() {
     if (sourceArtifact === null) return;
     try {
       const json = await createCurrentMetadataJson();
-      downloadBytes(json, "application/json", `${sourceArtifact.baseName}-metadata.json`);
+      downloadBytes(json, "application/json", `${projectFileBaseName()}-metadata.json`);
       setExportError(null);
     } catch (error: unknown) {
       setExportError(`Metadata export blocked: ${error instanceof Error ? error.message : "Generation failed."}`);
@@ -8470,7 +8510,7 @@ export function App() {
       downloadBytes(
         new TextEncoder().encode(`${JSON.stringify(report, null, 2)}\n`),
         "application/json",
-        `${sourceArtifact.baseName}-inspection.json`,
+        `${projectFileBaseName()}-inspection.json`,
       );
       setExportError(null);
     } catch (error: unknown) {
@@ -10599,16 +10639,23 @@ export function App() {
           <fieldset id="settings-adjustments" className={`adjustment-control control-group${settingsSection === "adjustments" ? " settings-focused" : ""}`}>
             <legend className="visually-hidden">Image adjustments</legend>
             <div className="control-row control-row-2">
-            <RangeNumberControl id="brightness" label="Brightness" value={brightness} min={-100} max={100} onChange={(value) => { setBrightness(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
-            <RangeNumberControl id="contrast" label="Contrast" value={contrast} min={-100} max={100} onChange={(value) => { setContrast(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
+            <RangeNumberControl id="brightness" label="Brightness" value={brightness} min={-100} max={100} resetValue={0} onChange={(value) => { setBrightness(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
+            <RangeNumberControl id="contrast" label="Contrast" value={contrast} min={-100} max={100} resetValue={0} onChange={(value) => { setContrast(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
             </div>
             <div className="control-row control-row-2">
-            <RangeNumberControl id="saturation" label="Saturation" value={saturation} min={-100} max={100} onChange={(value) => { setSaturation(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
-            <RangeNumberControl id="gamma" label="Gamma" value={gamma} min={33} max={300} unit="%" onChange={(value) => { setGamma(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
+            <RangeNumberControl id="gamma" label="Gamma" value={gamma} min={10} max={300} unit="%" resetValue={100} onChange={(value) => { setGamma(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
             </div>
             <div className="control-row control-row-2">
-            <RangeNumberControl id="smoothing" label="Smoothing" value={smoothing} min={0} max={100} unit="%" onChange={(value) => { setSmoothing(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
-            <RangeNumberControl id="sharpening" label="Sharpening" value={sharpening} min={0} max={100} unit="%" onChange={(value) => { setSharpening(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
+            <RangeNumberControl id="hue-shift" label="Hue" value={hueShift} min={-180} max={180} unit="°" resetValue={0} onChange={(value) => { setHueShift(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
+            <RangeNumberControl id="hsl-saturation" label="Saturation" value={hslSaturation} min={-100} max={100} resetValue={0} onChange={(value) => { setHslSaturation(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
+            </div>
+            <div className="control-row control-row-2">
+            <RangeNumberControl id="lightness" label="HSL Lightness" value={lightness} min={-100} max={100} resetValue={0} onChange={(value) => { setLightness(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
+            <label className="check-control"><input id="colorize" type="checkbox" checked={colorize} onChange={(event) => { setColorize(event.target.checked); setState({ kind: "idle" }); }} /><span>Colorize</span></label>
+            </div>
+            <div className="control-row control-row-2">
+            <RangeNumberControl id="smoothing" label="Smoothing" value={smoothing} min={0} max={100} unit="%" resetValue={0} onChange={(value) => { setSmoothing(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
+            <RangeNumberControl id="sharpening" label="Sharpening" value={sharpening} min={0} max={100} unit="%" resetValue={0} onChange={(value) => { setSharpening(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
             </div>
             <div className="control-row control-row-2">
             </div>
@@ -10616,6 +10663,10 @@ export function App() {
               setBrightness(0);
               setContrast(0);
               setSaturation(0);
+              setHueShift(0);
+              setHslSaturation(0);
+              setLightness(0);
+              setColorize(false);
               setGamma(100);
               setSmoothing(0);
               setSharpening(0);

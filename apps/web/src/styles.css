@@ -73,6 +73,7 @@
 .workbench-workspace .control-row-5 { --control-columns: 5; }
 
 .workbench-workspace .control-row > label,
+.workbench-workspace .control-row > .range-number-control,
 .workbench-workspace .control-row > fieldset,
 .workbench-workspace .control-row > .dithering-parameter,
 .workbench-workspace .control-row > .dithering-composer-save-row,
@@ -1308,6 +1309,23 @@ input.invalid {
   min-width: 0;
   align-items: center;
   gap: 0.25rem;
+}
+
+.workbench-workspace .control-row > .check-control {
+  display: flex;
+  grid-row: span 2;
+  grid-template-rows: none;
+  align-self: center;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+}
+
+.workbench-workspace .control-row > .check-control input {
+  flex: 0 0 auto;
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
 }
 
 .saved-workspace-top-controls select {
@@ -2658,6 +2676,39 @@ h1 {
   grid-template-columns: minmax(0, 1fr) 3.1rem;
   align-items: center;
   gap: 0.25rem;
+}
+
+.range-number-control {
+  display: grid;
+  align-content: start;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.range-number-label {
+  width: max-content;
+  min-height: 0 !important;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font-family: inherit;
+  font-size: var(--ui-label-font-size);
+  font-weight: var(--ui-label-font-weight);
+  line-height: normal;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+}
+
+.range-number-label:hover:not(:disabled) {
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 0.2em;
+}
+
+.range-number-label:disabled {
+  cursor: default;
 }
 
 .controls .filter-inputs input[type="number"] {

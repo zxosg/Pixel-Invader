@@ -760,7 +760,11 @@ function validateSettings(value: unknown): value is ConversionSettings {
     integerRange(value.crop.width, 1, 65_536) &&
     integerRange(value.crop.height, 1, 65_536) &&
     integerRange(value.brightness, -100, 100) && integerRange(value.contrast, -100, 100) &&
-    integerRange(value.saturation, -100, 100) && integerRange(value.gamma, 33, 300) &&
+    integerRange(value.saturation, -100, 100) && integerRange(value.gamma, 10, 300) &&
+    (value.hueShift === undefined || integerRange(value.hueShift, -180, 180)) &&
+    (value.hslSaturation === undefined || integerRange(value.hslSaturation, -100, 100)) &&
+    (value.lightness === undefined || integerRange(value.lightness, -100, 100)) &&
+    (value.colorize === undefined || typeof value.colorize === "boolean") &&
     integerRange(value.smoothing, 0, 100) && integerRange(value.sharpening, 0, 100) &&
     [value.background.r, value.background.g, value.background.b].every((channel) => integerRange(channel, 0, 255)) &&
     integerRange(value.borderColor, 0, 7) &&
@@ -1037,6 +1041,10 @@ export async function parseImportedProfile(bytes: Uint8Array): Promise<Conversio
           panEdgeMode: raw.settings.panEdgeMode === undefined
             ? "background"
             : raw.settings.panEdgeMode,
+          hueShift: raw.settings.hueShift === undefined ? 0 : raw.settings.hueShift,
+          hslSaturation: raw.settings.hslSaturation === undefined ? 0 : raw.settings.hslSaturation,
+          lightness: raw.settings.lightness === undefined ? 0 : raw.settings.lightness,
+          colorize: raw.settings.colorize === undefined ? false : raw.settings.colorize,
           zxPalette: raw.settings.zxPalette === undefined
             ? DEFAULT_CONVERSION_SETTINGS.zxPalette
             : raw.settings.zxPalette,

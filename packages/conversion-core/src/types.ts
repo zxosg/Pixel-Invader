@@ -255,6 +255,14 @@ export interface ConversionSettings {
   readonly brightness: number;
   readonly contrast: number;
   readonly saturation: number;
+  /** HSL hue rotation in degrees. Optional for compatibility with older profiles. */
+  readonly hueShift?: number;
+  /** Additional HSL saturation adjustment, in percent. */
+  readonly hslSaturation?: number;
+  /** HSL lightness adjustment, in percent. */
+  readonly lightness?: number;
+  /** Use one shared hue for every chromatic pixel. */
+  readonly colorize?: boolean;
   readonly gamma: number;
   readonly smoothing: number;
   readonly sharpening: number;
@@ -496,6 +504,10 @@ export const DEFAULT_CONVERSION_SETTINGS: ConversionSettings = {
   brightness: 0,
   contrast: 0,
   saturation: 0,
+  hueShift: 0,
+  hslSaturation: 0,
+  lightness: 0,
+  colorize: false,
   gamma: 100,
   smoothing: 0,
   sharpening: 0,
