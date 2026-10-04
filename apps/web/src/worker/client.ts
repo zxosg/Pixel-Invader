@@ -23,7 +23,7 @@ import type {
 } from "@retro-converter/zx-charset";
 
 export interface WorkerDecodedImage {
-  readonly format: "png" | "jpeg" | "pmd85-bin";
+  readonly format: "png" | "jpeg" | "gif" | "pmd85-bin";
   readonly width: number;
   readonly height: number;
   readonly rgba: Uint8Array;
@@ -145,9 +145,9 @@ export class ConversionWorkerClient {
     });
   }
 
-  decodeImage(bytes: ArrayBuffer): Promise<WorkerDecodedImage> {
+  decodeImage(bytes: ArrayBuffer, frameIndex = 0): Promise<WorkerDecodedImage> {
     const jobId = crypto.randomUUID();
-    const request: ConversionWorkerRequest = { kind: "decode-image", jobId, bytes };
+    const request: ConversionWorkerRequest = { kind: "decode-image", jobId, bytes, frameIndex };
     return new Promise<ConversionWorkerSuccess>((resolve, reject) => {
       this.#pending.set(jobId, { resolve, reject });
       this.#worker.postMessage(request, [bytes]);

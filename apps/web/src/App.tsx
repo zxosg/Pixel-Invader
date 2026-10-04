@@ -20,7 +20,7 @@ import {
   zxBitmapOffset,
   zxSoftwareScrBytes,
 } from "@retro-converter/zx-spectrum";
-import { encodeRgbaPng, MAX_IMAGE_DIMENSION, MAX_IMAGE_PIXELS } from "@retro-converter/image-codecs";
+import { encodeRgbaPng, inspectGif, MAX_IMAGE_DIMENSION, MAX_IMAGE_PIXELS, sniffImageFormat } from "@retro-converter/image-codecs";
 import { addGifBorder, encodeAnimatedGif } from "./animated-gif.js";
 import { scaleRgbaNearest } from "./export-image.js";
 import { assertValidQlScreen, type QlMode } from "@retro-converter/sinclair-ql";
@@ -1233,8 +1233,15 @@ export function App() {
   const [selectedPresetId, setSelectedPresetId] = useState(startupApplicationSettings.presetId);
   const [image, setImage] = useState<WorkerDecodedImage | null>(null);
   const [originalImage, setOriginalImage] = useState<WorkerDecodedImage | null>(null);
+  const [sourceFrameIndex, setSourceFrameIndex] = useState(0);
   const [sourceFileName, setSourceFileName] = useState<string | null>(null);
-  const [imageStatus, setImageStatus] = useState("Choose a PNG or JPEG image.");
+  const [imageStatus, setImageStatus] = useState("Choose a PNG, JPEG, or GIF image.");
+  const [gifFrameSelection, setGifFrameSelection] = useState<{
+    readonly file: File;
+    readonly bytes: Uint8Array;
+    readonly frameCount: number;
+    readonly frameEntry: string;
+  } | null>(null);
   const [framing, setFraming] = useState<FramingMode>(startupApplicationSettings.framing);
   const [resampling, setResampling] = useState<ResamplingMethod>(DEFAULT_CONVERSION_SETTINGS.resampling);
   const [rotation, setRotation] = useState<Rotation>(DEFAULT_CONVERSION_SETTINGS.rotation);
@@ -3658,6 +3665,7 @@ export function App() {
       };
       setPmd85GapPolicy("preserve-imported");
       setResultOrigin("direct-import");
+      setSourceFrameIndex(0);
       setSourceFileName(file.name);
       setProjectName(normalizeProjectName(sanitizeArtifactBaseName(file.name)));
       setSourceArtifact({
@@ -3686,39 +3694,56 @@ export function App() {
   async function importImage(file: File | undefined) {
     if (file === undefined) return;
     if (dirty && !window.confirm("Replace the current unsaved work with this image?")) return;
-    // A newly loaded source must start fitted to the available preview window,
-    // regardless of the zoom used for the previous image or editor view.
-    setSourcePreviewZoom("fit");
+    setImageStatus(`Reading ${file.name}…`);
+    try {
+      const sourceBytes = new Uint8Array(await file.arrayBuffer());
+      const format = sniffImageFormat(sourceBytes);
+      if (format === "gif") {
+        const gif = inspectGif(sourceBytes);
+        if (gif.frameCount > 1) {
+          setGifFrameSelection({ file, bytes: sourceBytes, frameCount: gif.frameCount, frameEntry: "1" });
+          setImageStatus(`Animated GIF · ${gif.frameCount} frames · choose a frame to import.`);
+          return;
+        }
+      }
+      await finishImageImport(file, sourceBytes, 0);
+    } catch (error: unknown) {
+      setImageStatus(`Invalid image: ${error instanceof Error ? error.message : "Unknown error."}`);
+    }
+  }
+
+  async function finishImageImport(file: File, sourceBytes: Uint8Array, frameIndex: number) {
     const worker = workerRef.current;
     if (worker === null) {
       setImageStatus("Failed: conversion worker is unavailable.");
       return;
     }
-    setImage(null);
-    setOriginalImage(null);
-    bitmapEditorFullBufferRef.current = null;
-    bitmapEditorEncodedRef.current = null;
-    setBitmapEditorBuffer(null);
-    setBitmapEditorUndoFull([]);
-    setBitmapEditorRedoFull([]);
-    setBitmapEditorRevertSource(null);
-    resetResultEditorState();
-    setBitmapEditorSourceColor(null);
-    setState({ kind: "idle" });
-    setDraftState({ kind: "idle" });
-    setLastFinal(null);
-    setLastFinalCompletedAt(null);
-    setSourceArtifact(null);
-    setSourceFileName(file.name);
-    setExportError(null);
-    setBenchmarkRows([]);
-    lastFinalRevisionRef.current = -1;
+    // A newly loaded source must start fitted to the available preview window,
+    // regardless of the zoom used for the previous image or editor view.
+    setSourcePreviewZoom("fit");
     setImageStatus(`Validating and decoding ${file.name} in worker…`);
     try {
-      const bytes = await file.arrayBuffer();
-      const sourceBytes = Uint8Array.from(new Uint8Array(bytes));
       const sourceSha256 = await sha256Hex(sourceBytes);
-      const decoded = await worker.decodeImage(bytes);
+      const decoded = await worker.decodeImage(sourceBytes.slice().buffer, frameIndex);
+      setImage(null);
+      setOriginalImage(null);
+      bitmapEditorFullBufferRef.current = null;
+      bitmapEditorEncodedRef.current = null;
+      setBitmapEditorBuffer(null);
+      setBitmapEditorUndoFull([]);
+      setBitmapEditorRedoFull([]);
+      setBitmapEditorRevertSource(null);
+      resetResultEditorState();
+      setBitmapEditorSourceColor(null);
+      setState({ kind: "idle" });
+      setDraftState({ kind: "idle" });
+      setLastFinal(null);
+      setLastFinalCompletedAt(null);
+      setSourceArtifact(null);
+      setSourceFileName(file.name);
+      setExportError(null);
+      setBenchmarkRows([]);
+      lastFinalRevisionRef.current = -1;
       setFillOffsetX(null);
       setFillOffsetY(null);
       const decodedSize = orientedSourceSize(decoded.width, decoded.height, rotation);
@@ -3731,6 +3756,7 @@ export function App() {
       setCropSelectionActive(true);
       setImage(decoded);
       setOriginalImage({ ...decoded, rgba: decoded.rgba.slice() });
+      setSourceFrameIndex(frameIndex);
       setResultOrigin("converted");
       setDirty(true);
       setProjectName(normalizeProjectName(sanitizeArtifactBaseName(file.name)));
@@ -3740,11 +3766,25 @@ export function App() {
         bytes: sourceBytes,
       });
       setImageStatus(
-        `Accepted ${decoded.format.toUpperCase()} · ${decoded.width} × ${decoded.height} · ${decoded.rgba.length.toLocaleString()} RGBA bytes.`,
+        `Accepted ${decoded.format.toUpperCase()}${decoded.format === "gif" ? ` frame ${frameIndex + 1}` : ""} · ${decoded.width} × ${decoded.height} · ${decoded.rgba.length.toLocaleString()} RGBA bytes.`,
       );
     } catch (error: unknown) {
       setImageStatus(`Invalid image: ${error instanceof Error ? error.message : "Unknown error."}`);
     }
+  }
+
+  function importSelectedGifFrame(): void {
+    if (gifFrameSelection === null) return;
+    const frameNumber = Number(gifFrameSelection.frameEntry);
+    if (!Number.isInteger(frameNumber) || frameNumber < 1 || frameNumber > gifFrameSelection.frameCount) return;
+    const selection = gifFrameSelection;
+    setGifFrameSelection(null);
+    void finishImageImport(selection.file, selection.bytes, frameNumber - 1);
+  }
+
+  function cancelGifFrameSelection(): void {
+    setGifFrameSelection(null);
+    setImageStatus("GIF import canceled.");
   }
 
   async function importClipboardImage(): Promise<void> {
@@ -8553,6 +8593,7 @@ export function App() {
       const project = await createCompletedProject({
         sourceBytes: sourceArtifact.bytes,
         sourceFormat: (originalImage ?? image).format,
+        sourceFrameIndex,
         resultOrigin,
         settings: conversionSettings,
         scr: projectResult.scr,
@@ -8719,7 +8760,7 @@ export function App() {
               },
             );
       } else {
-        decoded = await verifier.decodeImage(Uint8Array.from(sourceBytes).buffer);
+        decoded = await verifier.decodeImage(Uint8Array.from(sourceBytes).buffer, validated.sourceFrameIndex);
         workingDecoded = validated.workingSourcePng === undefined
           ? decoded
           : await verifier.decodeImage(Uint8Array.from(validated.workingSourcePng).buffer);
@@ -9004,6 +9045,7 @@ export function App() {
       }
       setImage(workingDecoded);
       setOriginalImage({ ...decoded, rgba: decoded.rgba.slice() });
+      setSourceFrameIndex(validated.sourceFrameIndex);
       if (validated.workingSourcePng !== undefined && !recoveredWorkingSource) {
         setBitmapEditorRevertSource({ ...decoded, rgba: decoded.rgba.slice() });
         bitmapEditorFullBufferRef.current = {
@@ -12548,6 +12590,45 @@ export function App() {
             />
           </div>
         </form>
+
+        {gifFrameSelection !== null ? (
+          <div className="settings-modal-backdrop" role="presentation" onMouseDown={(event) => {
+            if (event.target === event.currentTarget) cancelGifFrameSelection();
+          }}>
+            <form className="settings-modal project-save-modal" role="dialog" aria-modal="true" aria-labelledby="gif-frame-title" onSubmit={(event) => {
+              event.preventDefault();
+              importSelectedGifFrame();
+            }} onKeyDown={(event) => {
+              if (event.key === "Escape") cancelGifFrameSelection();
+            }}>
+              <div className="settings-modal-header">
+                <div>
+                  <h2 id="gif-frame-title">Choose GIF frame</h2>
+                  <p>{gifFrameSelection.file.name} contains {gifFrameSelection.frameCount} frames. Choose the frame to import.</p>
+                </div>
+              </div>
+              <div className="project-save-content">
+                <label htmlFor="gif-frame-number">Frame number</label>
+                <input
+                  id="gif-frame-number"
+                  autoFocus
+                  type="number"
+                  min={1}
+                  max={gifFrameSelection.frameCount}
+                  step={1}
+                  value={gifFrameSelection.frameEntry}
+                  onChange={(event) => setGifFrameSelection((current) => current === null ? null : { ...current, frameEntry: event.target.value })}
+                />
+                <p>Choose a frame from 1 to {gifFrameSelection.frameCount}.</p>
+              </div>
+              <div className="settings-modal-actions">
+                <span className="action-spacer" aria-hidden="true" />
+                <button className="secondary" type="button" onClick={cancelGifFrameSelection}>Cancel</button>
+                <button className="primary" type="submit" disabled={!/^\d+$/.test(gifFrameSelection.frameEntry) || Number(gifFrameSelection.frameEntry) < 1 || Number(gifFrameSelection.frameEntry) > gifFrameSelection.frameCount}>Import Frame</button>
+              </div>
+            </form>
+          </div>
+        ) : null}
 
         {projectSaveDialogOpen ? (
           <div className="settings-modal-backdrop" role="presentation" onMouseDown={(event) => {

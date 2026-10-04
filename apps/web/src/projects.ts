@@ -13,6 +13,7 @@ import { APPLICATION_VERSION, sha256Hex } from "./artifacts.js";
 import { assertValidQlScreen } from "@retro-converter/sinclair-ql";
 import { assertValidSoftwareScr } from "@retro-converter/zx-spectrum";
 import { assertValidPmd85Screen } from "@retro-converter/pmd-85";
+import { inspectGif } from "@retro-converter/image-codecs";
 import type {
   CharsetAssignment,
   CharsetConversionOptions,
@@ -55,7 +56,8 @@ export function normalizeProjectName(value: string): string {
 
 export interface ProjectCreateInput {
   readonly sourceBytes: Uint8Array;
-  readonly sourceFormat: "png" | "jpeg" | "pmd85-bin";
+  readonly sourceFormat: "png" | "jpeg" | "gif" | "pmd85-bin";
+  readonly sourceFrameIndex?: number;
   readonly resultOrigin?: "direct-import" | "converted";
   readonly settings: ConversionSettings;
   readonly scr: Uint8Array;
@@ -91,7 +93,9 @@ export interface ValidatedProject {
   readonly profile: unknown;
   readonly projectName: string;
   readonly workspaceMode: WorkspaceConversionMode;
-  readonly sourceFormat: "png" | "jpeg" | "pmd85-bin";
+  readonly sourceFormat: "png" | "jpeg" | "gif" | "pmd85-bin";
+  /** Zero-based frame selected from an animated GIF source. */
+  readonly sourceFrameIndex: number;
   readonly resultOrigin: "direct-import" | "converted";
   readonly resultQuality: ProjectResultQuality;
   readonly workingSourcePng?: Uint8Array;
@@ -256,7 +260,7 @@ function assertTilemapSettings(
 export async function createCompletedProject(input: ProjectCreateInput): Promise<Uint8Array> {
   const sourcePath = input.sourceFormat === "pmd85-bin"
     ? "source/original.bin"
-    : `source/original.${input.sourceFormat === "png" ? "png" : "jpg"}`;
+    : `source/original.${input.sourceFormat === "png" ? "png" : input.sourceFormat === "jpeg" ? "jpg" : "gif"}`;
   const profileBytes = jsonBytes(input.profile);
   const settingsBytes = jsonBytes({
     schema_version: PROJECT_SCHEMA_VERSION,
@@ -275,6 +279,7 @@ export async function createCompletedProject(input: ProjectCreateInput): Promise
       conversion_mode: input.workspaceMode ?? "palette",
       project_name: normalizeProjectName(input.projectName ?? "Untitled project"),
       source_kind: input.sourceFormat === "pmd85-bin" ? "pmd85-bin" : "image",
+      source_frame_index: input.sourceFormat === "gif" ? input.sourceFrameIndex ?? 0 : 0,
       selected_interpretation: input.settings.platformId === "pmd-85"
         ? input.settings.modeId
         : null,
@@ -315,6 +320,8 @@ export async function createCompletedProject(input: ProjectCreateInput): Promise
       ? "image/png"
       : input.sourceFormat === "jpeg"
         ? "image/jpeg"
+        : input.sourceFormat === "gif"
+          ? "image/gif"
         : "application/octet-stream", "original-source"],
     "source/working.png": ["image/png", "working-source"],
     "profile/profile.json": ["application/json", "profile-snapshot"],
@@ -400,6 +407,7 @@ export async function validateCompletedProject(bytes: Uint8Array): Promise<Valid
   }
   const sourcePath = paths.find((path) =>
     path === "source/original.png" ||
+    path === "source/original.gif" ||
     path === "source/original.jpg" ||
     path === "source/original.bin"
   );
@@ -574,7 +582,20 @@ export async function validateCompletedProject(bytes: Uint8Array): Promise<Valid
   }
   const sourceFormat = sourcePath.endsWith(".bin")
     ? "pmd85-bin"
-    : sourcePath.endsWith(".png") ? "png" : "jpeg";
+    : sourcePath.endsWith(".png") ? "png" : sourcePath.endsWith(".gif") ? "gif" : "jpeg";
+  const sourceFrameIndex = workspaceDocument.source_frame_index === undefined
+    ? 0
+    : workspaceDocument.source_frame_index;
+  if (!Number.isInteger(sourceFrameIndex) || (sourceFrameIndex as number) < 0 ||
+      (sourceFormat !== "gif" && sourceFrameIndex !== 0)) {
+    throw new Error("PROJECT_SCHEMA_INVALID: source frame selection is invalid.");
+  }
+  if (sourceFormat === "gif") {
+    const gifInfo = inspectGif(files[sourcePath] ?? new Uint8Array());
+    if ((sourceFrameIndex as number) >= gifInfo.frameCount) {
+      throw new Error("PROJECT_SCHEMA_INVALID: selected GIF source frame is unavailable.");
+    }
+  }
   const resultOrigin = usesLegacyArtifactNames
     ? "converted"
     : workspaceDocument.result_origin;
@@ -719,6 +740,7 @@ export async function validateCompletedProject(bytes: Uint8Array): Promise<Valid
     projectName,
     workspaceMode,
     sourceFormat,
+    sourceFrameIndex: sourceFrameIndex as number,
     resultOrigin,
     resultQuality: resultQuality as ProjectResultQuality,
     resultEdited,

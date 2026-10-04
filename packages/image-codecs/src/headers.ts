@@ -1,9 +1,10 @@
 import { ImageImportError } from "./errors.js";
 import { parseExifOrientation, type ExifOrientation } from "./exif.js";
 import { isRecognizedSrgbIccProfile, isRecognizedSrgbPngIccp } from "./icc.js";
+import { inspectGif } from "./gif.js";
 import { MAX_METADATA_BYTES, validateImageLimits } from "./limits.js";
 
-export type ImageFormat = "png" | "jpeg";
+export type ImageFormat = "png" | "jpeg" | "gif";
 export interface ImageHeader {
   readonly format: ImageFormat;
   readonly width: number;
@@ -35,9 +36,13 @@ function enforceLimits(bytes: Uint8Array, width: number, height: number): void {
 export function sniffImageFormat(bytes: Uint8Array): ImageFormat {
   if (PNG_SIGNATURE.every((value, index) => bytes[index] === value)) return "png";
   if (bytes[0] === 0xff && bytes[1] === 0xd8) return "jpeg";
+  if (bytes.length >= 6) {
+    const signature = String.fromCharCode(...bytes.subarray(0, 6));
+    if (signature === "GIF87a" || signature === "GIF89a") return "gif";
+  }
   throw new ImageImportError(
     "IMAGE_UNSUPPORTED_FORMAT",
-    "Only PNG and JPEG image content is supported in v1.0.",
+    "Only PNG, JPEG, and GIF image content is supported.",
   );
 }
 
@@ -225,5 +230,9 @@ export function parseJpegHeader(bytes: Uint8Array): ImageHeader {
 }
 
 export function inspectImage(bytes: Uint8Array): ImageHeader {
-  return sniffImageFormat(bytes) === "png" ? parsePngHeader(bytes) : parseJpegHeader(bytes);
+  const format = sniffImageFormat(bytes);
+  if (format === "png") return parsePngHeader(bytes);
+  if (format === "jpeg") return parseJpegHeader(bytes);
+  const gif = inspectGif(bytes);
+  return { format: "gif", width: gif.width, height: gif.height, orientation: 1 };
 }

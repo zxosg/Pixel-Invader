@@ -102,7 +102,7 @@ export function canonicalJsonStringify(value: unknown): string {
 
 export interface MetadataInput {
   readonly sourceSha256: string;
-  readonly sourceFormat: "png" | "jpeg" | "pmd85-bin";
+  readonly sourceFormat: "png" | "jpeg" | "gif" | "pmd85-bin";
   readonly sourceWidth: number;
   readonly sourceHeight: number;
   readonly settings: ConversionSettings;

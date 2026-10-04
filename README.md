@@ -29,7 +29,7 @@ While the server is running, type `o` and press Return to open its current
 address again. Vite may choose another port when `5173` is already in use; the
 shortcut always opens the active address.
 
-Choose a PNG or JPEG, target profile, framing, resampling, palette, and dithering
+Choose a PNG, JPEG, or GIF, target profile, framing, resampling, palette, and dithering
 settings, then click **Convert High**. ZX profiles also provide attribute and
 BRIGHT controls; the Sinclair QL profile provides Low/Mode 8 and High/Mode 4,
 each as either a basic single-screen conversion or a two-screen mixed-color
@@ -97,7 +97,7 @@ pnpm build
 
 ## Current milestone
 
-The current vertical slice implements safe PNG/JPEG decoding, EXIF orientation,
+The current vertical slice implements safe PNG/JPEG/GIF decoding, EXIF orientation,
 deterministic Fit/Fill/Crop/Stretch framing with Fill focal positioning and
 nearest-neighbor, scale-aware anti-aliased bilinear, or scale-aware anti-aliased
 Lanczos-3 resampling (bilinear is the default),

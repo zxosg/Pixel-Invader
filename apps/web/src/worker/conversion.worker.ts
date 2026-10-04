@@ -201,7 +201,7 @@ worker.addEventListener(
         return;
       }
 
-      const decoded = decodeImage(new Uint8Array(request.bytes));
+      const decoded = decodeImage(new Uint8Array(request.bytes), request.frameIndex ?? 0);
       const rgba = Uint8Array.from(decoded.rgba).buffer;
       const response: ConversionWorkerResponse = {
         kind: "image-success",

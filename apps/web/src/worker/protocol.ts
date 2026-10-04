@@ -27,6 +27,7 @@ export interface DecodeImageRequest {
   readonly kind: "decode-image";
   readonly jobId: string;
   readonly bytes: ArrayBuffer;
+  readonly frameIndex?: number;
 }
 
 export interface DecodePmd85Request {
@@ -75,7 +76,7 @@ export interface CreateBlankScrSuccess {
 export interface DecodeImageSuccess {
   readonly kind: "image-success";
   readonly jobId: string;
-  readonly format: "png" | "jpeg";
+  readonly format: "png" | "jpeg" | "gif";
   readonly width: number;
   readonly height: number;
   readonly rgba: ArrayBuffer;

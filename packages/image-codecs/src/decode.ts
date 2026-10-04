@@ -6,6 +6,7 @@ import { decode as decodeJpeg } from "jpeg-js";
 import { ImageImportError } from "./errors.js";
 import { applyExifOrientation } from "./exif.js";
 import { inspectImage, type ImageFormat } from "./headers.js";
+import { decodeGifFrame } from "./gif.js";
 
 export interface DecodedImage {
   readonly format: ImageFormat;
@@ -87,9 +88,13 @@ function normalizePng(bytes: Uint8Array): { width: number; height: number; rgba:
   return { width: decoded.width, height: decoded.height, rgba };
 }
 
-export function decodeImage(bytes: Uint8Array): DecodedImage {
+export function decodeImage(bytes: Uint8Array, gifFrameIndex = 0): DecodedImage {
   const header = inspectImage(bytes);
   try {
+    if (header.format === "gif") {
+      const frame = decodeGifFrame(bytes, gifFrameIndex);
+      return { format: "gif", width: frame.width, height: frame.height, rgba: frame.rgba };
+    }
     const decoded = header.format === "png"
       ? normalizePng(bytes)
       : (() => {

@@ -326,7 +326,7 @@ export function WorkbenchMenuBar(props: WorkbenchMenuBarProps) {
         <span className="workbench-menu-summary-hardware">{props.workspaceMode === "tilemap" ? "ZX Spectrum" : HARDWARE_MODE_LABELS[props.targetModeId] ?? props.targetModeId}</span>
       </div>
 
-      <input ref={imageInputRef} className="workbench-menu-file-input" type="file" accept="image/png,image/jpeg,.png,.jpg,.jpeg" onChange={(event) => resetFileInput(event, props.onOpenImage)} />
+      <input ref={imageInputRef} className="workbench-menu-file-input" type="file" accept="image/png,image/jpeg,image/gif,.png,.jpg,.jpeg,.gif" onChange={(event) => resetFileInput(event, props.onOpenImage)} />
       <input ref={pmdInputRef} className="workbench-menu-file-input" type="file" accept="application/octet-stream,.bin" onChange={(event) => resetFileInput(event, props.onOpenPmd)} />
       <input ref={projectInputRef} className="workbench-menu-file-input" type="file" accept=".rccproject,application/zip" onChange={(event) => resetFileInput(event, props.onOpenProject)} />
       <input ref={profileInputRef} className="workbench-menu-file-input" type="file" accept="application/json,.json" onChange={(event) => resetFileInput(event, props.onImportProfile)} />
