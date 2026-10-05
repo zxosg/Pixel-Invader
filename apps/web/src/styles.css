@@ -183,14 +183,65 @@
 }
 
 .workbench-workspace .dithering-composer-grid .dithering-composer-save-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.4rem;
   min-width: 0;
-  align-items: end;
+  align-items: stretch;
 }
 
 .workbench-workspace .dithering-composer-grid .dithering-composer-save-row > button {
   width: 100%;
   min-width: 0;
+  min-height: var(--ui-control-height);
+}
+
+.workbench-workspace .dithering-composer-grid .destructive-action {
+  border-color: #8a5360;
+  color: #ffc3cd;
+}
+
+.workbench-workspace .dithering-composer-grid .destructive-action:hover:not(:disabled) {
+  border-color: #d98191;
+  background: #38202a;
+}
+
+.workbench-workspace .dithering-composer-grid .control-row > label > select,
+.workbench-workspace .dithering-composer-grid .control-row > label > input,
+.workbench-workspace .dithering-composer-grid .control-cell-body > select {
+  align-self: start;
+}
+
+.workbench-workspace .dithering-composer-grid .control-row > label > textarea {
+  min-height: 5.5rem;
+  align-self: stretch;
+}
+
+.workbench-workspace .dithering-composer-grid .dithering-composer-dimensions-fields {
+  grid-template-columns: repeat(2, minmax(0, 5.5rem));
+  width: min(100%, 11.5rem);
+  align-self: start;
+}
+
+.workbench-workspace .dithering-composer-grid .dithering-composer-dimensions-fields > input {
+  width: 100%;
+  height: var(--ui-control-height);
+  min-height: var(--ui-control-height);
+  box-sizing: border-box;
+}
+
+.workbench-workspace .dithering-composer-grid .dithering-composer-editor {
+  width: 100%;
+  height: 4rem;
+  min-height: 4rem;
+  max-height: 4rem;
+  box-sizing: border-box;
+  align-self: start;
+  resize: none;
+}
+
+.workbench-workspace .dithering-composer-grid .control-cell-body > .dithering-composer-editor {
+  display: block;
 }
 
 .workbench-workspace .dithering-composer-grid .dithering-composer-error {
@@ -4546,8 +4597,15 @@ input[type="range"] {
 
 .range-unit {
   color: #aeb9c8;
-  font-size: 0.7rem;
-  font-weight: 700;
+  font-size: var(--ui-label-font-size);
+  font-weight: var(--ui-label-font-weight);
+}
+
+.workbench-workspace .dithering-group .amount-control > legend,
+.workbench-workspace .dithering-group .dithering-parameter > label > span:first-child {
+  font-size: var(--ui-label-font-size);
+  font-weight: var(--ui-label-font-weight);
+  line-height: normal;
 }
 
 .dithering-method-control,

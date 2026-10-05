@@ -4,6 +4,20 @@ import { BUILT_IN_PROFILE, BUILT_IN_PROFILES, PMD85_PROFILE_ID, QL_PROFILE_ID } 
 import { canonicalizeSettingsForSave } from "./settings-save.js";
 
 describe("canonical Settings Save", () => {
+  it("persists the ZX mixed attribute-only setting", () => {
+    const result = canonicalizeSettingsForSave({
+      current: { ...DEFAULT_CONVERSION_SETTINGS, modeId: "zx48-mixed-256x192" },
+      profiles: BUILT_IN_PROFILES,
+      draft: {
+        profileId: BUILT_IN_PROFILE.id,
+        presetId: BUILT_IN_PROFILE.presets[0]!.id,
+        modeId: "zx48-mixed-256x192",
+        zxMixedAttributesOnly: true,
+      },
+    });
+    expect(result.conversion.zxMixedAttributesOnly).toBe(true);
+  });
+
   it("keeps export border and zoom preferences out of conversion settings", () => {
     const draft = {
       profileId: BUILT_IN_PROFILE.id,

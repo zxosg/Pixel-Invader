@@ -1303,6 +1303,9 @@ export function App() {
   const [screenFlickerSuppression, setScreenFlickerSuppression] = useState(
     DEFAULT_CONVERSION_SETTINGS.screenFlickerSuppression,
   );
+  const [zxMixedAttributesOnly, setZxMixedAttributesOnly] = useState(
+    DEFAULT_CONVERSION_SETTINGS.zxMixedAttributesOnly,
+  );
   const [qlMixedOptimizerId, setQlMixedOptimizerId] =
     useState<QlMixedOptimizerId>(
       DEFAULT_CONVERSION_SETTINGS.qlMixedOptimizerId,
@@ -3945,6 +3948,7 @@ export function App() {
     attributeHaloHorizontal,
     attributeHaloVertical,
     screenFlickerSuppression,
+    zxMixedAttributesOnly,
     paletteSelections,
     zxPalette: zxPaletteDefinition,
     dithering,
@@ -4140,6 +4144,7 @@ export function App() {
     background, borderColor, attributeHeight, attributeSmoothing, attributeHaloInfluence,
     attributeHaloHorizontal, attributeHaloVertical,
     screenFlickerSuppression,
+    zxMixedAttributesOnly,
     paletteSelections, zxPaletteDefinition, dithering, amount, errorDiffusionRandomization,
     errorDiffusionLineSuppression,
     orderedMatrix, artisticPattern, selectedProfileId, targetModeId, attributeOptimizerId,
@@ -5900,6 +5905,7 @@ export function App() {
       next.screenFlickerSuppression ??
       DEFAULT_CONVERSION_SETTINGS.screenFlickerSuppression,
     );
+    setZxMixedAttributesOnly(next.zxMixedAttributesOnly ?? false);
     setPaletteSelections(next.paletteSelections.map((selection) => ({
       ...selection,
       enabledColorIds: [...selection.enabledColorIds],
@@ -11042,6 +11048,24 @@ export function App() {
               </span>
             </label>
           ) : null}
+          {isZx && targetModeId === "zx48-mixed-256x192" ? (
+            <label>
+              <span>Mix attributes only</span>
+              <span>
+                <input
+                  type="checkbox"
+                  checked={zxMixedAttributesOnly}
+                  onChange={(event) => {
+                    setZxMixedAttributesOnly(event.target.checked);
+                    setState({ kind: "idle" });
+                  }}
+                />
+                <span className="control-help">
+                  Keep identical pixels on both screens; only screen attributes vary.
+                </span>
+              </span>
+            </label>
+          ) : null}
           {isPmd ? (
             <label className="pmd-palette-calibration">
               <span>Palette calibration</span>
@@ -11303,6 +11327,60 @@ export function App() {
               ))}
             </div>
           </fieldset>
+          {dithering === "error-diffusion" ? (
+            <label className="dithering-wide">
+              <span>Dither algorithm</span>
+              <select
+                value={ditherEngineId}
+                onChange={(event) => selectDitherEngine(event.target.value as DitherEngineId)}
+              >
+                {(() => {
+                  const compatible = DITHER_ENGINES.filter((engine) =>
+                    engine.method === "error-diffusion" &&
+                    isDitherEngineAvailableForSelection(
+                      selectedPlatformId,
+                      targetModeId,
+                      attributeOptimizerId,
+                      engine.id,
+                    )
+                  );
+                  const recommended = new Set<DitherEngineId>([
+                    "error-diffusion-decorrelated-v3",
+                    "error-diffusion-atkinson-v1",
+                    "error-diffusion-checker-artistic-v1",
+                  ]);
+                  return <>
+                    <optgroup label="Recommended">
+                      {compatible.filter((engine) => recommended.has(engine.id)).map((engine) =>
+                        <option key={engine.id} value={engine.id}>{engine.name}</option>)}
+                    </optgroup>
+                    <optgroup label="Alternatives and historical engines">
+                      {compatible.filter((engine) =>
+                        !recommended.has(engine.id) &&
+                        ditherEngineSelectionGroupForTarget(engine.id, targetModeId) !== "to-be-hidden" &&
+                        engine.lifecycle !== "experimental"
+                      ).map((engine) =>
+                        <option key={engine.id} value={engine.id}>{engine.name}</option>)}
+                    </optgroup>
+                    <optgroup label="Experimental engines">
+                      {compatible.filter((engine) =>
+                        !recommended.has(engine.id) &&
+                        ditherEngineSelectionGroupForTarget(engine.id, targetModeId) !== "to-be-hidden" &&
+                        engine.lifecycle === "experimental"
+                      ).map((engine) =>
+                        <option key={engine.id} value={engine.id}>{engine.name}</option>)}
+                    </optgroup>
+                    <optgroup label="To be hidden">
+                      {compatible.filter((engine) =>
+                        ditherEngineSelectionGroupForTarget(engine.id, targetModeId) === "to-be-hidden"
+                      ).map((engine) =>
+                        <option key={engine.id} value={engine.id}>{engine.name}</option>)}
+                    </optgroup>
+                  </>;
+                })()}
+              </select>
+            </label>
+          ) : null}
           {dithering !== "none" && dithering !== "error-diffusion" ? (
             <label className="dithering-wide">
               <span>Dither engine</span>
@@ -11480,16 +11558,29 @@ export function App() {
               </div>
               <div className="control-row control-row-2">
               <label>
-                <span>Custom matrix dimensions</span>
-                <div className="dithering-pair-fields">
+                <span>Custom matrix dimensions (width × height)</span>
+                <div className="dithering-pair-fields dithering-composer-dimensions-fields">
                   <input aria-label="Custom matrix width" type="number" min="1" max="8" step="1" value={customMatrixWidthEntry} onChange={(event) => setCustomMatrixWidthEntry(event.target.value)} />
                   <input aria-label="Custom matrix height" type="number" min="1" max="8" step="1" value={customMatrixHeightEntry} onChange={(event) => setCustomMatrixHeightEntry(event.target.value)} />
                 </div>
+              </label>
+              <div className="dithering-composer-spacer" aria-hidden="true" />
+              </div>
+              <div className="control-row control-row-2">
+              <label>
+                <span>Custom matrix ranks</span>
+                <textarea
+                  className="dithering-composer-editor"
+                  rows={4}
+                  value={customMatrixValuesEntry}
+                  onChange={(event) => setCustomMatrixValuesEntry(event.target.value)}
+                />
               </label>
               <label>
                 <span>Custom kernel entries</span>
                 <span className="control-cell-body">
                   <textarea
+                    className="dithering-composer-editor"
                     rows={4}
                     value={customKernelEntryText}
                     onChange={(event) => setCustomKernelEntryText(event.target.value)}
@@ -11498,23 +11589,11 @@ export function App() {
                 </span>
               </label>
               </div>
-              <div className="control-row control-row-2">
-              <label>
-                <span>Custom matrix ranks</span>
-                <textarea
-                  rows={3}
-                  value={customMatrixValuesEntry}
-                  onChange={(event) => setCustomMatrixValuesEntry(event.target.value)}
-                />
-              </label>
-              <div className="dithering-composer-spacer" aria-hidden="true" />
-              </div>
               <div className="control-row control-row-2 control-row-actions">
-              <div className="dithering-composer-save-row">
+              <div className="dithering-composer-save-row" role="group" aria-label="Custom matrix actions">
                 <button
                   className="secondary compact"
                   type="button"
-                  aria-label="Save custom matrix"
                   onClick={() => {
                     try {
                       const width = Number.parseInt(customMatrixWidthEntry, 10);
@@ -11533,12 +11612,25 @@ export function App() {
                     }
                   }}
                 >Save matrix</button>
+                <button
+                  className="secondary compact destructive-action"
+                  type="button"
+                  disabled={!composer.patternId.startsWith("custom-ordered-")}
+                  onClick={() => {
+                    const matrixId = composer.patternId;
+                    if (!matrixId.startsWith("custom-ordered-")) return;
+                    setCustomOrderedMatrices((current) => current.filter((matrix) => matrix.id !== matrixId));
+                    setComposer((current) => ({ ...current, patternId: "bayer-4x4" }));
+                    syncMatrixEditorFromSelection("bayer-4x4");
+                    setCustomPatternError(null);
+                    setState({ kind: "idle" });
+                  }}
+                >Delete matrix</button>
               </div>
-              <div className="dithering-composer-save-row">
+              <div className="dithering-composer-save-row" role="group" aria-label="Custom kernel actions">
                 <button
                   className="secondary compact"
                   type="button"
-                  aria-label="Save custom kernel"
                   onClick={() => {
                     try {
                       const entries = parseKernelEntries(customKernelEntryText);
@@ -11555,64 +11647,24 @@ export function App() {
                     }
                   }}
                 >Save kernel</button>
+                <button
+                  className="secondary compact destructive-action"
+                  type="button"
+                  disabled={!composer.propagationId.startsWith("custom-diffusion-")}
+                  onClick={() => {
+                    const kernelId = composer.propagationId;
+                    if (!kernelId.startsWith("custom-diffusion-")) return;
+                    setCustomDiffusionKernels((current) => current.filter((kernel) => kernel.id !== kernelId));
+                    setComposer((current) => ({ ...current, propagationId: "none" }));
+                    syncKernelEditorFromSelection("none");
+                    setCustomPatternError(null);
+                    setState({ kind: "idle" });
+                  }}
+                >Delete kernel</button>
               </div>
               </div>
               {customPatternError === null ? null : <span className="field-error dithering-composer-error">{customPatternError}</span>}
             </div>
-          ) : null}
-          {dithering === "error-diffusion" ? (
-            <label className="dithering-wide">
-              <span>Dither algorithm</span>
-              <select
-                value={ditherEngineId}
-                onChange={(event) => selectDitherEngine(event.target.value as DitherEngineId)}
-              >
-                {(() => {
-                  const compatible = DITHER_ENGINES.filter((engine) =>
-                    engine.method === "error-diffusion" &&
-                    isDitherEngineAvailableForSelection(
-                      selectedPlatformId,
-                      targetModeId,
-                      attributeOptimizerId,
-                      engine.id,
-                    )
-                  );
-                  const recommended = new Set<DitherEngineId>([
-                    "error-diffusion-decorrelated-v3",
-                    "error-diffusion-atkinson-v1",
-                    "error-diffusion-checker-artistic-v1",
-                  ]);
-                  return <>
-                    <optgroup label="Recommended">
-                      {compatible.filter((engine) => recommended.has(engine.id)).map((engine) =>
-                        <option key={engine.id} value={engine.id}>{engine.name}</option>)}
-                    </optgroup>
-                    <optgroup label="Alternatives and historical engines">
-                      {compatible.filter((engine) =>
-                        !recommended.has(engine.id) &&
-                        ditherEngineSelectionGroupForTarget(engine.id, targetModeId) !== "to-be-hidden" &&
-                        engine.lifecycle !== "experimental"
-                      ).map((engine) =>
-                        <option key={engine.id} value={engine.id}>{engine.name}</option>)}
-                    </optgroup>
-                    <optgroup label="Experimental engines">
-                      {compatible.filter((engine) =>
-                        !recommended.has(engine.id) &&
-                        ditherEngineSelectionGroupForTarget(engine.id, targetModeId) !== "to-be-hidden" &&
-                        engine.lifecycle === "experimental"
-                      ).map((engine) =>
-                        <option key={engine.id} value={engine.id}>{engine.name}</option>)}
-                    </optgroup>
-                    <optgroup label="To be hidden">
-                      {compatible.filter((engine) =>
-                        ditherEngineSelectionGroupForTarget(engine.id, targetModeId) === "to-be-hidden"
-                      ).map((engine) =>
-                        <option key={engine.id} value={engine.id}>{engine.name}</option>)}
-                    </optgroup>
-                  </>;
-                })()}
-              </select>
-            </label>
           ) : null}
           {dithering === "error-diffusion" ? (
             <div className="dithering-wide dithering-row dithering-row-paired control-row control-row-2">

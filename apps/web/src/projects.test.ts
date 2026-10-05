@@ -12,7 +12,7 @@ import { buildConversionMetadata, sha256Hex } from "./artifacts.js";
 const projectEncoder = new TextEncoder();
 const projectDecoder = new TextDecoder();
 
-async function asLegacySchema10(project: Uint8Array): Promise<Uint8Array> {
+async function asLegacySchema10(project: Uint8Array, omitMixedAttributesOnly = false): Promise<Uint8Array> {
   const files = unzipSync(project);
   files["artifacts/result.scr"] = files["artifacts/screen-1.bin"]!;
   delete files["artifacts/screen-1.bin"];
@@ -22,6 +22,7 @@ async function asLegacySchema10(project: Uint8Array): Promise<Uint8Array> {
   }
   const settings = JSON.parse(projectDecoder.decode(files["settings/conversion.json"]));
   settings.schema_version = "10.0.0";
+  if (omitMixedAttributesOnly) delete settings.settings.zxMixedAttributesOnly;
   files["settings/conversion.json"] = projectEncoder.encode(`${JSON.stringify(settings, null, 2)}\n`);
   delete files["manifest.json"];
   delete files["integrity/sha256.json"];
@@ -679,6 +680,7 @@ describe("completed project containers", () => {
       settings: {
         ...DEFAULT_CONVERSION_SETTINGS,
         modeId: "zx48-mixed-256x192" as const,
+        zxMixedAttributesOnly: true,
         paletteSelections: [
           { screenIndex: 0, enabledColorIds: [0, 2], brightMode: "off" as const },
           { screenIndex: 1, enabledColorIds: [4, 6], brightMode: "on" as const },
@@ -691,8 +693,11 @@ describe("completed project containers", () => {
     expect(Object.keys(unzipSync(project))).toHaveLength(10);
     const validated = await validateCompletedProject(project);
     expect(validated.settings.modeId).toBe("zx48-mixed-256x192");
+    expect(validated.settings.zxMixedAttributesOnly).toBe(true);
     expect(validated.settings.paletteSelections).toEqual(input.settings.paletteSelections);
     expect(validated.frames).toEqual([first, second]);
+    const legacy = await validateCompletedProject(await asLegacySchema10(project, true));
+    expect(legacy.settings.zxMixedAttributesOnly).toBe(false);
   });
 
   it("round-trips the experimental joint Mixed optimizer and dither engine", async () => {

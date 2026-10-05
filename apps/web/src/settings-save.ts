@@ -228,6 +228,7 @@ export function canonicalizeSettingsForSave({ draft, current, profiles }: Settin
     attributeHaloHorizontal: numberValue(draft, "attributeHaloHorizontal", base.attributeHaloHorizontal) as ConversionSettings["attributeHaloHorizontal"],
     attributeHaloVertical: numberValue(draft, "attributeHaloVertical", base.attributeHaloVertical) as ConversionSettings["attributeHaloVertical"],
     screenFlickerSuppression: booleanValue(draft, "screenFlickerSuppression", base.screenFlickerSuppression),
+    zxMixedAttributesOnly: booleanValue(draft, "zxMixedAttributesOnly", base.zxMixedAttributesOnly ?? false),
     dithering,
     ditheringAmount,
     errorDiffusionRandomization: numberValue(draft, "errorDiffusionRandomization", base.errorDiffusionRandomization),

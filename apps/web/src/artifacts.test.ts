@@ -250,6 +250,7 @@ describe("artifact helpers", () => {
       settings: {
         ...DEFAULT_CONVERSION_SETTINGS,
         modeId: "zx48-mixed-256x192",
+        zxMixedAttributesOnly: true,
         paletteSelections: [0, 1].map((screenIndex) => ({
           ...DEFAULT_CONVERSION_SETTINGS.paletteSelections[0]!,
           screenIndex,
@@ -264,7 +265,7 @@ describe("artifact helpers", () => {
 
     expect(metadata.target.frame_count).toBe(2);
     expect(metadata.zx_spectrum?.mixing)
-      .toBe("two-frame-rgb-average-50-50-floor");
+      .toBe("two-frame-shared-pixels-attribute-mix-rgb-average-50-50-v1");
     expect(metadata.zx_spectrum?.screen_flicker_suppression).toBe(true);
     expect(metadata.zx_spectrum?.frame_attributes_hex).toHaveLength(2);
     expect(metadata.preview.calibration).toBe("zx-two-frame-average-preview");

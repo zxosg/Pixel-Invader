@@ -274,6 +274,7 @@ export interface ConversionSettings {
   readonly attributeHaloHorizontal: AttributeHaloRadius;
   readonly attributeHaloVertical: AttributeHaloRadius;
   readonly screenFlickerSuppression: boolean;
+  readonly zxMixedAttributesOnly: boolean;
   readonly dithering: DitheringMethod;
   readonly ditheringAmount: number;
   readonly errorDiffusionRandomization: number;
@@ -519,6 +520,7 @@ export const DEFAULT_CONVERSION_SETTINGS: ConversionSettings = {
   attributeHaloHorizontal: 1,
   attributeHaloVertical: 0,
   screenFlickerSuppression: true,
+  zxMixedAttributesOnly: false,
   paletteSelections: [{
     screenIndex: 0,
     enabledColorIds: DEFAULT_ENABLED_PALETTE_COLORS,

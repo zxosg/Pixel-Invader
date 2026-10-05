@@ -138,6 +138,7 @@ export function buildJointMixedCandidates(
   firstPalette: readonly JointMixedPhysicalColor[],
   secondPalette: readonly JointMixedPhysicalColor[],
   virtualPalette: readonly TemporalVirtualColor[],
+  sharedPixelsOnly = false,
 ): readonly JointMixedCandidate[] {
   const firstPairs = attributePairs(firstPalette);
   const secondPairs = attributePairs(secondPalette);
@@ -160,7 +161,14 @@ export function buildJointMixedCandidates(
       if (blendPaletteIndices.some((index) => index === undefined)) {
         throw new RangeError("Temporal palette is missing a legal frame-color pair.");
       }
-      const key = candidateKey(blendPaletteIndices, virtualPalette);
+      const pairKey = (firstIndex: number, secondIndex: number) => [
+        colorKey(virtualPalette[firstIndex]!),
+        colorKey(virtualPalette[secondIndex]!),
+      ].sort().join("|");
+      const key = sharedPixelsOnly
+        ? [pairKey(blendPaletteIndices[0], blendPaletteIndices[3]), pairKey(blendPaletteIndices[1], blendPaletteIndices[2])]
+          .sort().join("||")
+        : candidateKey(blendPaletteIndices, virtualPalette);
       if (seen.has(key)) continue;
       seen.add(key);
       candidates.push({
@@ -827,11 +835,34 @@ export function convertJointMixedCells(
   source: Uint8Array,
   settings: ConversionSettings,
   virtualPalette: readonly TemporalVirtualColor[],
+  sharedPixelsOnly = false,
 ): JointMixedFrames {
   const cellHeight = settings.attributeHeight;
   const firstPalette = buildJointMixedPhysicalPalette(settings, 0);
   const secondPalette = buildJointMixedPhysicalPalette(settings, 1);
-  const candidates = buildJointMixedCandidates(firstPalette, secondPalette, virtualPalette);
+  const candidates = buildJointMixedCandidates(firstPalette, secondPalette, virtualPalette, sharedPixelsOnly)
+    .flatMap((candidate) => {
+      if (!sharedPixelsOnly) return [candidate];
+      const swapFirst = (attribute: number) =>
+        (attribute & 0xc0) | ((attribute & 0x07) << 3) | ((attribute >> 3) & 0x07);
+      return [
+        {
+          ...candidate,
+          blendPaletteIndices: [
+            candidate.blendPaletteIndices[0], candidate.blendPaletteIndices[0],
+            candidate.blendPaletteIndices[3], candidate.blendPaletteIndices[3],
+          ] as const,
+        },
+        {
+          ...candidate,
+          firstAttribute: swapFirst(candidate.firstAttribute),
+          blendPaletteIndices: [
+            candidate.blendPaletteIndices[2], candidate.blendPaletteIndices[2],
+            candidate.blendPaletteIndices[1], candidate.blendPaletteIndices[1],
+          ] as const,
+        },
+      ];
+    });
   const attributeRows = ZX_SCREEN_HEIGHT / cellHeight;
   let selected: readonly JointMixedCandidate[];
   const pixelOffsets = cellPixelOffsets(0, 0, cellHeight);
@@ -846,6 +877,12 @@ export function convertJointMixedCells(
       virtualPalette,
       rankQuantizedJointCellOptions,
     );
+  } else if (
+    settings.attributeOptimizerId === "zx-guide-reference-halo-v1" ||
+    settings.attributeOptimizerId === "zx-guide-reference-halo-v2" ||
+    settings.attributeOptimizerId === "zx-guide-reference-rgb-halo-v3"
+  ) {
+    selected = optimizeSpatiallyRegularizedCandidates(source, settings, candidates, virtualPalette);
   } else {
     const independentlySelected: JointMixedCandidate[] = new Array(attributeRows * ZX_ATTRIBUTE_COLUMNS);
     for (let cellY = 0; cellY < attributeRows; cellY += 1) {
@@ -891,8 +928,13 @@ export function convertJointMixedCells(
     );
     for (let pixel = 0; pixel < choices.length; pixel += 1) {
       const choice = choices[pixel] ?? 0;
-      firstPixels[pixel] = choice >= 2 ? 1 : 0;
-      secondPixels[pixel] = (choice & 1) === 1 ? 1 : 0;
+      if (sharedPixelsOnly) {
+        firstPixels[pixel] = choice >= 2 ? 1 : 0;
+        secondPixels[pixel] = firstPixels[pixel]!;
+      } else {
+        firstPixels[pixel] = choice >= 2 ? 1 : 0;
+        secondPixels[pixel] = (choice & 1) === 1 ? 1 : 0;
+      }
     }
   } else {
     const orderedLocalTone = settings.ditherEngineId === "ordered-local-tone-v3" ||
@@ -915,8 +957,13 @@ export function convertJointMixedCells(
           for (let localX = 0; localX < CELL_WIDTH; localX += 1) {
             const pixel = (cellY * cellHeight + localY) * ZX_SCREEN_WIDTH + cellX * CELL_WIDTH + localX;
             const choice = cellChoices[localY * CELL_WIDTH + localX] ?? 0;
-            firstPixels[pixel] = choice >= 2 ? 1 : 0;
-            secondPixels[pixel] = (choice & 1) === 1 ? 1 : 0;
+            if (sharedPixelsOnly) {
+              firstPixels[pixel] = choice >= 2 ? 1 : 0;
+              secondPixels[pixel] = firstPixels[pixel]!;
+            } else {
+              firstPixels[pixel] = choice >= 2 ? 1 : 0;
+              secondPixels[pixel] = (choice & 1) === 1 ? 1 : 0;
+            }
           }
         }
       }

@@ -774,6 +774,7 @@ function validateSettings(value: unknown): value is ConversionSettings {
     integerRange(value.attributeHaloHorizontal, 0, 2) &&
     integerRange(value.attributeHaloVertical, 0, 2) &&
     typeof value.screenFlickerSuppression === "boolean" &&
+    (value.zxMixedAttributesOnly === undefined || typeof value.zxMixedAttributesOnly === "boolean") &&
     Array.isArray(value.paletteSelections) &&
     value.paletteSelections.length === expectedPaletteSelections &&
     value.paletteSelections.every((selection, screenIndex) =>

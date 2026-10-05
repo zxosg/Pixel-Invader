@@ -139,6 +139,68 @@ function decodeSoftwareFrame(encoded: Uint8Array, attributeHeight: 1 | 2 | 4 | 8
 }
 
 describe("ZX Mixed joint-cell optimizer", () => {
+  it("keeps one shared bitmap across attribute heights, optimizers, and dither methods", () => {
+    const source = sourceGradient();
+    const run = (overrides: Partial<ConversionSettings>, attributeHeight: 1 | 2 | 4 | 8) => {
+      const result = convertToZx(source, 256, 192, mixedSettings({
+        ...overrides,
+        attributeHeight,
+        zxMixedAttributesOnly: true,
+        paletteSelections: [
+          { screenIndex: 0, enabledColorIds: [0, 2, 7], brightMode: "off" },
+          { screenIndex: 1, enabledColorIds: [1, 4, 6], brightMode: "on" },
+        ],
+      }));
+      expect(result.frames).toHaveLength(2);
+      expect(result.frames[0]!.paletteIndices).toEqual(result.frames[1]!.paletteIndices);
+      expect(result.pixels).toEqual(result.frames[0]!.paletteIndices);
+      const firstAttributes = result.frames[0]!.encoded.subarray(ZX_BITMAP_BYTES);
+      const secondAttributes = result.frames[1]!.encoded.subarray(ZX_BITMAP_BYTES);
+      for (let cell = 0; cell < firstAttributes.length; cell += 1) {
+        const colors = new Set<number>();
+        for (const attribute of [firstAttributes[cell]!, secondAttributes[cell]!]) {
+          const bright = (attribute & 0x40) === 0 ? 0 : 8;
+          colors.add(bright + (attribute & 7));
+          colors.add(bright + ((attribute >> 3) & 7));
+        }
+        expect(colors.size).toBeLessThanOrEqual(4);
+      }
+    };
+    for (const attributeHeight of [1, 2, 4, 8] as const) {
+      run({ attributeOptimizerId: "zx-mixed-joint-cell-v1", dithering: "none", ditheringAmount: 0 }, attributeHeight);
+    }
+    const ditherCases: readonly Partial<ConversionSettings>[] = [
+      { attributeOptimizerId: "zx-mixed-joint-cell-v2", dithering: "ordered", ditheringAmount: 70, ditherEngineId: "ordered-strict-matrix-v6" },
+      { attributeOptimizerId: "zx-mixed-joint-cell-v1", dithering: "error-diffusion", ditheringAmount: 70, ditherEngineId: "error-diffusion-checker-phase-v4-4", errorDiffusionLineSuppression: 100 },
+      { attributeOptimizerId: "zx-mixed-joint-quantized-v1", dithering: "error-diffusion", ditheringAmount: 70, ditherEngineId: "zx-mixed-dual-fs-v1", errorDiffusionLineSuppression: 100 },
+      { attributeOptimizerId: "zx-guide-reference-halo-v1", dithering: "ordered", ditheringAmount: 65, ditherEngineId: "ordered-strict-matrix-v6" },
+    ];
+    for (const overrides of ditherCases) run(overrides, 8);
+  }, 20_000);
+
+  it("retains separate screen attributes and applies flicker suppression without changing shared pixels", () => {
+    const result = convertToZx(sourceGradient(), 256, 192, mixedSettings({
+      zxMixedAttributesOnly: true,
+      screenFlickerSuppression: true,
+      paletteSelections: [
+        { screenIndex: 0, enabledColorIds: [0, 2, 7], brightMode: "off" },
+        { screenIndex: 1, enabledColorIds: [1, 4, 6], brightMode: "on" },
+      ],
+    }));
+    const firstAttributes = result.frames[0]!.encoded.subarray(ZX_BITMAP_BYTES);
+    const secondAttributes = result.frames[1]!.encoded.subarray(ZX_BITMAP_BYTES);
+    expect(firstAttributes).not.toEqual(secondAttributes);
+    expect(result.frames[0]!.encoded.subarray(0, ZX_BITMAP_BYTES))
+      .toEqual(result.frames[1]!.encoded.subarray(0, ZX_BITMAP_BYTES));
+  });
+
+  it("leaves the established mixed conversion path unchanged when attribute-only mode is off", () => {
+    const source = sourceGradient();
+    const implicit = convertToZx(source, 256, 192, mixedSettings());
+    const explicit = convertToZx(source, 256, 192, mixedSettings({ zxMixedAttributesOnly: false }));
+    expect(explicit.frames.map(({ encoded }) => encoded)).toEqual(implicit.frames.map(({ encoded }) => encoded));
+  });
+
   it.each([0, 60, 100])(
     "scores cell-local dual-FS candidates against a brute-force oracle at %i%%",
     (amount) => {

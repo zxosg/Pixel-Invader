@@ -276,7 +276,9 @@ export async function buildConversionMetadata(input: MetadataInput) {
       mixing: input.settings.modeId === "zx48-vertical-spatial-256x192"
         ? "vertical-spatial-static-50-50-linear-srgb-v1"
         : input.settings.modeId === "zx48-mixed-256x192"
-        ? "two-frame-rgb-average-50-50-floor"
+        ? input.settings.zxMixedAttributesOnly
+          ? "two-frame-shared-pixels-attribute-mix-rgb-average-50-50-v1"
+          : "two-frame-rgb-average-50-50-floor"
         : "none",
       screen_flicker_suppression:
         input.settings.modeId === "zx48-mixed-256x192"

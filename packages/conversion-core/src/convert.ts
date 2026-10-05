@@ -109,6 +109,212 @@ function squaredDistance(r: number, g: number, b: number, color: RgbColor): numb
   return dr * dr + dg * dg + db * db;
 }
 
+function sourcePixelIsSmoothRgba(
+  source: Uint8Array,
+  width: number,
+  height: number,
+  x: number,
+  y: number,
+): boolean {
+  const offset = (y * width + x) * 4;
+  for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]] as const) {
+    if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+    const neighbor = (ny * width + nx) * 4;
+    for (let channel = 0; channel < 3; channel += 1) {
+      if (Math.abs((source[offset + channel] ?? 0) - (source[neighbor + channel] ?? 0)) > 48) return false;
+    }
+  }
+  return true;
+}
+
+function sharedMixedPixels(
+  source: Uint8Array,
+  firstAttributes: Uint8Array,
+  secondAttributes: Uint8Array,
+  settings: ConversionSettings,
+  palette: ZxPalette,
+): Uint8Array {
+  const pixels = new Uint8Array(ZX_SCREEN_WIDTH * ZX_SCREEN_HEIGHT);
+  const errors = settings.dithering === "error-diffusion" && settings.ditheringAmount > 0
+    ? new Float32Array(ZX_SCREEN_WIDTH * ZX_SCREEN_HEIGHT * 3)
+    : null;
+  const scale = settings.ditheringAmount / 100;
+  const matrix = ORDERED_MATRICES[settings.orderedMatrix];
+  const firstColors = Array.from(firstAttributes, (attribute) => decodeAttribute(attribute, palette));
+  const secondColors = Array.from(secondAttributes, (attribute) => decodeAttribute(attribute, palette));
+  const decorrelated = settings.ditherEngineId === "error-diffusion-decorrelated-v3";
+  const atkinson = settings.ditherEngineId === "error-diffusion-atkinson-v1";
+  const phaseBalanced = [
+    "error-diffusion-phase-balanced-v3",
+    "error-diffusion-phase-balanced-checker-v3-2",
+    "error-diffusion-phase-balanced-checker-v3-3",
+  ].includes(settings.ditherEngineId);
+  const checkerPhase = [
+    "error-diffusion-checker-phase-v4",
+    "error-diffusion-checker-artistic-v1",
+  ].includes(settings.ditherEngineId);
+  const checkerPhaseV43 = settings.ditherEngineId === "error-diffusion-checker-phase-v4-3";
+  const checkerPhaseV5 = settings.ditherEngineId === "error-diffusion-checker-phase-v5";
+  const matrixGuided = settings.ditherEngineId === "error-diffusion-matrix-guided-v1";
+  const checkerCarrier = [
+    "error-diffusion-checker-phase-v4-4",
+    "error-diffusion-checker-phase-v4-5",
+    "error-diffusion-checker-phase-v4-5-1",
+    "error-diffusion-checker-artistic-v1",
+  ].includes(settings.ditherEngineId);
+  const checkerCarrierAmount = checkerCarrier && settings.ditheringAmount > 0
+    ? settings.ditheringAmount * checkerCarrierStrengthV44(100, settings.errorDiffusionLineSuppression)
+    : 0;
+  const dualFs = settings.ditherEngineId === "zx-mixed-dual-fs-v1";
+  const dualFsBoundary = settings.ditherEngineId === "zx-mixed-dual-fs-boundary-v1";
+  const cellPaletteMismatch = (firstCell: number, secondCell: number): number => {
+    const stateColors = (cell: number) => {
+      const first = firstColors[cell]!;
+      const second = secondColors[cell]!;
+      return [
+        [first.paper, second.paper],
+        [first.ink, second.ink],
+      ] as const;
+    };
+    const firstStates = stateColors(firstCell);
+    const secondStates = stateColors(secondCell);
+    const directionalGap = (from: typeof firstStates, to: typeof firstStates): number =>
+      from.reduce((sum, pair) => {
+        let nearest = Number.POSITIVE_INFINITY;
+        for (const other of to) {
+          const dr = (pair[0].r + pair[1].r - other[0].r - other[1].r) / 2;
+          const dg = (pair[0].g + pair[1].g - other[0].g - other[1].g) / 2;
+          const db = (pair[0].b + pair[1].b - other[0].b - other[1].b) / 2;
+          nearest = Math.min(nearest, dr * dr + dg * dg + db * db);
+        }
+        return sum + nearest / from.length;
+      }, 0);
+    const distanceSquared = (directionalGap(firstStates, secondStates) + directionalGap(secondStates, firstStates)) / 2;
+    return Math.min(1, Math.sqrt(distanceSquared / (3 * 255 * 255)));
+  };
+  const previousRowPixels = new Int8Array(ZX_SCREEN_WIDTH);
+  previousRowPixels.fill(-1);
+  const verticalRunLengths = new Uint8Array(ZX_SCREEN_WIDTH);
+  for (let y = 0; y < ZX_SCREEN_HEIGHT; y += 1) {
+    const reverse = errors !== null && (dualFs ? (y % settings.attributeHeight) & 1 : y & 1) === 1;
+    for (let step = 0; step < ZX_SCREEN_WIDTH; step += 1) {
+      const x = reverse ? ZX_SCREEN_WIDTH - 1 - step : step;
+      const pixel = y * ZX_SCREEN_WIDTH + x;
+      const offset = pixel * 4;
+      const errorOffset = pixel * 3;
+      const cell = Math.floor(y / settings.attributeHeight) * ZX_ATTRIBUTE_COLUMNS + Math.floor(x / CELL_WIDTH);
+      const first = firstColors[cell]!;
+      const second = secondColors[cell]!;
+      if (first?.paper === undefined || second?.paper === undefined) {
+        throw new RangeError(`Mixed shared-pixel attributes are invalid at cell ${cell}: ${firstAttributes[cell]}, ${secondAttributes[cell]}; palette sizes ${palette.normal.length}/${palette.bright.length}.`);
+      }
+      let r = source[offset] ?? 0;
+      let g = source[offset + 1] ?? 0;
+      let b = source[offset + 2] ?? 0;
+      if (errors !== null) {
+        const noise = decorrelated || ((phaseBalanced || checkerPhaseV5 || checkerPhaseV43 || matrixGuided) && settings.errorDiffusionLineSuppression > 0);
+        r = Math.max(0, Math.min(255, r + (errors[errorOffset] ?? 0) + (noise ? diffusionNoiseOffset(x, y, 0, settings.errorDiffusionRandomization, decorrelated ? 24 : 8) : 0)));
+        g = Math.max(0, Math.min(255, g + (errors[errorOffset + 1] ?? 0) + (noise ? diffusionNoiseOffset(x, y, 1, settings.errorDiffusionRandomization, decorrelated ? 24 : 8) : 0)));
+        b = Math.max(0, Math.min(255, b + (errors[errorOffset + 2] ?? 0) + (noise ? diffusionNoiseOffset(x, y, 2, settings.errorDiffusionRandomization, decorrelated ? 24 : 8) : 0)));
+        if (checkerCarrierAmount > 0) {
+          const carrierOffset = normalizedOrderedOffset(ORDERED_MATRICES["checkerboard-2x1"], x, y) * 128 * checkerCarrierAmount / 100;
+          r = Math.max(0, Math.min(255, r + carrierOffset));
+          g = Math.max(0, Math.min(255, g + carrierOffset));
+          b = Math.max(0, Math.min(255, b + carrierOffset));
+        }
+      } else if (settings.dithering === "ordered" && settings.ditheringAmount > 0) {
+        const perturbation = normalizedOrderedOffset(matrix, x, y) *
+          128 * settings.ditheringAmount / 100;
+        r = Math.max(0, Math.min(255, r + perturbation));
+        g = Math.max(0, Math.min(255, g + perturbation));
+        b = Math.max(0, Math.min(255, b + perturbation));
+      }
+      const paperCost = squaredDistance(r, g, b, first.paper) + squaredDistance(r, g, b, second.paper);
+      const inkCost = squaredDistance(r, g, b, first.ink) + squaredDistance(r, g, b, second.ink);
+      const ink = inkCost < paperCost;
+      pixels[pixel] = ink ? 1 : 0;
+      if (errors !== null) {
+        verticalRunLengths[x] = previousRowPixels[x] === Number(ink)
+          ? Math.min(255, (verticalRunLengths[x] ?? 0) + 1)
+          : 1;
+        previousRowPixels[x] = Number(ink);
+        const firstColor = ink ? first.ink : first.paper;
+        const secondColor = ink ? second.ink : second.paper;
+        const residual = [
+          r - (firstColor.r + secondColor.r) / 2,
+          g - (firstColor.g + secondColor.g) / 2,
+          b - (firstColor.b + secondColor.b) / 2,
+        ];
+        const direction = reverse ? -1 : 1;
+        const smooth = sourcePixelIsSmoothRgba(source, ZX_SCREEN_WIDTH, ZX_SCREEN_HEIGHT, x, y);
+        const neighbors = decorrelated
+          ? decorrelatedDiffusionKernel(direction)
+          : atkinson
+            ? atkinsonDiffusionKernel(direction)
+          : checkerPhaseV5 || matrixGuided
+            ? checkerPhaseV5DiffusionKernel(direction, x, y, settings.errorDiffusionLineSuppression, smooth ? verticalRunLengths[x] ?? 0 : 0)
+          : checkerPhaseV43
+            ? checkerPhaseV43DiffusionKernel(direction, x, y, settings.errorDiffusionLineSuppression, smooth ? verticalRunLengths[x] ?? 0 : 0)
+          : checkerPhase
+            ? checkerPhaseDiffusionKernel(direction, x, y, settings.errorDiffusionLineSuppression, smooth ? verticalRunLengths[x] ?? 0 : 0)
+          : phaseBalanced
+            ? phaseBalancedDiffusionKernel(direction, x, y, settings.errorDiffusionLineSuppression, smooth ? verticalRunLengths[x] ?? 0 : 0)
+          : reverse
+            ? [[-1, 0, 7], [1, 1, 3], [0, 1, 5], [-1, 1, 1]] as const
+            : [[1, 0, 7], [-1, 1, 3], [0, 1, 5], [1, 1, 1]] as const;
+        const denominator = decorrelated ? 42 : atkinson ? 8 : 16;
+        for (const [dx, dy, weight] of neighbors) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || nx >= ZX_SCREEN_WIDTH || ny >= ZX_SCREEN_HEIGHT) continue;
+          if (ny < 0) continue;
+          const currentCellX = Math.floor(x / CELL_WIDTH);
+          const currentCellY = Math.floor(y / settings.attributeHeight);
+          const nextCellX = Math.floor(nx / CELL_WIDTH);
+          const nextCellY = Math.floor(ny / settings.attributeHeight);
+          const crossedCell = currentCellX !== nextCellX || currentCellY !== nextCellY;
+          if (dualFs && crossedCell) continue;
+          const nextOffset = (ny * ZX_SCREEN_WIDTH + nx) * 3;
+          let transmission = 1;
+          if (dualFsBoundary && crossedCell) {
+            const currentCell = currentCellY * ZX_ATTRIBUTE_COLUMNS + currentCellX;
+            const nextCell = nextCellY * ZX_ATTRIBUTE_COLUMNS + nextCellX;
+            const sourceOffset = (y * ZX_SCREEN_WIDTH + x) * 4;
+            const neighborOffset = (ny * ZX_SCREEN_WIDTH + nx) * 4;
+            const sourceEdge = Math.hypot(
+              (source[sourceOffset] ?? 0) - (source[neighborOffset] ?? 0),
+              (source[sourceOffset + 1] ?? 0) - (source[neighborOffset + 1] ?? 0),
+              (source[sourceOffset + 2] ?? 0) - (source[neighborOffset + 2] ?? 0),
+            );
+            transmission = 1 - 0.75 * cellPaletteMismatch(currentCell, nextCell) * Math.min(1, sourceEdge / 96);
+          }
+          for (let channel = 0; channel < 3; channel += 1) {
+            errors[nextOffset + channel]! += residual[channel]! * weight / denominator * scale * transmission;
+          }
+        }
+      }
+    }
+  }
+  return pixels;
+}
+
+function suppressMixedAttributeFlicker(
+  firstAttributes: Uint8Array,
+  secondAttributes: Uint8Array,
+  attributeHeight: AttributeHeight,
+): void {
+  const attributeRows = ZX_SCREEN_HEIGHT / attributeHeight;
+  for (let cellY = 0; cellY < attributeRows; cellY += 1) {
+    for (let cellX = 0; cellX < ZX_ATTRIBUTE_COLUMNS; cellX += 1) {
+      if (((cellX + cellY) & 1) === 0) continue;
+      const offset = cellY * ZX_ATTRIBUTE_COLUMNS + cellX;
+      const attribute = firstAttributes[offset]!;
+      firstAttributes[offset] = secondAttributes[offset]!;
+      secondAttributes[offset] = attribute;
+    }
+  }
+}
+
 function renderEncodedSoftwareScrRgba(
   encoded: Uint8Array,
   attributeHeight: AttributeHeight,
@@ -3231,7 +3437,70 @@ export function convertToZx(
         unrestrictedMerged[offset + 3] = 255;
       }
 
-      let jointFrames = convertJointMixedCells(normalized, settings, virtualPalette);
+      let jointFrames = convertJointMixedCells(
+        normalized,
+        settings,
+        virtualPalette,
+        settings.zxMixedAttributesOnly,
+      );
+      if (settings.zxMixedAttributesOnly) {
+        const firstAttributes = Uint8Array.from(jointFrames.firstAttributes);
+        const secondAttributes = Uint8Array.from(jointFrames.secondAttributes);
+        if (settings.screenFlickerSuppression && paletteSelectionsMatch(firstSelection, secondSelection)) {
+          suppressMixedAttributeFlicker(firstAttributes, secondAttributes, settings.attributeHeight);
+        }
+        const sharedPixels = sharedMixedPixels(
+          normalized,
+          firstAttributes,
+          secondAttributes,
+          settings,
+          palette,
+        );
+        const firstEncoded = serializeSoftwareScr(sharedPixels, firstAttributes, settings.attributeHeight);
+        const secondEncoded = serializeSoftwareScr(sharedPixels, secondAttributes, settings.attributeHeight);
+        const firstPreview = renderEncodedSoftwareScrRgba(firstEncoded, settings.attributeHeight, palette);
+        const secondPreview = renderEncodedSoftwareScrRgba(secondEncoded, settings.attributeHeight, palette);
+        const firstFrame = {
+          hardwareModeId: "zx48-standard-256x192",
+          nativeWidth: ZX_SCREEN_WIDTH,
+          nativeHeight: ZX_SCREEN_HEIGHT,
+          nativePixelAspectRatio: 1,
+          encoded: firstEncoded,
+          paletteIndices: Uint8Array.from(sharedPixels),
+          previewRgba: firstPreview,
+        };
+        const secondFrame = {
+          hardwareModeId: "zx48-standard-256x192",
+          nativeWidth: ZX_SCREEN_WIDTH,
+          nativeHeight: ZX_SCREEN_HEIGHT,
+          nativePixelAspectRatio: 1,
+          encoded: secondEncoded,
+          paletteIndices: Uint8Array.from(sharedPixels),
+          previewRgba: secondPreview,
+        };
+        const merged = mergeTemporalFrames(firstPreview, secondPreview);
+        return {
+          platformId: "zx-spectrum",
+          modeId: "zx48-mixed-256x192",
+          width: destination.width,
+          height: destination.height,
+          pixelAspectRatio: 1,
+          attributeOptimizerId: settings.attributeOptimizerId,
+          ditherEngineId: settings.ditherEngineId,
+          paletteSelections: settings.paletteSelections,
+          frames: [firstFrame, secondFrame],
+          preConstraintPreviewRgba: unrestrictedMerged,
+          mergedPreviewRgba: merged,
+          screen: { pixels: sharedPixels, attributes: firstAttributes },
+          pixels: sharedPixels,
+          attributes: firstAttributes,
+          attributeHeight: settings.attributeHeight,
+          sourcePreviewRgba: normalized,
+          previewRgba: merged,
+          score: temporalRgbaError(normalized, merged),
+          ...(engineFallback === undefined ? {} : { engineFallback }),
+        };
+      }
       if (
         settings.screenFlickerSuppression &&
         paletteSelectionsMatch(firstSelection, secondSelection)
@@ -3388,6 +3657,65 @@ export function convertToZx(
       unrestrictedMerged[offset + 1] = pair.g;
       unrestrictedMerged[offset + 2] = pair.b;
       unrestrictedMerged[offset + 3] = 255;
+    }
+    if (settings.zxMixedAttributesOnly) {
+      const sharedFrames = convertJointMixedCells(normalized, settings, virtualPalette, true);
+      const firstAttributes = Uint8Array.from(sharedFrames.firstAttributes);
+      const secondAttributes = Uint8Array.from(sharedFrames.secondAttributes);
+      if (settings.screenFlickerSuppression && paletteSelectionsMatch(firstSelection, secondSelection)) {
+        suppressMixedAttributeFlicker(firstAttributes, secondAttributes, settings.attributeHeight);
+      }
+      const sharedPixels = sharedMixedPixels(
+        normalized,
+        firstAttributes,
+        secondAttributes,
+        settings,
+        palette,
+      );
+      const firstPreview = renderAttributeFrameRgba(sharedPixels, firstAttributes, settings.attributeHeight, palette);
+      const secondPreview = renderAttributeFrameRgba(sharedPixels, secondAttributes, settings.attributeHeight, palette);
+      const firstFrame = {
+        hardwareModeId: "zx48-standard-256x192",
+        nativeWidth: ZX_SCREEN_WIDTH,
+        nativeHeight: ZX_SCREEN_HEIGHT,
+        nativePixelAspectRatio: 1,
+        encoded: serializeSoftwareScr(sharedPixels, firstAttributes, settings.attributeHeight),
+        paletteIndices: Uint8Array.from(sharedPixels),
+        previewRgba: firstPreview,
+      };
+      const secondFrame = {
+        hardwareModeId: "zx48-standard-256x192",
+        nativeWidth: ZX_SCREEN_WIDTH,
+        nativeHeight: ZX_SCREEN_HEIGHT,
+        nativePixelAspectRatio: 1,
+        encoded: serializeSoftwareScr(sharedPixels, secondAttributes, settings.attributeHeight),
+        paletteIndices: Uint8Array.from(sharedPixels),
+        previewRgba: secondPreview,
+      };
+      const merged = mergeTemporalFrames(firstPreview, secondPreview);
+      return {
+        platformId: "zx-spectrum",
+        modeId: "zx48-mixed-256x192",
+        width: destination.width,
+        height: destination.height,
+        pixelAspectRatio: 1,
+        attributeOptimizerId: settings.attributeOptimizerId,
+        ditherEngineId: settings.ditherEngineId,
+        paletteSelections: settings.paletteSelections,
+        frames: [firstFrame, secondFrame],
+        preConstraintPreviewRgba: unrestrictedMerged,
+        mergedPreviewRgba: merged,
+        screen: { pixels: sharedPixels, attributes: firstAttributes },
+        pixels: sharedPixels,
+        attributes: firstAttributes,
+        attributeHeight: settings.attributeHeight,
+        sourcePreviewRgba: normalized,
+        previewRgba: merged,
+        score: temporalRgbaError(normalized, merged),
+        ...(engineFallback === undefined ? {} : { engineFallback }),
+        ...(colorCarrierDiagnostics === undefined ? {} : { colorCarrierDiagnostics }),
+        ...(artisticToneSafetyDiagnostics === undefined ? {} : { artisticToneSafetyDiagnostics }),
+      };
     }
     const physicalSettings: ConversionSettings = {
       ...settings,
