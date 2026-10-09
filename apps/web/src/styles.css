@@ -182,6 +182,16 @@
   font-weight: 750;
 }
 
+.workbench-workspace .dithering-composer-grid .dithering-composer-one-line-label {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: keep-all;
+  overflow-wrap: normal;
+  white-space: nowrap;
+}
+
 .workbench-workspace .dithering-composer-grid .dithering-composer-save-row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2090,7 +2100,7 @@ h1 {
   display: grid;
   min-width: 0;
   min-height: 8rem;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
   border: 1px solid #33425d;
   border-radius: 0.45rem;
   padding: 0.35rem;
@@ -2107,6 +2117,43 @@ h1 {
 .tilemap-charset-heading span {
   color: #9facbd;
   font-size: 0.55rem;
+}
+
+.tilemap-charset-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.55rem;
+  padding-bottom: 0.2rem;
+  color: #b2bfd0;
+  font-size: 0.49rem;
+}
+
+.tilemap-charset-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.charset-included-indicator,
+.charset-used-indicator,
+.charset-editor-indicator {
+  display: inline-block;
+  width: 0.48rem;
+  height: 0.48rem;
+  flex: 0 0 auto;
+  background: #102b43;
+  border: 1px solid #55baff;
+}
+
+.charset-editor-indicator {
+  background: #111720;
+  border: 2px solid #f4c95d;
+}
+
+.charset-used-indicator {
+  background: #111720;
+  border: 1px solid #64df9a;
+  box-shadow: inset 0 0 0 1px #64df9a;
 }
 
 .tile-editor-exit {
@@ -2151,9 +2198,13 @@ h1 {
 }
 
 .glyph-item {
-  display: inline-grid;
+  display: grid;
   width: 18px;
-  height: 18px;
+  height: 24px;
+  grid-template-rows: 16px 2px;
+  align-content: center;
+  justify-items: center;
+  gap: 1px;
   place-items: center;
   border: 1px solid #52627d;
   border-radius: 0;
@@ -2162,7 +2213,43 @@ h1 {
 }
 
 .glyph-item.inactive {
-  border-color: #274969;
+  border-color: #334052;
+  background: #080c13;
+}
+
+.glyph-item.active {
+  border-color: #55baff;
+  background: #102b43;
+}
+
+.glyph-item.inactive img {
+  opacity: 0.58;
+}
+
+.glyph-item.zero-use {
+  background: #111720;
+}
+
+.glyph-item.map-used {
+  box-shadow: inset 0 0 0 1px #64df9a;
+}
+
+.glyph-item.usage-unknown .glyph-usage-meter {
+  background: repeating-linear-gradient(90deg, #38465a 0 2px, transparent 2px 4px);
+}
+
+.glyph-usage-meter {
+  display: block;
+  width: 14px;
+  height: 2px;
+  overflow: hidden;
+  background: #344155;
+}
+
+.glyph-usage-meter > span {
+  display: block;
+  height: 100%;
+  min-width: 0;
 }
 
 .glyph-item.editor-selected {
@@ -2445,6 +2532,15 @@ h1 {
 
 .unified-segmented.unified-cell-flag-buttons {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.unified-segmented.unified-cell-pickers {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.tilemap-put-cursor {
+  cursor: crosshair;
+  touch-action: none;
 }
 
 .unified-segmented {
@@ -3363,6 +3459,7 @@ input[type="range"] {
 
 .bitmap-editor-attribute-color,
 .bitmap-editor-attribute-icon {
+  position: relative;
   min-width: 0;
   height: 0.75rem;
   min-height: 0.75rem;
@@ -3381,6 +3478,36 @@ input[type="range"] {
 .bitmap-editor-full-action.active {
   border-color: #79b7ff;
   box-shadow: 0 0 0 1px #79b7ff inset;
+}
+
+.bitmap-editor-attribute-policy .bitmap-editor-attribute-color.selected,
+.bitmap-editor-native-palette .bitmap-editor-attribute-color.selected {
+  border: 2px solid #f5f8ff;
+  box-shadow: 0 0 0 1px #111824 inset, 0 0 0 1px #79b7ff;
+  z-index: 1;
+}
+
+.bitmap-editor-attribute-transparent .bitmap-editor-attribute-icon.selected {
+  border: 2px solid #f5f8ff;
+  box-shadow: 0 0 0 1px #111824 inset, 0 0 0 1px #79b7ff;
+  z-index: 1;
+}
+
+.bitmap-editor-attribute-policy .bitmap-editor-attribute-color.selected::after,
+.bitmap-editor-native-palette .bitmap-editor-attribute-color.selected::after,
+.bitmap-editor-attribute-transparent .bitmap-editor-attribute-icon.selected::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0.32rem;
+  height: 0.32rem;
+  border: 1px solid #111824;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 75%);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }
 
 .bitmap-editor-attribute-color span {
@@ -5390,6 +5517,10 @@ input[type="range"] {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.dithering-row-paired .filter-inputs {
+  grid-template-columns: minmax(0, 1fr) 4.6rem;
+}
+
 .dithering-row-action {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
@@ -6827,14 +6958,14 @@ input[type="range"] {
     outline-offset: 1px;
   }
 
-  .preview-floating-zoom-actions {
+  .preview-zoom-actions {
     display: flex;
     flex: 0 0 auto;
     gap: 0.12rem;
     align-items: center;
   }
 
-  .preview-floating-zoom-actions button {
+  .preview-zoom-actions button {
     width: 1.35rem;
     min-height: 1.25rem;
     padding: 0;
@@ -7737,6 +7868,62 @@ input[type="range"] {
 /* Final Geometry row override after the legacy viewport rules. */
 .workbench-workspace .geometry-primary-row {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* Preview window headers keep all actions on one compact row, including when
+   tiled into a narrow side dock. Floating previews place the dock-location
+   action at the far right, after the move grip. */
+.workbench-workspace .workbench-preview-dock > .preview-panel > .preview-panel-heading {
+  display: flex;
+  min-width: 0;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.workbench-workspace .workbench-preview-dock > .preview-panel > .preview-panel-heading > h3 {
+  min-width: 0;
+  flex: 1 1 2rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-workspace .workbench-preview-dock > .preview-panel > .preview-panel-heading .preview-content-selector {
+  width: auto;
+  min-width: 3.5rem;
+  max-width: 13rem;
+  flex: 0 1 8rem;
+  margin-left: 0;
+}
+
+.workbench-workspace .workbench-preview-dock > .preview-panel > .preview-panel-heading .preview-zoom-actions {
+  flex: 0 0 auto;
+}
+
+.workbench-workspace .workbench-preview-dock > .preview-panel > .preview-panel-heading .preview-zoom-actions button {
+  width: 1.25rem;
+  min-width: 1.25rem;
+  min-height: 1.25rem;
+}
+
+.workbench-workspace .preview-panel-floating .preview-panel-heading .preview-content-selector {
+  order: 1;
+  flex-basis: 13rem;
+}
+
+.workbench-workspace .preview-panel-floating .preview-panel-heading .preview-zoom-actions {
+  order: 2;
+}
+
+.workbench-workspace .preview-panel-floating .preview-panel-heading .workbench-window-drag-handle {
+  order: 3;
+  flex: 1 1 auto;
+}
+
+.workbench-workspace .preview-panel-floating .preview-panel-heading > .workbench-window-actions {
+  order: 4;
+  margin-left: 0;
 }
 
 @container workbench-window (max-width: 27.99rem) {

@@ -11,6 +11,54 @@ export interface TilemapEditorSnapshot {
   readonly attributes: Uint8Array;
   readonly encoding: CharsetEncoding;
 }
+
+export interface TilemapStamp {
+  readonly characterIndex: number;
+  readonly transform: TileTransform;
+  readonly inverted: boolean;
+  readonly attribute: number;
+}
+
+export interface TilemapStampResult {
+  readonly assignments: readonly CharsetAssignment[];
+  readonly attributes: Uint8Array;
+  readonly changed: boolean;
+}
+
+/** Apply one configured tile stamp to map cells without changing shared glyph data. */
+export function stampTilemapCells(
+  assignments: readonly CharsetAssignment[],
+  attributes: Uint8Array,
+  cellIndices: readonly number[],
+  stamp: TilemapStamp,
+): TilemapStampResult {
+  let nextAssignments: CharsetAssignment[] | null = null;
+  let nextAttributes: Uint8Array | null = null;
+  const attribute = stamp.attribute & 0xff;
+  for (const cellIndex of cellIndices) {
+    const current = assignments[cellIndex];
+    if (current === undefined || cellIndex < 0 || cellIndex >= attributes.length) continue;
+    if (current.characterIndex === stamp.characterIndex &&
+        current.transform === stamp.transform &&
+        current.inverted === stamp.inverted &&
+        attributes[cellIndex] === attribute) continue;
+    nextAssignments ??= assignments.map((assignment) => ({ ...assignment }));
+    nextAttributes ??= attributes.slice();
+    nextAssignments[cellIndex] = {
+      ...current,
+      characterIndex: stamp.characterIndex,
+      transform: stamp.transform,
+      inverted: stamp.inverted,
+    };
+    nextAttributes[cellIndex] = attribute;
+  }
+  return {
+    assignments: nextAssignments ?? assignments,
+    attributes: nextAttributes ?? attributes,
+    changed: nextAssignments !== null,
+  };
+}
+
 export function snapshotTilemapEditor(input: TilemapEditorSnapshot): TilemapEditorSnapshot {
   return {
     charset: input.charset.slice(),

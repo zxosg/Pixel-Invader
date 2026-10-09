@@ -13,7 +13,7 @@
     "benchmark:checker-gray-v44": "pnpm --filter @retro-converter/conversion-core build && pnpm --filter @retro-converter/image-codecs build && node tools/benchmark-checker-gray-v44.mjs",
     "benchmark:checker-gray-v45": "pnpm --filter @retro-converter/conversion-core build && pnpm --filter @retro-converter/image-codecs build && node tools/benchmark-checker-gray-v45.mjs",
     "check": "pnpm run typecheck && pnpm run test",
-    "dev": "pnpm --filter @retro-converter/zx-spectrum build && pnpm --filter @retro-converter/sinclair-ql build && pnpm --filter @retro-converter/web dev",
+    "dev": "pnpm --filter @retro-converter/zx-spectrum build && pnpm --filter @retro-converter/sinclair-ql build && pnpm --filter @retro-converter/zx-charset build && pnpm --filter @retro-converter/web dev",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "pnpm -r typecheck"

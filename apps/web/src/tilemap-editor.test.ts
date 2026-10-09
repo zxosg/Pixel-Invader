@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CharsetAssignment, TileTransform } from "@retro-converter/zx-charset";
 import {
   setCellPixel,
+  stampTilemapCells,
   tileForCell,
   tileTransformToggleState,
   toggleCellPixel,
@@ -20,6 +21,37 @@ function assignment(overrides: Partial<CharsetAssignment> = {}): CharsetAssignme
 }
 
 describe("tilemap editor cell operations", () => {
+  it("stamps tile identity, transform, polarity, and color only into requested cells", () => {
+    const assignments = [assignment({ characterIndex: 0 }), assignment({ characterIndex: 1, transform: 2 })];
+    const attributes = Uint8Array.from([0x07, 0x38]);
+    const output = stampTilemapCells(assignments, attributes, [1], {
+      characterIndex: 4,
+      transform: 3,
+      inverted: true,
+      attribute: 0xc2,
+    });
+
+    expect(output.changed).toBe(true);
+    expect(output.assignments[0]).toEqual(assignments[0]);
+    expect(output.assignments[1]).toMatchObject({ characterIndex: 4, transform: 3, inverted: true });
+    expect(output.attributes).toEqual(Uint8Array.from([0x07, 0xc2]));
+    expect(assignments[1]?.characterIndex).toBe(1);
+    expect(attributes[1]).toBe(0x38);
+  });
+
+  it("returns original arrays and no change for a no-op or invalid destination", () => {
+    const assignments = [assignment({ characterIndex: 2, transform: 1, inverted: true })];
+    const attributes = Uint8Array.from([0x47]);
+    const stamp = { characterIndex: 2, transform: 1 as TileTransform, inverted: true, attribute: 0x47 };
+    const unchanged = stampTilemapCells(assignments, attributes, [0], stamp);
+    const invalid = stampTilemapCells(assignments, attributes, [8], { ...stamp, characterIndex: 3 });
+
+    expect(unchanged.changed).toBe(false);
+    expect(unchanged.assignments).toBe(assignments);
+    expect(unchanged.attributes).toBe(attributes);
+    expect(invalid.changed).toBe(false);
+  });
+
   it("toggles the CCW rotation represented by CW plus Mirror X", () => {
     const ccw = toggleTileTransform(0, "rotate-ccw");
 

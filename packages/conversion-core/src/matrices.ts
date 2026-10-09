@@ -7,6 +7,7 @@ import type {
 export interface OrderedMatrix {
   readonly width: number;
   readonly height: number;
+  /** Number of distinct threshold ranks; rank values may repeat across cells. */
   readonly levels: number;
   readonly values: readonly number[];
 }
@@ -100,16 +101,25 @@ export function validateCustomOrderedMatrix(matrix: {
   if (values.length !== cells) {
     throw new RangeError("Custom matrix values must match width times height.");
   }
-  const seenRanks = new Set<number>();
+  const rankCounts = new Map<number, number>();
   for (const value of values) {
     if (!Number.isInteger(value) || value < 0 || value >= cells) {
       throw new RangeError("Custom matrix values must be integer ranks within range.");
     }
-    if (seenRanks.has(value)) {
-      throw new RangeError("Custom matrix values must use every rank exactly once.");
-    }
-    seenRanks.add(value);
+    rankCounts.set(value, (rankCounts.get(value) ?? 0) + 1);
   }
+  const levels = rankCounts.size;
+  const occurrencesPerRank = cells / levels;
+  if (!Number.isInteger(occurrencesPerRank) ||
+      [...rankCounts.values()].some((count) => count !== occurrencesPerRank)) {
+    throw new RangeError("Custom matrix ranks must repeat evenly; each rank must occur equally often.");
+  }
+}
+
+function normalizedCustomOrderedMatrixValues(values: readonly number[]): number[] {
+  const levels = [...new Set(values)].sort((left, right) => left - right);
+  const normalizedLevelByRank = new Map(levels.map((rank, index) => [rank, index]));
+  return values.map((rank) => normalizedLevelByRank.get(rank)!);
 }
 
 export function customOrderedMatrix(matrix: {
@@ -118,7 +128,8 @@ export function customOrderedMatrix(matrix: {
   readonly values: readonly number[];
 }): OrderedMatrix {
   validateCustomOrderedMatrix(matrix);
-  return { width: matrix.width, height: matrix.height, levels: matrix.values.length, values: matrix.values };
+  const values = normalizedCustomOrderedMatrixValues(matrix.values);
+  return { width: matrix.width, height: matrix.height, levels: new Set(values).size, values };
 }
 
 export function customOrderedMatrixId(matrix: {
@@ -127,7 +138,7 @@ export function customOrderedMatrixId(matrix: {
   readonly values: readonly number[];
 }): CustomOrderedMatrixId {
   validateCustomOrderedMatrix(matrix);
-  return `custom-ordered-${matrix.width}x${matrix.height}-${stableNumberHash(matrix.values)}`;
+  return `custom-ordered-${matrix.width}x${matrix.height}-${stableNumberHash(normalizedCustomOrderedMatrixValues(matrix.values))}`;
 }
 
 export function defineCustomOrderedMatrix(matrix: {
@@ -136,17 +147,19 @@ export function defineCustomOrderedMatrix(matrix: {
   readonly values: readonly number[];
 }): CustomOrderedMatrixDefinition {
   validateCustomOrderedMatrix(matrix);
+  const values = normalizedCustomOrderedMatrixValues(matrix.values);
   return {
-    id: customOrderedMatrixId(matrix),
+    id: `custom-ordered-${matrix.width}x${matrix.height}-${stableNumberHash(values)}`,
     width: matrix.width,
     height: matrix.height,
-    values: [...matrix.values],
+    values,
   };
 }
 
 /**
- * A centered, full-rank threshold used by normalized ordered engines.
- * The selected matrix controls both spatial placement and threshold level.
+ * A centered threshold offset used by normalized ordered engines. Repeated
+ * ranks repeat the same offset while balanced rank frequencies keep the
+ * matrix-wide average centered at zero.
  */
 export function normalizedOrderedOffset(
   matrix: OrderedMatrix,

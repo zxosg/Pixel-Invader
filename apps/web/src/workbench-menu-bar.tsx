@@ -86,6 +86,7 @@ export interface WorkbenchMenuBarProps {
   readonly onOpenPmd: (file: File | undefined) => void;
   readonly onOpenProject: (file: File | undefined) => void;
   readonly onImportProfile: (file: File | undefined) => void;
+  readonly onImportSpecscii: (file: File | undefined) => void;
   readonly onSaveProject: () => void;
   readonly onExportPreview: () => void;
   readonly onExportGif: () => void;
@@ -93,6 +94,7 @@ export interface WorkbenchMenuBarProps {
   readonly onExportMetadata: () => void;
   readonly onExportInspection: () => void;
   readonly onExportTilemap: () => void;
+  readonly onExportSpecscii: () => void;
   readonly onExportCharset: () => void;
   readonly onExportPaletteSource: () => void;
   readonly onExportTilemapPreview: () => void;
@@ -131,6 +133,7 @@ export function WorkbenchMenuBar(props: WorkbenchMenuBarProps) {
   const pmdInputRef = useRef<HTMLInputElement | null>(null);
   const projectInputRef = useRef<HTMLInputElement | null>(null);
   const profileInputRef = useRef<HTMLInputElement | null>(null);
+  const specsciiInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (openMenu === null) return undefined;
@@ -326,10 +329,11 @@ export function WorkbenchMenuBar(props: WorkbenchMenuBarProps) {
         <span className="workbench-menu-summary-hardware">{props.workspaceMode === "tilemap" ? "ZX Spectrum" : HARDWARE_MODE_LABELS[props.targetModeId] ?? props.targetModeId}</span>
       </div>
 
-      <input ref={imageInputRef} className="workbench-menu-file-input" type="file" accept="image/png,image/jpeg,image/gif,.png,.jpg,.jpeg,.gif" onChange={(event) => resetFileInput(event, props.onOpenImage)} />
+      <input ref={imageInputRef} className="workbench-menu-file-input" type="file" accept="image/png,image/jpeg,image/gif,.png,.jpg,.jpeg,.gif,.scr" onChange={(event) => resetFileInput(event, props.onOpenImage)} />
       <input ref={pmdInputRef} className="workbench-menu-file-input" type="file" accept="application/octet-stream,.bin" onChange={(event) => resetFileInput(event, props.onOpenPmd)} />
       <input ref={projectInputRef} className="workbench-menu-file-input" type="file" accept=".rccproject,application/zip" onChange={(event) => resetFileInput(event, props.onOpenProject)} />
       <input ref={profileInputRef} className="workbench-menu-file-input" type="file" accept="application/json,.json" onChange={(event) => resetFileInput(event, props.onImportProfile)} />
+      <input ref={specsciiInputRef} className="workbench-menu-file-input" type="file" accept="application/json,.json" onChange={(event) => resetFileInput(event, props.onImportSpecscii)} />
 
       {openMenu === "file" ? (
         <div id="workbench-menu-file" className="workbench-menu-popover" data-workbench-menu="file" role="region" aria-label="File" style={{ "--workbench-menu-popover-left": `${popoverLeft}px` } as CSSProperties}>
@@ -339,12 +343,14 @@ export function WorkbenchMenuBar(props: WorkbenchMenuBarProps) {
             {props.isPmd ? <button type="button" onClick={() => { setOpenMenu(null); pmdInputRef.current?.click(); }}>Open PMD Binary…</button> : null}
             <button type="button" onClick={() => { setOpenMenu(null); projectInputRef.current?.click(); }}>Open Project…</button>
             <button type="button" onClick={() => { setOpenMenu(null); profileInputRef.current?.click(); }}>Import Profile…</button>
+            {props.isZx ? <button type="button" onClick={() => { setOpenMenu(null); specsciiInputRef.current?.click(); }}>Import Specscii Screen…</button> : null}
             <button type="button" disabled={!props.canSaveProject} onClick={run(props.onSaveProject)}><span>Save Project</span><kbd>{modifierLabel} S</kbd></button>
           </div>
           <div className="workbench-menu-group">
             <span className="workbench-menu-heading">Export</span>
             {props.workspaceMode === "tilemap" ? <>
               <button type="button" disabled={!props.canExportTilemap} onClick={run(props.onExportTilemap)}>Raw Tilemap</button>
+              <button type="button" disabled={!props.canExportTilemap} onClick={run(props.onExportSpecscii)}>Specscii Screen JSON</button>
               <button type="button" disabled={!props.canExportTilemap} onClick={run(props.onExportCharset)}>Final Charset</button>
               <button type="button" disabled={!props.canExportResult} onClick={run(props.onExportPaletteSource)}>Palette Source .scr</button>
               <button type="button" disabled={!props.canExportTilemap} onClick={run(props.onExportTilemapPreview)}>Decoder Preview PNG</button>

@@ -15,6 +15,33 @@ import type {
 
 const TILE_COUNT = 768;
 const ATTRIBUTE_BYTES = 768;
+export const CHARSET_ARTIFACT_HEADER_BYTES = 2;
+
+/** Maps the converter's D4 transform enum to the Z80 viewer's operation flags. */
+const Z80_FLAGS_BY_TRANSFORM = [0, 4, 3, 7, 1, 2, 6, 5] as const;
+const TRANSFORM_BY_Z80_FLAGS = [0, 4, 5, 2, 1, 7, 6, 3] as const;
+
+export type CharsetViewerType = 0 | 1 | 2;
+
+export function charsetViewerType(
+  encoding: CharsetEncoding,
+  transformations: boolean,
+): CharsetViewerType {
+  if (!transformations) return 1;
+  return encoding === "compact" ? 0 : 2;
+}
+
+export function z80TransformFlags(transform: number): number {
+  const flags = Z80_FLAGS_BY_TRANSFORM[transform];
+  if (flags === undefined) throw new RangeError("Transform codes must be from 0 through 7.");
+  return flags;
+}
+
+function converterTransform(flags: number): TileTransform {
+  const transform = TRANSFORM_BY_Z80_FLAGS[flags];
+  if (transform === undefined) throw new RangeError("Z80 transform flags must be from 0 through 7.");
+  return transform as TileTransform;
+}
 
 function transformPlaneBytes(transformations: boolean): number {
   return transformations ? Math.ceil(TILE_COUNT * 3 / 8) : 0;
@@ -22,7 +49,7 @@ function transformPlaneBytes(transformations: boolean): number {
 
 export function packTransforms(transforms: Uint8Array): Uint8Array {
   if (transforms.length !== TILE_COUNT) {
-    throw new RangeError("A transform plane requires 768 transform codes.");
+    throw new RangeError("A transform plane requires 768 three-bit transform values.");
   }
   const output = new Uint8Array(Math.ceil(TILE_COUNT * 3 / 8));
   let bitOffset = 0;
@@ -78,12 +105,13 @@ export function encodeCharsetArtifact(input: {
   if (input.encoding === "compact" && input.characterCount > 32) {
     throw new RangeError("Compact mapping supports at most 32 base characters.");
   }
+  const viewerType = charsetViewerType(input.encoding, input.transformations);
   const tilemap = new Uint8Array(TILE_COUNT);
   let transformBytes: Uint8Array = new Uint8Array();
-  if (input.encoding === "compact") {
+  if (viewerType === 0) {
     for (let index = 0; index < TILE_COUNT; index += 1) {
       const character = input.characterIndices[index] ?? 0;
-      const transform = input.transformations ? input.transforms[index] ?? 0 : 0;
+      const transform = z80TransformFlags(input.transforms[index] ?? 0);
       if (character >= input.characterCount) throw new RangeError("Character index is out of range.");
       tilemap[index] = (character << 3) | transform;
     }
@@ -92,14 +120,21 @@ export function encodeCharsetArtifact(input: {
     for (const character of tilemap) {
       if (character >= input.characterCount) throw new RangeError("Character index is out of range.");
     }
-    transformBytes = input.transformations
-      ? packTransforms(input.transforms)
-      : new Uint8Array();
+    if (viewerType === 2) {
+      const z80Transforms = Uint8Array.from(input.transforms, z80TransformFlags);
+      transformBytes = packTransforms(z80Transforms);
+    }
   }
   const bytes = new Uint8Array(
-    tilemap.length + input.attributes.length + transformBytes.length + input.charset.length,
+    CHARSET_ARTIFACT_HEADER_BYTES +
+      tilemap.length +
+      input.attributes.length +
+      transformBytes.length +
+      input.charset.length,
   );
-  let offset = 0;
+  bytes[0] = input.characterCount === 256 ? 0 : input.characterCount;
+  bytes[1] = viewerType;
+  let offset = CHARSET_ARTIFACT_HEADER_BYTES;
   bytes.set(tilemap, offset);
   offset += tilemap.length;
   bytes.set(input.attributes, offset);
@@ -133,34 +168,44 @@ export function decodeCharsetArtifact(
   if (options.encoding === "compact" && options.characterCount > 32) {
     throw new RangeError("Compact mapping supports at most 32 base characters.");
   }
-  const transformLength = options.encoding === "extended"
-    ? transformPlaneBytes(options.transformations)
-    : 0;
-  const expected = TILE_COUNT + ATTRIBUTE_BYTES + transformLength + options.characterCount * 8;
+  const viewerType = charsetViewerType(options.encoding, options.transformations);
+  const encodedCharacterCount = bytes[0] === 0 ? 256 : bytes[0];
+  if (encodedCharacterCount !== options.characterCount || bytes[1] !== viewerType) {
+    throw new RangeError("Charset artifact header does not match the declared conversion options.");
+  }
+  const transformLength = viewerType === 2 ? transformPlaneBytes(true) : 0;
+  const expected =
+    CHARSET_ARTIFACT_HEADER_BYTES +
+    TILE_COUNT +
+    ATTRIBUTE_BYTES +
+    transformLength +
+    options.characterCount * 8;
   if (bytes.length !== expected) {
     throw new RangeError(`Expected ${expected} charset artifact bytes, received ${bytes.length}.`);
   }
-  const tilemap = bytes.slice(0, TILE_COUNT);
-  const attributes = bytes.slice(TILE_COUNT, TILE_COUNT + ATTRIBUTE_BYTES);
-  const transformBytes = bytes.slice(
-    TILE_COUNT + ATTRIBUTE_BYTES,
-    TILE_COUNT + ATTRIBUTE_BYTES + transformLength,
-  );
-  const charset = bytes.slice(TILE_COUNT + ATTRIBUTE_BYTES + transformLength);
+  const tilemapStart = CHARSET_ARTIFACT_HEADER_BYTES;
+  const attributesStart = tilemapStart + TILE_COUNT;
+  const transformsStart = attributesStart + ATTRIBUTE_BYTES;
+  const charsetStart = transformsStart + transformLength;
+  const tilemap = bytes.slice(tilemapStart, attributesStart);
+  const attributes = bytes.slice(attributesStart, transformsStart);
+  const transformBytes = bytes.slice(transformsStart, charsetStart);
+  const charset = bytes.slice(charsetStart);
   const characterIndices = new Uint8Array(TILE_COUNT);
-  let transforms: Uint8Array;
-  if (options.encoding === "compact") {
-    transforms = new Uint8Array(TILE_COUNT);
+  let z80Transforms: Uint8Array;
+  if (viewerType === 0) {
+    z80Transforms = new Uint8Array(TILE_COUNT);
     for (let index = 0; index < TILE_COUNT; index += 1) {
       characterIndices[index] = (tilemap[index] ?? 0) >> 3;
-      transforms[index] = options.transformations ? (tilemap[index] ?? 0) & 0x07 : 0;
+      z80Transforms[index] = (tilemap[index] ?? 0) & 0x07;
     }
   } else {
     characterIndices.set(tilemap);
-    transforms = options.transformations
+    z80Transforms = viewerType === 2
       ? unpackTransforms(transformBytes)
       : new Uint8Array(TILE_COUNT);
   }
+  const transforms = Uint8Array.from(z80Transforms, converterTransform);
   const pixels = new Uint8Array(256 * 192);
   for (let index = 0; index < TILE_COUNT; index += 1) {
     const character = characterIndices[index] ?? 0;
@@ -187,4 +232,42 @@ export function decodeCharsetArtifact(
     screen,
     scr,
   };
+}
+
+/** Recreates the pre-header artifact bytes for verification of saved projects. */
+export function encodeLegacyCharsetArtifact(input: {
+  readonly encoding: CharsetEncoding;
+  readonly characterCount: number;
+  readonly transformations: boolean;
+  readonly characterIndices: Uint8Array;
+  readonly attributes: Uint8Array;
+  readonly transforms: Uint8Array;
+  readonly charset: Uint8Array;
+}): Uint8Array {
+  const tilemap = new Uint8Array(TILE_COUNT);
+  let transformBytes: Uint8Array = new Uint8Array();
+  if (input.encoding === "compact") {
+    for (let index = 0; index < TILE_COUNT; index += 1) {
+      const character = input.characterIndices[index] ?? 0;
+      const transform = input.transformations ? input.transforms[index] ?? 0 : 0;
+      tilemap[index] = (character << 3) | transform;
+    }
+  } else {
+    tilemap.set(input.characterIndices);
+    transformBytes = input.transformations
+      ? packTransforms(input.transforms)
+      : new Uint8Array();
+  }
+  const bytes = new Uint8Array(
+    tilemap.length + input.attributes.length + transformBytes.length + input.charset.length,
+  );
+  let offset = 0;
+  bytes.set(tilemap, offset);
+  offset += tilemap.length;
+  bytes.set(input.attributes, offset);
+  offset += input.attributes.length;
+  bytes.set(transformBytes, offset);
+  offset += transformBytes.length;
+  bytes.set(input.charset, offset);
+  return bytes;
 }

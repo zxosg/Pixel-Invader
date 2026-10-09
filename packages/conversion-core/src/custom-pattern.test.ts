@@ -3,6 +3,7 @@ import {
   customOrderedMatrix,
   customOrderedMatrixId,
   defineCustomOrderedMatrix,
+  normalizedOrderedOffset,
   validateCustomOrderedMatrix,
 } from "./matrices.js";
 import {
@@ -20,10 +21,52 @@ describe("custom ordered matrix validation", () => {
     expect(matrix.levels).toBe(4);
   });
 
-  it("rejects duplicate ranks", () => {
+  it("accepts balanced repeated ranks and compresses them into contiguous levels", () => {
+    const checker = customOrderedMatrix({
+      width: 2,
+      height: 2,
+      values: [0, 1, 1, 0],
+    });
+    expect(checker.levels).toBe(2);
+    expect(checker.values).toEqual([0, 1, 1, 0]);
+
+    const matrix = customOrderedMatrix({
+      width: 4,
+      height: 2,
+      values: [0, 2, 2, 0, 2, 0, 0, 2],
+    });
+    expect(matrix.levels).toBe(2);
+    expect(matrix.values).toEqual([0, 1, 1, 0, 1, 0, 0, 1]);
+    const offsets = matrix.values.map((_, index) =>
+      normalizedOrderedOffset(matrix, index % matrix.width, Math.floor(index / matrix.width)),
+    );
+    expect(offsets.reduce((sum, offset) => sum + offset, 0)).toBeCloseTo(0, 12);
+
+    const fourLevels = customOrderedMatrix({
+      width: 4,
+      height: 2,
+      values: [0, 1, 2, 3, 3, 2, 1, 0],
+    });
+    expect(fourLevels.levels).toBe(4);
+    expect(fourLevels.values).toEqual([0, 1, 2, 3, 3, 2, 1, 0]);
+
+    const eightLevels = customOrderedMatrix({
+      width: 4,
+      height: 2,
+      values: [0, 1, 2, 3, 4, 5, 6, 7],
+    });
+    expect(eightLevels.levels).toBe(8);
+  });
+
+  it("rejects repeated ranks with unequal frequencies", () => {
     expect(() => validateCustomOrderedMatrix({
-      width: 2, height: 2, values: [0, 0, 1, 2],
-    })).toThrow(RangeError);
+      width: 2, height: 2, values: [0, 0, 0, 1],
+    })).toThrow("each rank must occur equally often");
+  });
+
+  it("normalizes equivalent repeated-rank labels to the same stable ID", () => {
+    expect(customOrderedMatrixId({ width: 2, height: 2, values: [0, 1, 1, 0] }))
+      .toBe(customOrderedMatrixId({ width: 2, height: 2, values: [1, 3, 3, 1] }));
   });
 
   it("rejects out-of-range or non-integer values", () => {

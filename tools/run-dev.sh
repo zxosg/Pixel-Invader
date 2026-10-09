@@ -13,6 +13,7 @@ echo
 
 "$project_dir/tools/pnpm.sh" --filter @retro-converter/zx-spectrum build
 "$project_dir/tools/pnpm.sh" --filter @retro-converter/sinclair-ql build
+"$project_dir/tools/pnpm.sh" --filter @retro-converter/zx-charset build
 
 cd "$project_dir/apps/web"
 exec "$project_dir/tools/pnpm.sh" exec vite --open

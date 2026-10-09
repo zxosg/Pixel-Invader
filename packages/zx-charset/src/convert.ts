@@ -4,7 +4,11 @@ import {
 } from "@retro-converter/zx-spectrum";
 import { deriveCharset, validateCharsetBytes } from "./charset.js";
 import { bestTileDistance, hammingBits } from "./distance.js";
-import { decodeCharsetArtifact, encodeCharsetArtifact } from "./encoding.js";
+import {
+  CHARSET_ARTIFACT_HEADER_BYTES,
+  decodeCharsetArtifact,
+  encodeCharsetArtifact,
+} from "./encoding.js";
 import {
   canonicalTile,
   extractScreenTiles,
@@ -1223,6 +1227,7 @@ export function convertScrToCharset(
       ...(refinementPasses === undefined ? {} : { refinementPasses }),
       ...(v4Diagnostics ?? {}),
       memory: {
+        headerBytes: CHARSET_ARTIFACT_HEADER_BYTES,
         tilemapBytes: artifact.tilemap.length,
         attributeBytes: artifact.attributes.length,
         transformBytes: artifact.transforms.length,

@@ -47,6 +47,7 @@ export interface CharsetAssignment {
 }
 
 export interface CharsetMemoryReport {
+  readonly headerBytes?: number;
   readonly tilemapBytes: number;
   readonly attributeBytes: number;
   readonly transformBytes: number;

@@ -69,6 +69,8 @@ import {
 import { retargetHardwareModeSettings } from "./hardware-mode-settings.js";
 import { canonicalizeSettingsForSave } from "./settings-save.js";
 import { composerMixOptions } from "./dithering-ui.js";
+import { decodeZxScrSource } from "./zx-scr-import.js";
+import { buildSpecsciiCharset, exportSpecscii, importSpecscii } from "./specscii.js";
 import {
   ConversionWorkerClient,
   type WorkerCharsetResult,
@@ -85,20 +87,24 @@ import type {
 } from "@retro-converter/zx-charset";
 import {
   applyTileEdit,
+  CHARSET_ARTIFACT_HEADER_BYTES,
   encodeCharsetArtifact,
+  encodeLegacyCharsetArtifact,
+  charsetViewerType,
   decodeCharsetArtifact,
   renderCharsetPreview,
   replaceTileInCharset,
   appendBlankTile,
-  reorderCharsetTiles,
   type TileEditOperation,
   transformTile,
 } from "@retro-converter/zx-charset";
 import {
   tileTransformLabel,
   tileTransformToggleState,
+  stampTilemapCells,
   toggleTileTransform,
   type TilemapEditorSnapshot,
+  type TilemapStamp,
   type TileTransformToggle,
 } from "./tilemap-editor.js";
 import {
@@ -701,6 +707,7 @@ function glyphDataUrl(
   bytes: Uint8Array,
   characterIndex: number,
   active = true,
+  zeroUse = false,
 ): string {
   const rows = bytes.subarray(characterIndex * 8, characterIndex * 8 + 8);
   const pixels: string[] = [];
@@ -714,8 +721,40 @@ function glyphDataUrl(
   }
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 8 8">` +
-    `<rect width="8" height="8" fill="#000"/><g fill="${active ? "#fff" : "#174a7e"}">${pixels.join("")}</g></svg>`;
+    `<rect width="8" height="8" fill="#000"/><g fill="${zeroUse ? "#7f8998" : active ? "#fff" : "#174a7e"}">${pixels.join("")}</g></svg>`;
   return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
+interface SpecsciiFontAssets {
+  readonly romFont: Uint8Array;
+  readonly udgFont: Uint8Array;
+  readonly charset: Uint8Array;
+}
+
+const BUILT_IN_SPECSCII_CHARSET_NAME = "SpecSCII built-in font · 112 glyphs";
+let specsciiFontAssetsRequest: Promise<SpecsciiFontAssets> | null = null;
+
+function loadSpecsciiFontAssets(): Promise<SpecsciiFontAssets> {
+  if (specsciiFontAssetsRequest !== null) return specsciiFontAssetsRequest;
+  const request = (async (): Promise<SpecsciiFontAssets> => {
+    const [romResponse, udgResponse] = await Promise.all([
+      fetch(`${import.meta.env.BASE_URL}specscii-rom-font.bin`),
+      fetch(`${import.meta.env.BASE_URL}specscii-udg-font.bin`),
+    ]);
+    if (!romResponse.ok || !udgResponse.ok) {
+      throw new Error("Specscii character font assets are unavailable.");
+    }
+    const [romFont, udgFont] = await Promise.all([
+      romResponse.arrayBuffer(),
+      udgResponse.arrayBuffer(),
+    ]).then(([rom, udg]) => [new Uint8Array(rom), new Uint8Array(udg)] as const);
+    return { romFont, udgFont, charset: buildSpecsciiCharset(romFont, udgFont) };
+  })();
+  specsciiFontAssetsRequest = request;
+  void request.catch(() => {
+    if (specsciiFontAssetsRequest === request) specsciiFontAssetsRequest = null;
+  });
+  return request;
 }
 
 function rebuildCharsetResult(
@@ -762,6 +801,7 @@ function rebuildCharsetResult(
       edited: true,
       usedCharacterCount: new Set(characterIndices).size,
       memory: {
+        headerBytes: CHARSET_ARTIFACT_HEADER_BYTES,
         tilemapBytes: artifact.tilemap.length,
         attributeBytes: artifact.attributes.length,
         transformBytes: artifact.transforms.length,
@@ -1115,12 +1155,22 @@ export function App() {
   const [charsetState, setCharsetState] = useState<CharsetState>({ kind: "idle" });
   const [tileEditorSelected, setTileEditorSelected] = useState(0);
   const [tileEditorOriginals, setTileEditorOriginals] = useState<readonly (Uint8Array | null)[]>([]);
+  const [tileEditorUsageSort, setTileEditorUsageSort] = useState(false);
   const [tileEditorUndo, setTileEditorUndo] = useState<readonly TilemapEditorSnapshot[]>([]);
   const [tileEditorRedo, setTileEditorRedo] = useState<readonly TilemapEditorSnapshot[]>([]);
   const [tileEditorEdited, setTileEditorEdited] = useState(false);
   const [tilemapEditorCell, setTilemapEditorCell] = useState<number | null>(null);
   const [tileEditorColorPickerActive, setTileEditorColorPickerActive] = useState(false);
   const [tileEditorTilePickerActive, setTileEditorTilePickerActive] = useState(false);
+  const [tilemapPutActive, setTilemapPutActive] = useState(false);
+  const tilemapPutPointerRef = useRef<{
+    readonly pointerId: number;
+    readonly stamp: TilemapStamp;
+    readonly visited: Set<number>;
+    lastX: number;
+    lastY: number;
+    historyCaptured: boolean;
+  } | null>(null);
   const tileEditorTilePickerClickGuardRef = useRef<{ readonly index: number; readonly until: number } | null>(null);
   const [highlightSelectedTileUses, setHighlightSelectedTileUses] = useState(false);
   useEffect(() => {
@@ -1134,6 +1184,17 @@ export function App() {
     window.addEventListener("keydown", cancelPickersOnEscape);
     return () => window.removeEventListener("keydown", cancelPickersOnEscape);
   }, [tileEditorColorPickerActive, tileEditorTilePickerActive]);
+  useEffect(() => {
+    if (!tilemapPutActive) return;
+    const cancelPutOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      tilemapPutPointerRef.current = null;
+      setTilemapPutActive(false);
+      event.preventDefault();
+    };
+    window.addEventListener("keydown", cancelPutOnEscape);
+    return () => window.removeEventListener("keydown", cancelPutOnEscape);
+  }, [tilemapPutActive]);
   const [bitmapEditorCell, setBitmapEditorCell] = useState<BitmapCell | null>(null);
   const [bitmapEditorUndo, setBitmapEditorUndo] = useState<readonly BitmapCell[]>([]);
   const [bitmapEditorRedo, setBitmapEditorRedo] = useState<readonly BitmapCell[]>([]);
@@ -1176,7 +1237,16 @@ export function App() {
   const [bitmapEditorSourceColor, setBitmapEditorSourceColor] = useState<readonly [number, number, number, number] | null>(null);
   const [workspaceMode, setWorkspaceMode] =
     useState<WorkspaceConversionMode>("palette");
+  useEffect(() => {
+    if (workspaceMode === "tilemap") return;
+    tilemapPutPointerRef.current = null;
+    setTilemapPutActive(false);
+  }, [workspaceMode]);
   const [tilemapStale, setTilemapStale] = useState(false);
+  const [specsciiDocumentName, setSpecsciiDocumentName] = useState<string | null>(null);
+  const [specsciiBorder, setSpecsciiBorder] = useState(0);
+  const [specsciiAuthor, setSpecsciiAuthor] = useState("");
+  const [specsciiImageName, setSpecsciiImageName] = useState("");
   const [charsetSource, setCharsetSource] = useState<CharsetSource>("derived");
   const [charsetEncoding, setCharsetEncoding] = useState<CharsetEncoding>("compact");
   const [charsetBudget, setCharsetBudget] = useState(32);
@@ -1189,6 +1259,8 @@ export function App() {
   const [charsetVisualWeighting, setCharsetVisualWeighting] = useState(false);
   const [existingCharset, setExistingCharset] = useState<Uint8Array | null>(null);
   const [existingCharsetName, setExistingCharsetName] = useState<string | null>(null);
+  const [builtInSpecsciiCharset, setBuiltInSpecsciiCharset] = useState<Uint8Array | null>(null);
+  const [builtInSpecsciiFontError, setBuiltInSpecsciiFontError] = useState<string | null>(null);
   const [existingCharsetStart, setExistingCharsetStart] = useState(0);
   const [existingCharsetLength, setExistingCharsetLength] = useState(0);
   const [existingCharsetStartEntry, setExistingCharsetStartEntry] =
@@ -1952,6 +2024,35 @@ export function App() {
   function toggleWorkbenchWindowMinimized(window: ActiveWorkbenchWindowId): void {
     setWorkbenchWindowMinimized(window, !workbenchWindowLayout(window).minimized);
   }
+
+  useEffect(() => {
+    let mounted = true;
+    void loadSpecsciiFontAssets().then(({ charset }) => {
+      if (mounted) setBuiltInSpecsciiCharset(charset.slice());
+    }).catch((error: unknown) => {
+      if (mounted) {
+        setBuiltInSpecsciiFontError(
+          error instanceof Error ? error.message : "Specscii character font assets are unavailable.",
+        );
+      }
+    });
+    return () => { mounted = false; };
+  }, []);
+
+  useEffect(() => {
+    if (charsetSource !== "existing" || existingCharset !== null || builtInSpecsciiCharset === null) return;
+    const charset = builtInSpecsciiCharset.slice();
+    const count = charset.length / 8;
+    setExistingCharset(charset);
+    setExistingCharsetName(BUILT_IN_SPECSCII_CHARSET_NAME);
+    setExistingCharsetStart(0);
+    setExistingCharsetLength(count);
+    setExistingCharsetStartEntry("1");
+    setExistingCharsetLengthEntry(String(count));
+    existingCharsetSelectionRef.current = null;
+    setExistingCharsetSelection(null);
+    if (count > 32) setCharsetEncoding("extended");
+  }, [builtInSpecsciiCharset, charsetSource, existingCharset]);
 
   useEffect(() => {
     if (workbenchLayoutMenu === null) return undefined;
@@ -3451,7 +3552,27 @@ export function App() {
         charsetState.kind === "ready" && !tilemapStale
       ? lastFinal
       : draftPreviewResult(draftState) ?? lastFinal;
-    if (canvases.length === 0 || displayResult === null) return;
+    const standaloneTilemap = workspaceMode === "tilemap" &&
+      charsetState.kind === "ready" && !tilemapStale && displayResult === null;
+    if (canvases.length === 0 || (displayResult === null && !standaloneTilemap)) return;
+    if (standaloneTilemap) {
+      const screen = charsetState.result.decodedScr;
+      const rgba = hideAttributes
+        ? zxBitmapToMonochromeRgba(screen)
+        : bitmapEditorFlashPreviewMode === "inverted" ||
+            (bitmapEditorFlashPreviewMode === "animate" && bitmapEditorFlashPreviewPhase)
+          ? renderZxFlashPreview(screen, 8, true, resolveZxPalette(zxPaletteDefinition))
+          : charsetState.result.previewRgba;
+      for (const canvas of canvases) {
+        canvas.width = 256;
+        canvas.height = 192;
+        const context = canvas.getContext("2d");
+        if (context === null) continue;
+        context.putImageData(new ImageData(new Uint8ClampedArray(Uint8Array.from(rgba).buffer), 256, 192), 0, 0);
+      }
+      return;
+    }
+    if (displayResult === null) return;
     let rgba: Uint8Array | undefined;
     let previewWidth = displayResult.width;
     let previewHeight = displayResult.height;
@@ -3700,6 +3821,18 @@ export function App() {
     setImageStatus(`Reading ${file.name}…`);
     try {
       const sourceBytes = new Uint8Array(await file.arrayBuffer());
+      if (/\.scr$/i.test(file.name)) {
+        const decoded = decodeZxScrSource(sourceBytes, resolvedZxPalette);
+        const normalized = encodeRgbaPng(decoded.rgba, decoded.width, decoded.height);
+        await finishImageImport(
+          file,
+          normalized,
+          0,
+          decoded,
+          `Accepted ZX Spectrum SCR · ${sourceBytes.length.toLocaleString()} bytes · decoded as ${decoded.width} × ${decoded.height} source image.`,
+        );
+        return;
+      }
       const format = sniffImageFormat(sourceBytes);
       if (format === "gif") {
         const gif = inspectGif(sourceBytes);
@@ -3715,19 +3848,27 @@ export function App() {
     }
   }
 
-  async function finishImageImport(file: File, sourceBytes: Uint8Array, frameIndex: number) {
+  async function finishImageImport(
+    file: File,
+    sourceBytes: Uint8Array,
+    frameIndex: number,
+    decodedOverride?: WorkerDecodedImage,
+    acceptedDescription?: string,
+  ) {
     const worker = workerRef.current;
-    if (worker === null) {
+    if (worker === null && decodedOverride === undefined) {
       setImageStatus("Failed: conversion worker is unavailable.");
       return;
     }
     // A newly loaded source must start fitted to the available preview window,
     // regardless of the zoom used for the previous image or editor view.
     setSourcePreviewZoom("fit");
-    setImageStatus(`Validating and decoding ${file.name} in worker…`);
+    setImageStatus(decodedOverride === undefined
+      ? `Validating and decoding ${file.name} in worker…`
+      : `Preparing ${file.name}…`);
     try {
       const sourceSha256 = await sha256Hex(sourceBytes);
-      const decoded = await worker.decodeImage(sourceBytes.slice().buffer, frameIndex);
+      const decoded = decodedOverride ?? await worker!.decodeImage(sourceBytes.slice().buffer, frameIndex);
       setImage(null);
       setOriginalImage(null);
       bitmapEditorFullBufferRef.current = null;
@@ -3768,9 +3909,8 @@ export function App() {
         baseName: sanitizeArtifactBaseName(file.name),
         bytes: sourceBytes,
       });
-      setImageStatus(
-        `Accepted ${decoded.format.toUpperCase()}${decoded.format === "gif" ? ` frame ${frameIndex + 1}` : ""} · ${decoded.width} × ${decoded.height} · ${decoded.rgba.length.toLocaleString()} RGBA bytes.`,
-      );
+      setImageStatus(acceptedDescription ??
+        `Accepted ${decoded.format.toUpperCase()}${decoded.format === "gif" ? ` frame ${frameIndex + 1}` : ""} · ${decoded.width} × ${decoded.height} · ${decoded.rgba.length.toLocaleString()} RGBA bytes.`);
     } catch (error: unknown) {
       setImageStatus(`Invalid image: ${error instanceof Error ? error.message : "Unknown error."}`);
     }
@@ -4056,15 +4196,24 @@ export function App() {
     // into the new draft/final result.
     if (bitmapEditorResultEdited) resetResultEditorState();
     setExportError(null);
-    if (workspaceMode === "tilemap" && charsetState.kind === "ready") {
+    if (workspaceMode === "tilemap" && charsetState.kind === "ready" &&
+        specsciiDocumentName === null) {
       setTilemapStale(true);
     }
 
     if (finalRunningRef.current) {
       workerRef.current?.dispose();
       workerRef.current = new ConversionWorkerClient();
+      charsetWorkerRef.current?.dispose();
+      charsetWorkerRef.current = null;
       finalRunningRef.current = false;
       finalJobRef.current += 1;
+      setCharsetState((current) =>
+        current.kind === "running" ? { kind: "idle" } : current,
+      );
+      if (workspaceMode === "tilemap" && specsciiDocumentName === null) {
+        setTilemapStale(true);
+      }
     }
     const openedFinal = pendingOpenedFinalRef.current;
     if (openedFinal !== null) {
@@ -4151,7 +4300,7 @@ export function App() {
     ditherEngineId, qlMixedOptimizerId, structuredSettings,
     composer, customOrderedMatrices, customDiffusionKernels,
     pmd85PaletteCalibrationId, pmd85GapPolicy,
-    workspaceMode,
+    workspaceMode, specsciiDocumentName,
   ]);
 
   useEffect(() => {
@@ -5563,6 +5712,101 @@ export function App() {
     }
   }
 
+  function tilemapCellAtCanvasPoint(event: ReactPointerEvent<HTMLCanvasElement>): readonly [number, number] {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const pixelX = Math.max(0, Math.min(255, Math.floor((event.clientX - bounds.left) / bounds.width * 256)));
+    const pixelY = Math.max(0, Math.min(191, Math.floor((event.clientY - bounds.top) / bounds.height * 192)));
+    return [Math.floor(pixelX / 8), Math.floor(pixelY / 8)];
+  }
+
+  function stampCellsForActiveGesture(cellIndices: readonly number[]): void {
+    const gesture = tilemapPutPointerRef.current;
+    if (gesture === null || charsetState.kind !== "ready") return;
+    const newCells = cellIndices.filter((index) => {
+      if (gesture.visited.has(index)) return false;
+      gesture.visited.add(index);
+      return true;
+    });
+    if (newCells.length === 0) return;
+    const result = charsetState.result;
+    const stamped = stampTilemapCells(result.assignments, result.attributes, newCells, gesture.stamp);
+    if (!stamped.changed) return;
+    if (!gesture.historyCaptured) {
+      pushTileEditorHistory(result);
+      gesture.historyCaptured = true;
+    }
+    commitTileEditorResult(
+      result,
+      result.charset,
+      stamped.assignments,
+      result.encoding,
+      stamped.attributes,
+    );
+  }
+
+  function handleTilemapPutPointerDown(event: ReactPointerEvent<HTMLCanvasElement>): void {
+    if (!tilemapPutActive || workspaceMode !== "tilemap" || charsetState.kind !== "ready") return;
+    if (event.button !== 0 || tilemapEditorCell === null) return;
+    const selectedAssignment = charsetState.result.assignments[tilemapEditorCell];
+    if (selectedAssignment === undefined || tileEditorSelected < 0 || tileEditorSelected >= charsetState.result.characterCount) return;
+    const [cellX, cellY] = tilemapCellAtCanvasPoint(event);
+    const stamp: TilemapStamp = {
+      characterIndex: tileEditorSelected,
+      transform: selectedAssignment.transform,
+      inverted: selectedAssignment.inverted,
+      attribute: charsetState.result.attributes[tilemapEditorCell] ?? 0,
+    };
+    tilemapPutPointerRef.current = {
+      pointerId: event.pointerId,
+      stamp,
+      visited: new Set(),
+      lastX: cellX,
+      lastY: cellY,
+      historyCaptured: false,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    stampCellsForActiveGesture([cellY * 32 + cellX]);
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function handleTilemapPutPointerMove(event: ReactPointerEvent<HTMLCanvasElement>): void {
+    const gesture = tilemapPutPointerRef.current;
+    if (!tilemapPutActive || gesture === null || gesture.pointerId !== event.pointerId) return;
+    const [cellX, cellY] = tilemapCellAtCanvasPoint(event);
+    let x = gesture.lastX;
+    let y = gesture.lastY;
+    const dx = Math.abs(cellX - x);
+    const sx = x < cellX ? 1 : -1;
+    const dy = -Math.abs(cellY - y);
+    const sy = y < cellY ? 1 : -1;
+    let error = dx + dy;
+    const cells: number[] = [];
+    while (true) {
+      cells.push(y * 32 + x);
+      if (x === cellX && y === cellY) break;
+      const doubled = 2 * error;
+      if (doubled >= dy) { error += dy; x += sx; }
+      if (doubled <= dx) { error += dx; y += sy; }
+    }
+    gesture.lastX = cellX;
+    gesture.lastY = cellY;
+    stampCellsForActiveGesture(cells);
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function handleTilemapPutPointerEnd(event: ReactPointerEvent<HTMLCanvasElement>): void {
+    const gesture = tilemapPutPointerRef.current;
+    if (gesture === null || gesture.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    tilemapPutPointerRef.current = null;
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
   function focusBitmapEditorAt(pixelX: number, pixelY: number): void {
     const editorSide = sourcePreviewContent === "bitmap-editor"
       ? "source"
@@ -6551,7 +6795,16 @@ export function App() {
   async function importProfile(file: File | undefined) {
     if (file === undefined) return;
     try {
-      const imported = await parseImportedProfile(new Uint8Array(await file.arrayBuffer()));
+      const source = await file.text();
+      let parsed: unknown;
+      try { parsed = JSON.parse(source); } catch { parsed = null; }
+      if (typeof parsed === "object" && parsed !== null &&
+          "application" in parsed && typeof parsed.application === "string" &&
+          parsed.application.trim() === "SpecSCII Online") {
+        await importSpecsciiFile(file);
+        return;
+      }
+      const imported = await parseImportedProfile(new TextEncoder().encode(source));
       const importedProfiles = profiles.filter((profile) =>
         !BUILT_IN_PROFILES.some((builtIn) => builtIn.id === profile.id) &&
         profile.id !== imported.id,
@@ -6568,6 +6821,95 @@ export function App() {
       }
     } catch (error: unknown) {
       setExportError(`Profile import rejected: ${error instanceof Error ? error.message : "Validation failed."}`);
+    }
+  }
+
+  async function importSpecsciiFile(file: File | undefined): Promise<void> {
+    if (file === undefined) return;
+    try {
+      const fontAssets = await loadSpecsciiFontAssets();
+      const imported = importSpecscii(
+        await file.text(),
+        fontAssets.romFont,
+        fontAssets.udgFont,
+      );
+      const charset = imported.charset;
+      const encoding: CharsetEncoding = "extended";
+      const artifact = encodeCharsetArtifact({
+        encoding,
+        characterCount: charset.length / 8,
+        transformations: false,
+        characterIndices: Uint8Array.from(imported.assignments, ({ characterIndex }) => characterIndex),
+        attributes: imported.attributes,
+        transforms: new Uint8Array(768),
+        charset,
+      });
+      const decoded = decodeCharsetArtifact(artifact.bytes, {
+        encoding,
+        characterCount: charset.length / 8,
+        transformations: false,
+      });
+      const usedCharacterCount = new Set(imported.assignments.map(({ characterIndex }) => characterIndex)).size;
+      const result: WorkerCharsetResult = {
+        encoding,
+        transformations: false,
+        characterCount: charset.length / 8,
+        artifact: artifact.bytes,
+        decodedScr: decoded.scr,
+        previewRgba: renderCharsetPreview(decoded.screen),
+        charset: artifact.charset,
+        attributes: artifact.attributes,
+        assignments: imported.assignments,
+        diagnostics: {
+          uniqueCanonicalTiles: usedCharacterCount,
+          usedCharacterCount,
+          exactMatches: 768,
+          averageStructuralError: 0,
+          maximumStructuralError: 0,
+          rgbSquaredError: 0,
+          rgbRmse: 0,
+          rgbSimilarityPercent: 100,
+          polaritySwaps: 0,
+          transformHistogram: [768, 0, 0, 0, 0, 0, 0, 0],
+          memory: {
+            headerBytes: 2,
+            tilemapBytes: artifact.tilemap.length,
+            attributeBytes: artifact.attributes.length,
+            transformBytes: artifact.transforms.length,
+            charsetBytes: artifact.charset.length,
+            totalBytes: artifact.bytes.length,
+          },
+        },
+      };
+      setCharsetState({ kind: "ready", result });
+      setCharsetEncoding("extended");
+      setCharsetSource("existing");
+      setExistingCharset(charset.slice());
+      setExistingCharsetName(file.name);
+      setExistingCharsetStart(0);
+      setExistingCharsetLength(charset.length / 8);
+      setExistingCharsetStartEntry("1");
+      setExistingCharsetLengthEntry(String(charset.length / 8));
+      existingCharsetSelectionRef.current = null;
+      setExistingCharsetSelection(null);
+      setCharsetBudget(charset.length / 8);
+      initializeTileEditor(result);
+      setCharsetState({ kind: "ready", result });
+      setTilemapStale(false);
+      setTileEditorEdited(false);
+      setSpecsciiDocumentName(file.name);
+      setSpecsciiBorder(imported.document.border);
+      setSpecsciiAuthor(imported.document.author ?? "");
+      setSpecsciiImageName(imported.document.imageName ?? "");
+      setProjectName(normalizeProjectName(sanitizeArtifactBaseName(file.name)));
+      switchWorkspaceConversionMode("tilemap");
+      setSourcePreviewContent("unified-editor");
+      setResultPreviewContent("image");
+      setTilemapStale(false);
+      setImageStatus(`Imported Specscii screen · 32 × 24 cells · ${usedCharacterCount} symbols used.`);
+      setExportError(null);
+    } catch (error: unknown) {
+      setExportError(`Specscii import rejected: ${error instanceof Error ? error.message : "Invalid file."}`);
     }
   }
 
@@ -6633,7 +6975,6 @@ export function App() {
         pmd85WorkerOptions,
       );
       if (finalJobRef.current !== job) return;
-      finalRunningRef.current = false;
       setLastFinal(result);
       setResultOrigin("converted");
       setLastFinalCompletedAt(new Date().toISOString());
@@ -6642,9 +6983,14 @@ export function App() {
       setDraftState({ kind: "idle" });
       if (conversionMode === "tilemap") {
         const tilemapResult = await runCharsetConversion(result);
+        if (finalJobRef.current !== job) return;
+        if (tilemapResult === null) {
+          setState(revisionRef.current === revision
+            ? { kind: "ready", result }
+            : { kind: "stale" });
+          return;
+        }
         if (
-          tilemapResult === null ||
-          finalJobRef.current !== job ||
           revisionRef.current !== revision ||
           workspaceModeRef.current !== conversionMode
         ) return;
@@ -6652,11 +6998,12 @@ export function App() {
       setState(revisionRef.current === revision ? { kind: "ready", result } : { kind: "stale" });
     } catch (error: unknown) {
       if (finalJobRef.current !== job) return;
-      finalRunningRef.current = false;
       setState({
         kind: "error",
         message: error instanceof Error ? error.message : "Unknown error.",
       });
+    } finally {
+      if (finalJobRef.current === job) finalRunningRef.current = false;
     }
   }
 
@@ -6668,6 +7015,9 @@ export function App() {
     workerRef.current = new ConversionWorkerClient();
     finalRunningRef.current = false;
     finalJobRef.current += 1;
+    setCharsetState((current) =>
+      current.kind === "running" ? { kind: "idle" } : current,
+    );
     if (lastFinal !== null && lastFinalRevisionRef.current === revisionRef.current) {
       setState({ kind: "ready", result: lastFinal });
     } else {
@@ -6700,8 +7050,11 @@ export function App() {
   }
 
   function initializeTileEditor(result: WorkerCharsetResult): void {
+    tilemapPutPointerRef.current = null;
+    setTilemapPutActive(false);
     setTileEditorSelected(0);
     setTileEditorOriginals(Array.from({ length: result.characterCount }, () => null));
+    setTileEditorUsageSort(false);
     setTileEditorUndo([]);
     setTileEditorRedo([]);
     setTilemapEditorCell(0);
@@ -6923,26 +7276,9 @@ export function App() {
     setTileEditorSelected(target);
   }
 
-  function sortEditorTilesByUsage(): void {
-    if (charsetState.kind !== "ready") return;
-    const count = charsetState.result.characterCount;
-    const usage = new Array<number>(count).fill(0);
-    for (const assignment of charsetState.result.assignments) usage[assignment.characterIndex] = (usage[assignment.characterIndex] ?? 0) + 1;
-    const order = Array.from({ length: count }, (_, index) => index)
-      .sort((left, right) => (usage[right] ?? 0) - (usage[left] ?? 0) || left - right);
-    if (order.every((index, position) => index === position)) return;
-    setTileEditorUndo((history) => [...history, snapshotTileEditor(charsetState.result)]);
-    const reordered = reorderCharsetTiles(charsetState.result.charset, charsetState.result.assignments, order);
-    commitTileEditorResult(charsetState.result, reordered.charset, reordered.assignments);
-    setTileEditorSelected(order.indexOf(tileEditorSelected));
-    setTileEditorOriginals((originals) => order.map((oldIndex) => originals[oldIndex] ?? null));
-    if (existingCharsetSelection !== null) {
-      const remap = new Array<number>(count);
-      order.forEach((oldIndex, newIndex) => { remap[oldIndex] = newIndex; });
-      const remappedSelection = remapCharsetSelection(existingCharsetSelection, remap) ?? [];
-      existingCharsetSelectionRef.current = remappedSelection;
-      setExistingCharsetSelection(remappedSelection);
-    }
+  function toggleEditorTileUsageSort(): void {
+    if (charsetState.kind !== "ready" || tilemapStale) return;
+    setTileEditorUsageSort((sorted) => !sorted);
   }
 
   function tileEditorPixelFromEvent(event: ReactPointerEvent<HTMLDivElement>): { readonly x: number; readonly y: number } | null {
@@ -8111,8 +8447,10 @@ export function App() {
             : 0;
     if (delta === 0) return;
     event.preventDefault();
-    const next = Math.max(0, Math.min(glyphCount - 1, characterIndex + delta));
-    charsetGlyphRefs.current[next]?.focus();
+    const displayIndex = glyphDisplayIndices.indexOf(characterIndex);
+    if (displayIndex < 0) return;
+    const next = glyphDisplayIndices[Math.max(0, Math.min(glyphDisplayIndices.length - 1, displayIndex + delta))];
+    if (next !== undefined) charsetGlyphRefs.current[next]?.focus();
   }
 
   function commitCharsetStartEntry(): void {
@@ -8282,12 +8620,12 @@ export function App() {
 
   function projectFileBaseName(): string {
     return sourceArtifact === null
-      ? "retro-converter"
+      ? sanitizeArtifactBaseName(projectName || "retro-converter")
       : sanitizeArtifactBaseName(projectName || sourceArtifact.baseName);
   }
 
   function exportCharsetArtifact(): void {
-    if (charsetState.kind !== "ready" || sourceArtifact === null) return;
+    if (charsetState.kind !== "ready") return;
     downloadBytes(
       charsetState.result.artifact,
       "application/octet-stream",
@@ -8295,12 +8633,31 @@ export function App() {
     );
   }
 
+  async function exportSpecsciiFile(): Promise<void> {
+    if (charsetState.kind !== "ready" || tilemapStale) return;
+    try {
+      const fontAssets = await loadSpecsciiFontAssets();
+      const exported = exportSpecscii({
+        assignments: charsetState.result.assignments,
+        attributes: charsetState.result.attributes,
+        charset: charsetState.result.charset,
+        specsciiCharset: fontAssets.charset,
+        border: specsciiBorder,
+        author: specsciiAuthor,
+        imageName: specsciiImageName,
+      });
+      downloadBytes(exported.bytes, "application/json", `${projectFileBaseName()}-specscii.json`);
+      setExportError(null);
+      setImageStatus(exported.approximatedCells === 0
+        ? "Exported Specscii screen · all 768 glyphs matched the built-in symbol set."
+        : `Exported Specscii screen · ${exported.approximatedCells} cells use the closest built-in Specscii glyph.`);
+    } catch (error: unknown) {
+      setExportError(`Specscii export blocked: ${error instanceof Error ? error.message : "Unsupported tilemap."}`);
+    }
+  }
+
   function exportFinalCharset(): void {
-    if (
-      charsetState.kind !== "ready" ||
-      tilemapStale ||
-      sourceArtifact === null
-    ) return;
+    if (charsetState.kind !== "ready" || tilemapStale) return;
     downloadBytes(
       charsetState.result.charset,
       "application/octet-stream",
@@ -8309,7 +8666,7 @@ export function App() {
   }
 
   function exportCharsetPreview(): void {
-    if (charsetState.kind !== "ready" || sourceArtifact === null) return;
+    if (charsetState.kind !== "ready") return;
     const preview = scaleRgbaNearest(charsetState.result.previewRgba, 256, 192, exportZoomFactor);
     const png = encodeRgbaPng(preview.rgba, preview.width, preview.height);
     downloadBytes(
@@ -8320,11 +8677,15 @@ export function App() {
   }
 
   function exportCharsetDiagnostics(): void {
-    if (charsetState.kind !== "ready" || sourceArtifact === null) return;
+    if (charsetState.kind !== "ready") return;
     const bytes = new TextEncoder().encode(`${JSON.stringify({
       source: charsetSource,
       encoding: charsetState.result.encoding,
       transformations: charsetState.result.transformations,
+      viewer_type: charsetViewerType(
+        charsetState.result.encoding,
+        charsetState.result.transformations,
+      ),
       character_count: charsetState.result.characterCount,
       existing_charset: existingCharsetName,
       existing_charset_range: charsetSource === "existing"
@@ -8902,10 +9263,30 @@ export function App() {
               : {}),
           },
         );
-        if (!equalBytes(
+        const legacyTilemapArtifact = encodeLegacyCharsetArtifact({
+          encoding: verifiedTilemap.encoding,
+          characterCount: verifiedTilemap.characterCount,
+          transformations: verifiedTilemap.transformations,
+          characterIndices: Uint8Array.from(
+            verifiedTilemap.assignments,
+            (assignment) => assignment.characterIndex,
+          ),
+          attributes: verifiedTilemap.attributes,
+          transforms: Uint8Array.from(
+            verifiedTilemap.assignments,
+            (assignment) => assignment.transform,
+          ),
+          charset: verifiedTilemap.charset,
+        });
+        const artifactMatchesCurrent = equalBytes(
           verifiedTilemap.artifact,
           validated.tilemap.artifact,
-        )) {
+        );
+        const artifactMatchesLegacy = equalBytes(
+          legacyTilemapArtifact,
+          validated.tilemap.artifact,
+        );
+        if (!artifactMatchesCurrent && !artifactMatchesLegacy) {
           const selection =
             validated.tilemap.settings.existingCharsetSelection?.indices;
           const legacyFirstCharacters = selection === undefined
@@ -9095,6 +9476,8 @@ export function App() {
       charsetState.kind === "ready" && !tilemapStale
     ? lastFinal
     : draftPreviewResult(draftState) ?? lastFinal;
+  const standaloneTilemapPreview = workspaceMode === "tilemap" &&
+    charsetState.kind === "ready" && !tilemapStale && displayedResult === null;
   const bitmapEditorFlashFrame = displayedResult?.frames[
     Math.min(bitmapEditorResultFrameIndex, Math.max(0, displayedResult.frames.length - 1))
   ];
@@ -9313,8 +9696,8 @@ export function App() {
     bitmapEditorResultEdited;
   const draftProjectReady = workspaceMode === "palette" &&
     draftState.kind === "ready" && image !== null && sourceArtifact !== null;
-  const tilemapArtifactsReady = paletteArtifactsReady &&
-    charsetState.kind === "ready" && !tilemapStale;
+  const tilemapArtifactsReady = charsetState.kind === "ready" && !tilemapStale &&
+    (paletteArtifactsReady || specsciiDocumentName !== null);
   const artifactsReady = workspaceMode === "tilemap"
     ? tilemapArtifactsReady
     : paletteArtifactsReady || editedPaletteProjectReady || draftProjectReady;
@@ -9368,6 +9751,18 @@ export function App() {
   const visibleTileUsage = tileUsageFilter === "used"
     ? tileUsage.filter((tile) => tile.count > 0)
     : tileUsage;
+  const tileUsageCountByIndex = new Map(
+    tileUsage.map(({ characterIndex, count }) => [characterIndex, count]),
+  );
+  const tileUsageAvailable = charsetState.kind === "ready" && !tilemapStale;
+  const maximumTileUsage = tileUsageAvailable
+    ? Math.max(0, ...tileUsage.map(({ count }) => count))
+    : 0;
+  const glyphDisplayIndices = Array.from({ length: glyphCount }, (_, index) => index);
+  if (tileEditorUsageSort && tileUsageAvailable) {
+    glyphDisplayIndices.sort((left, right) =>
+      (tileUsageCountByIndex.get(right) ?? 0) - (tileUsageCountByIndex.get(left) ?? 0) || left - right);
+  }
   const fullBitmapEditorPreview = (side: PreviewSide) => {
     const buffer = bitmapEditorTarget === "result"
       ? bitmapEditorResultBuffer
@@ -9564,10 +9959,15 @@ export function App() {
           toggle === "rotate-ccw"
             ? selectedTransformToggles["mirror-x"] && selectedTransformToggles["rotate-cw"]
             : selectedTransformToggles[toggle];
-        const selectedTilePreview = selectedAssignment === null
+        const previewAssignment = selectedAssignment === null
+          ? null
+          : tilemapPutActive
+            ? { ...selectedAssignment, characterIndex: tileEditorSelected }
+            : selectedAssignment;
+        const selectedTilePreview = previewAssignment === null
           ? new Uint8Array(8)
-          : transformTile(result.charset.subarray(selectedAssignment.characterIndex * 8, selectedAssignment.characterIndex * 8 + 8), selectedAssignment.transform);
-        if (selectedAssignment?.inverted) {
+          : transformTile(result.charset.subarray(previewAssignment.characterIndex * 8, previewAssignment.characterIndex * 8 + 8), previewAssignment.transform);
+        if (previewAssignment?.inverted) {
           for (let row = 0; row < selectedTilePreview.length; row += 1) selectedTilePreview[row] = (selectedTilePreview[row] ?? 0) ^ 0xff;
         }
         const selectedBright = (selectedAttribute & 0x40) !== 0;
@@ -9603,9 +10003,9 @@ export function App() {
             </section>
             <section className="unified-tile-column unified-cell-column" aria-label="Selected map cell preview and attributes">
               <div className="unified-tile-heading">
-                <p><strong>{canEditSelectedCell ? `Map cell ${selectedCellX},${selectedCellY}` : "No map cell selected"}</strong>{canEditSelectedCell ? ` · Tile ${selectedAssignment.characterIndex}` : " · Select a cell in the tilemap preview"}</p>
+                <p><strong>{tilemapPutActive ? `PUT stamp · Base tile ${tileEditorSelected}` : canEditSelectedCell ? `Map cell ${selectedCellX},${selectedCellY}` : "No map cell selected"}</strong>{tilemapPutActive ? ` · style from ${selectedCellX},${selectedCellY}` : canEditSelectedCell ? ` · Tile ${selectedAssignment.characterIndex}` : " · Select a cell in the tilemap preview"}</p>
               </div>
-              <div className="unified-rendered-tile" role="img" aria-label={canEditSelectedCell ? `Rendered tile at map cell ${selectedCellX},${selectedCellY}, ${tileTransformLabel(selectedTransform)}, INK ${selectedAttribute & 7}, PAPER ${(selectedAttribute >> 3) & 7}` : "No selected tilemap cell"}>
+              <div className="unified-rendered-tile" role="img" aria-label={canEditSelectedCell ? `${tilemapPutActive ? `PUT preview of base tile ${tileEditorSelected}` : `Rendered tile at map cell ${selectedCellX},${selectedCellY}`}, ${tileTransformLabel(selectedTransform)}, INK ${selectedAttribute & 7}, PAPER ${(selectedAttribute >> 3) & 7}` : "No selected tilemap cell"}>
                 {Array.from({ length: 64 }, (_, pixelIndex) => {
                   const x = pixelIndex % 8;
                   const y = Math.floor(pixelIndex / 8);
@@ -9635,19 +10035,28 @@ export function App() {
                       (attribute & 0xc0) | ((attribute & 0x07) << 3) | ((attribute >> 3) & 0x07)
                     )}>INV</button>
                   </div>
-                  <div className="unified-segmented" role="group" aria-label="Cell pickers">
+                  <div className="unified-segmented unified-cell-pickers" role="group" aria-label="Cell pickers and tile placement">
                     <button className={`secondary compact${tileEditorColorPickerActive ? " active" : ""}`} type="button" disabled={!canEditSelectedCell} aria-pressed={tileEditorColorPickerActive} title="Pick INK, PAPER, BRIGHT, and FLASH from a map cell, then apply them to the selected cell" onClick={() => {
+                    setTilemapPutActive(false);
                     setTileEditorTilePickerActive(false);
                     setTileEditorColorPickerActive((active) => !active);
                     }}>COL</button>
                     <button className={`secondary compact${tileEditorTilePickerActive ? " active" : ""}`} type="button" disabled={!canEditSelectedCell} aria-pressed={tileEditorTilePickerActive} title="Choose a tile from the converted screen or Charset tiles; replace the tile index only at the selected map cell" onClick={() => {
+                    setTilemapPutActive(false);
                     setTileEditorColorPickerActive(false);
                     setTileEditorTilePickerActive((active) => !active);
                     }}>TILE</button>
+                    <button className={`secondary compact${tilemapPutActive ? " active" : ""}`} type="button" disabled={!canEditSelectedCell || tileEditorSelected < 0 || tileEditorSelected >= result.characterCount} aria-pressed={tilemapPutActive} title="Place the selected base tile using the selected map cell's transform, polarity, and color attributes" onClick={() => {
+                    tilemapPutPointerRef.current = null;
+                    setTileEditorColorPickerActive(false);
+                    setTileEditorTilePickerActive(false);
+                    setTilemapPutActive((active) => !active);
+                    }}>PUT</button>
                   </div>
                 </div>
                 {tileEditorColorPickerActive ? <span className="control-help" role="status">Click a map cell to copy its attributes to the selected cell.</span> : null}
                 {tileEditorTilePickerActive ? <span className="control-help" role="status">Choose a source tile from the converted screen or Charset tiles. Only map cell {selectedCellX},{selectedCellY} will change; other uses are untouched. Press Escape to cancel.</span> : null}
+                {tilemapPutActive ? <span className="control-help" role="status">PUT active: draw on the converted result to replace each map cell with base tile {tileEditorSelected}, using this cell’s transform and color settings. Drag to place repeatedly; Escape to stop.</span> : null}
               </div>
             </section>
           </div>
@@ -10017,10 +10426,12 @@ export function App() {
       ? "Running Palette High followed by Tilemap High…"
       : charsetState.kind === "error"
         ? `Tilemap failed: ${charsetState.message}`
-        : tilemapStale
+      : tilemapStale
           ? "Palette source changed · tilemap reconstruction is stale."
           : charsetState.kind === "ready"
-            ? `Tilemap High current · ${charsetState.result.characterCount} characters · ${charsetState.result.artifact.length.toLocaleString()} bytes.`
+            ? specsciiDocumentName !== null && image === null
+              ? `Specscii screen loaded · ${charsetState.result.characterCount} characters · ready to edit or export.`
+              : `Tilemap High current · ${charsetState.result.characterCount} characters · ${charsetState.result.artifact.length.toLocaleString()} bytes.`
             : image === null
               ? "Import an image to begin."
               : "Ready for Tilemap High conversion."
@@ -10092,7 +10503,7 @@ export function App() {
         conversionRunning={state.kind === "running"}
         onConvert={() => void convertImage()}
         onCancelConvert={cancelHigh}
-        canSaveProject={artifactsReady}
+        canSaveProject={artifactsReady && sourceArtifact !== null && image !== null}
         canExportResult={resultSaveReady}
         canExportMetadata={paletteArtifactsReady && image !== null}
         canExportInspection={resultSaveReady && isZx}
@@ -10102,6 +10513,7 @@ export function App() {
         onOpenPmd={importPmd85}
         onOpenProject={openProject}
         onImportProfile={importProfile}
+        onImportSpecscii={importSpecsciiFile}
         onSaveProject={openProjectSaveDialog}
         onExportPreview={exportPreviewPng}
         onExportGif={exportAnimatedFlashGif}
@@ -10109,6 +10521,7 @@ export function App() {
         onExportMetadata={() => void exportMetadata()}
         onExportInspection={exportInspectionReport}
         onExportTilemap={exportCharsetArtifact}
+        onExportSpecscii={exportSpecsciiFile}
         onExportCharset={exportFinalCharset}
         onExportPaletteSource={exportScr}
         onExportTilemapPreview={exportCharsetPreview}
@@ -11467,13 +11880,9 @@ export function App() {
           ) : null}
           {ditherEngineId === "dither-composer-v1" ? (
             <div className="dithering-composer-grid" aria-label="Dither composer settings">
-              <div className="control-row control-row-2 control-row-heading">
-                <h3>Dithering</h3>
-                <h3>Kernel</h3>
-              </div>
               <div className="control-row control-row-2">
               <label>
-                <span>Composer pattern</span>
+                <span className="dithering-composer-one-line-label">Dithering · Composer&nbsp;pattern</span>
                 <select
                   value={composer.patternId}
                   onChange={(event) => {
@@ -11498,7 +11907,7 @@ export function App() {
                 </select>
               </label>
               <label>
-                <span>Composer propagation</span>
+                <span className="dithering-composer-one-line-label">Kernel · Composer&nbsp;propagation</span>
                 <select
                   value={composer.propagationId}
                   onChange={(event) => {
@@ -11569,12 +11978,15 @@ export function App() {
               <div className="control-row control-row-2">
               <label>
                 <span>Custom matrix ranks</span>
-                <textarea
-                  className="dithering-composer-editor"
-                  rows={4}
-                  value={customMatrixValuesEntry}
-                  onChange={(event) => setCustomMatrixValuesEntry(event.target.value)}
-                />
+                <span className="control-cell-body">
+                  <textarea
+                    className="dithering-composer-editor"
+                    rows={4}
+                    value={customMatrixValuesEntry}
+                    onChange={(event) => setCustomMatrixValuesEntry(event.target.value)}
+                  />
+                  <small>Ranks may repeat, but each distinct rank must occur equally often.</small>
+                </span>
               </label>
               <label>
                 <span>Custom kernel entries</span>
@@ -11668,36 +12080,38 @@ export function App() {
           ) : null}
           {dithering === "error-diffusion" ? (
             <div className="dithering-wide dithering-row dithering-row-paired control-row control-row-2">
-              <fieldset className="amount-control dithering-inline-fieldset">
-                <legend>Dithering amount</legend>
-                <div className="amount-inputs">
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    step="1"
-                    value={amountValid ? amount : 0}
-                    aria-label="Dithering amount slider"
-                    onInput={(event) => { setAmountEntry(event.currentTarget.value); setState({ kind: "idle" }); }}
-                  />
-                  <label className="percentage-entry">
-                    <span className="visually-hidden">Dithering amount percentage</span>
+              <div className="dithering-parameter">
+                <label>
+                  <span>Dithering amount</span>
+                  <span className="filter-inputs">
                     <input
-                      className={amountValid ? undefined : "invalid"}
-                      type="number"
+                      type="range"
                       min="0"
                       max="100"
                       step="1"
-                      value={amountEntry}
-                      aria-invalid={!amountValid}
-                      aria-describedby={amountValid ? undefined : "amount-error"}
-                      onChange={(event) => { setAmountEntry(event.target.value); setState({ kind: "idle" }); }}
+                      value={amountValid ? amount : 0}
+                      aria-label="Dithering amount slider"
+                      onInput={(event) => { setAmountEntry(event.currentTarget.value); setState({ kind: "idle" }); }}
                     />
-                    <span aria-hidden="true">%</span>
-                  </label>
-                </div>
+                    <span className="range-number-entry">
+                      <input
+                        className={amountValid ? undefined : "invalid"}
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="1"
+                        value={amountEntry}
+                        aria-label="Dithering amount percentage"
+                        aria-invalid={!amountValid}
+                        aria-describedby={amountValid ? undefined : "amount-error"}
+                        onChange={(event) => { setAmountEntry(event.target.value); setState({ kind: "idle" }); }}
+                      />
+                      <span className="range-unit" aria-hidden="true">%</span>
+                    </span>
+                  </span>
+                </label>
                 {amountValid ? null : <span className="field-error" id="amount-error">Invalid value</span>}
-              </fieldset>
+              </div>
               <div
                 className="dithering-parameter"
                 title="Deterministically breaks repeating Error-diffusion patterns."
@@ -12190,7 +12604,10 @@ export function App() {
             </div>
             {charsetSource === "existing" ? (
               <label className="file-picker secondary-picker charset-picker">
-                <span>{existingCharsetName ?? "Choose raw charset"}</span>
+                <span>
+                  {existingCharsetName ?? "Choose raw charset"}
+                  {existingCharsetName === null ? "" : " · Replace…"}
+                </span>
                 <input
                   type="file"
                   accept=".chr,.bin,application/octet-stream"
@@ -12205,6 +12622,13 @@ export function App() {
                   }}
                 />
               </label>
+            ) : null}
+            {charsetSource === "existing" && existingCharset === null ? (
+              <p className="control-help" role="status">
+                {builtInSpecsciiFontError === null
+                  ? "Loading the built-in Specscii font…"
+                  : `Built-in Specscii font unavailable: ${builtInSpecsciiFontError}. Import a raw charset to continue.`}
+              </p>
             ) : null}
             <p className="control-help tilemap-mapping-help">
               Compact embeds transform bits and supports 1–32 active tiles.
@@ -13154,7 +13578,12 @@ export function App() {
           <aside className="tilemap-charset-panel" aria-label="Charset selector">
             <div className="tilemap-charset-heading">
               <strong>Charset tiles</strong>
-              <span>{glyphCount} available · {glyphActiveCount} active{tileEditorEdited ? " · Edited" : ""}</span>
+              <span>{glyphCount} available · {glyphActiveCount} included{tileEditorEdited ? " · Edited" : ""}</span>
+            </div>
+            <div className="tilemap-charset-legend" aria-label="Charset tile indicators">
+              <span><i className="charset-included-indicator" aria-hidden="true" />Included in conversion</span>
+              <span><i className="charset-used-indicator" aria-hidden="true" />Used on map</span>
+              <span><i className="charset-editor-indicator" aria-hidden="true" />Current editor tile</span>
             </div>
             <div
               className="tilemap-glyph-grid"
@@ -13165,18 +13594,36 @@ export function App() {
             >
               {glyphCount === 0 ? (
                 <span className="control-help">No charset loaded.</span>
-              ) : Array.from({ length: glyphCount }, (_, characterIndex) => {
+              ) : glyphDisplayIndices.map((characterIndex) => {
                 const active = glyphActiveIndexSet.has(characterIndex);
                 const editorReady = charsetState.kind === "ready";
                 const selectable = editorReady || (charsetSource === "existing" && existingCharset !== null);
+                const usageCount = tileUsageAvailable
+                  ? tileUsageCountByIndex.get(characterIndex) ?? 0
+                  : null;
+                const usageScale = usageCount === null || usageCount === 0 || maximumTileUsage === 0
+                  ? 0
+                  : Math.log1p(usageCount) / Math.log1p(maximumTileUsage);
+                const usageColor = usageCount === null || usageCount === 0
+                  ? undefined
+                  : `hsl(${205 - Math.round(160 * usageScale)} 82% 62%)`;
+                const usageDescription = usageCount === null
+                  ? "Usage unavailable"
+                  : usageCount === 0
+                    ? "Unused · 0 map cells"
+                    : `Used in ${usageCount} map cells`;
+                const inclusionDescription = active ? "Included in conversion" : "Excluded from conversion";
+                const editorDescription = editorReady && characterIndex === tileEditorSelected
+                  ? " · Current editor tile"
+                  : "";
                 return (
                   <button
                     type="button"
-                    className={`glyph-item ${active ? "active" : "inactive"}${editorReady && characterIndex === tileEditorSelected ? " editor-selected" : ""}`}
+                    className={`glyph-item ${active ? "active" : "inactive"}${usageCount === 0 ? " zero-use" : usageCount === null ? " usage-unknown" : " map-used"}${editorReady && characterIndex === tileEditorSelected ? " editor-selected" : ""}`}
                     key={characterIndex}
                     data-character-index={characterIndex}
-                    title={`Tile ${characterIndex + 1} (index ${characterIndex}) · ${active ? "Active" : "Unused"}`}
-                    aria-label={`Tile ${characterIndex + 1}, ${active ? "selected" : "not selected"}`}
+                    title={`Tile ${characterIndex + 1} (index ${characterIndex}) · ${inclusionDescription}${editorDescription} · ${usageDescription}`}
+                    aria-label={`Tile ${characterIndex + 1}, ${inclusionDescription}${editorDescription}, ${usageDescription}`}
                     aria-pressed={selectable ? active : undefined}
                     disabled={!selectable}
                     ref={(element) => {
@@ -13234,12 +13681,15 @@ export function App() {
                     onDragStart={(event) => event.preventDefault()}
                   >
                     <img
-                      src={glyphDataUrl(glyphCharset!, characterIndex, active)}
+                      src={glyphDataUrl(glyphCharset!, characterIndex, active, usageCount === 0)}
                       alt=""
                       draggable={false}
                       width="16"
                       height="16"
                     />
+                    <span className={`glyph-usage-meter${usageCount === null ? " unavailable" : ""}`} aria-hidden="true">
+                      <span style={{ width: `${usageScale * 100}%`, backgroundColor: usageColor }} />
+                    </span>
                   </button>
                 );
               })}
@@ -13251,7 +13701,14 @@ export function App() {
               </div>
             ) : null}
             <div className="tilemap-charset-actions">
-              <button className="secondary compact" type="button" disabled={charsetState.kind !== "ready" || glyphCount === 0} onClick={sortEditorTilesByUsage}>Usage</button>
+              <button
+                className="secondary compact"
+                type="button"
+                disabled={!tileUsageAvailable || glyphCount === 0}
+                onClick={toggleEditorTileUsageSort}
+                aria-pressed={tileEditorUsageSort}
+                title={tileEditorUsageSort ? "Show tiles in memory order" : "Sort displayed tiles by usage"}
+              >{tileEditorUsageSort ? "Normal" : "Usage"}</button>
               <button className="secondary compact" type="button" disabled={charsetState.kind !== "ready" || glyphCount >= 256} onClick={createEditorTile}>Add</button>
               <button className="secondary compact" type="button" disabled={charsetState.kind !== "ready" || glyphCount <= 1} onClick={deleteEditorTile}>Del</button>
               <button className="secondary compact" type="button" disabled={charsetSource !== "existing" || existingCharset === null || charsetState.kind === "running" || glyphCount === 0} onClick={clearCharsetSelection}>All</button>
@@ -13366,13 +13823,11 @@ export function App() {
                     <option value="inspector">Inspector</option>
                   </select>
                 </label>
-                {workbenchSourceFloating ? (
-                  <div className="preview-floating-zoom-actions" aria-label="Source preview zoom">
-                    <button className="secondary compact" type="button" aria-label="Zoom out Source preview" title="Zoom out" onClick={() => stepPreviewZoom("source", -1)} disabled={sourcePreviewZoom === "fit"}>−</button>
-                    <button className="secondary compact" type="button" aria-label="Zoom in Source preview" title="Zoom in" onClick={() => stepPreviewZoom("source", 1)} disabled={sourcePreviewZoom === 16}>+</button>
-                    <button className="secondary compact" type="button" aria-label="Fit Source preview" title="Fit" onClick={() => fitPreview("source")}>%</button>
-                  </div>
-                ) : null}
+                <div className="preview-zoom-actions" aria-label="Source preview zoom">
+                  <button className="secondary compact" type="button" aria-label="Zoom out Source preview" title="Zoom out" onClick={() => stepPreviewZoom("source", -1)} disabled={sourcePreviewZoom === "fit"}>−</button>
+                  <button className="secondary compact" type="button" aria-label="Zoom in Source preview" title="Zoom in" onClick={() => stepPreviewZoom("source", 1)} disabled={sourcePreviewZoom === 16}>+</button>
+                  <button className="secondary compact" type="button" aria-label="Fit Source preview" title="Fit" onClick={() => fitPreview("source")}>%</button>
+                </div>
                 {workbenchSourceFloating ? (
                   <span
                     className="workbench-window-drag-handle"
@@ -13650,13 +14105,11 @@ export function App() {
                     <option value="inspector">Inspector</option>
                   </select>
                 </label>
-                {workbenchResultFloating ? (
-                  <div className="preview-floating-zoom-actions" aria-label="Result preview zoom">
-                    <button className="secondary compact" type="button" aria-label="Zoom out Result preview" title="Zoom out" onClick={() => stepPreviewZoom("result", -1)} disabled={resultPreviewZoom === "fit"}>−</button>
-                    <button className="secondary compact" type="button" aria-label="Zoom in Result preview" title="Zoom in" onClick={() => stepPreviewZoom("result", 1)} disabled={resultPreviewZoom === 16}>+</button>
-                    <button className="secondary compact" type="button" aria-label="Fit Result preview" title="Fit" onClick={() => fitPreview("result")}>%</button>
-                  </div>
-                ) : null}
+                <div className="preview-zoom-actions" aria-label="Result preview zoom">
+                  <button className="secondary compact" type="button" aria-label="Zoom out Result preview" title="Zoom out" onClick={() => stepPreviewZoom("result", -1)} disabled={resultPreviewZoom === "fit"}>−</button>
+                  <button className="secondary compact" type="button" aria-label="Zoom in Result preview" title="Zoom in" onClick={() => stepPreviewZoom("result", 1)} disabled={resultPreviewZoom === 16}>+</button>
+                  <button className="secondary compact" type="button" aria-label="Fit Result preview" title="Fit" onClick={() => fitPreview("result")}>%</button>
+                </div>
                 {workbenchResultFloating ? (
                   <span
                     className="workbench-window-drag-handle"
@@ -13690,6 +14143,7 @@ export function App() {
                 style={{ backgroundColor: borderHex, borderColor: borderHex }}
               >
                 {((resultPreviewContent === "source-image" && image !== null) ||
+                  (standaloneTilemapPreview && (resultPreviewContent === "image" || resultPreviewContent === "result-image")) ||
                   (displayedResult !== null &&
                     (workspaceMode === "palette" || charsetState.kind === "ready")))
                   ? (
@@ -13709,11 +14163,14 @@ export function App() {
                     >
                       <canvas
                         ref={resultPreviewContent === "source-image" ? canvasRef : convertedCanvasRef}
+                        className={tilemapPutActive && workspaceMode === "tilemap" && resultPreviewContent !== "source-image" ? "tilemap-put-cursor" : undefined}
                         aria-label={resultPreviewContent === "source-image" ? "Decoded source image preview" : "Converted hardware preview"}
                         aria-describedby="inspection-help"
                         tabIndex={resultPreviewContent === "source-image" ? undefined : 0}
-                        onPointerMove={resultPreviewContent === "source-image" ? undefined : inspectResultPixel}
-                        onPointerDown={resultPreviewContent === "source-image" ? undefined : selectResultPixel}
+                        onPointerMove={resultPreviewContent === "source-image" ? undefined : tilemapPutActive && workspaceMode === "tilemap" ? handleTilemapPutPointerMove : inspectResultPixel}
+                        onPointerDown={resultPreviewContent === "source-image" ? undefined : tilemapPutActive && workspaceMode === "tilemap" ? handleTilemapPutPointerDown : selectResultPixel}
+                        onPointerUp={resultPreviewContent === "source-image" ? undefined : handleTilemapPutPointerEnd}
+                        onPointerCancel={resultPreviewContent === "source-image" ? undefined : handleTilemapPutPointerEnd}
                         onKeyDown={resultPreviewContent === "source-image" ? undefined : handleInspectorKey}
                       />
                       <svg
@@ -13883,7 +14340,9 @@ export function App() {
                   <div>
                     <dt>Mapping</dt>
                     <dd>
-                      0x{(charsetState.result.artifact[inspectedTileIndex] ?? 0)
+                      0x{(charsetState.result.artifact[
+                        inspectedTileIndex + CHARSET_ARTIFACT_HEADER_BYTES
+                      ] ?? 0)
                         .toString(16).padStart(2, "0")}
                     </dd>
                   </div>
@@ -13964,6 +14423,10 @@ export function App() {
                   <div>
                     <dt>Map</dt>
                     <dd>{charsetState.result.diagnostics.memory.tilemapBytes.toLocaleString()} B</dd>
+                  </div>
+                  <div>
+                    <dt>Header</dt>
+                    <dd>{(charsetState.result.diagnostics.memory.headerBytes ?? 0).toLocaleString()} B</dd>
                   </div>
                   <div>
                     <dt>Attributes</dt>
