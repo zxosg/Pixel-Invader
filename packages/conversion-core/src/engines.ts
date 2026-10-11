@@ -1013,6 +1013,7 @@ export function assertCompatibleEngines(
   platformId: PlatformId,
   attributeOptimizerId: AttributeOptimizerId,
   ditherEngineId: DitherEngineId,
+  targetModeId?: TargetModeId,
 ): void {
   const dither = DITHER_ENGINES.find((candidate) => candidate.id === ditherEngineId);
   if (!dither?.platforms.includes(platformId as never)) {
@@ -1023,11 +1024,25 @@ export function assertCompatibleEngines(
       (candidate) => candidate.id === attributeOptimizerId,
     );
     if (!optimizer) throw new RangeError(`Unknown attribute optimizer: ${attributeOptimizerId}.`);
+    if (!optimizer.platforms.includes(platformId)) {
+      throw new RangeError(`Attribute optimizer ${attributeOptimizerId} does not support ${platformId}.`);
+    }
+    if (targetModeId !== undefined && optimizer.targetModeIds !== undefined &&
+        !optimizer.targetModeIds.includes(targetModeId)) {
+      if (attributeOptimizerId.startsWith("zx-mixed-joint-")) {
+        throw new RangeError("The joint-cell optimizer supports only ZX Mixed mode.");
+      }
+      throw new RangeError(`Attribute optimizer ${attributeOptimizerId} does not support hardware mode ${targetModeId}.`);
+    }
     if (!isCompatibleEnginePair(attributeOptimizerId, ditherEngineId)) {
       throw new RangeError(
         `Attribute optimizer ${attributeOptimizerId} is incompatible with dither engine ${ditherEngineId}.`,
       );
     }
+  }
+  if (targetModeId !== undefined && dither.targetModeIds !== undefined &&
+      !dither.targetModeIds.includes(targetModeId)) {
+    throw new RangeError(`Dither engine ${ditherEngineId} does not support hardware mode ${targetModeId}.`);
   }
 }
 

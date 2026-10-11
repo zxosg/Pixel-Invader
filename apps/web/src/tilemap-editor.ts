@@ -70,6 +70,10 @@ export function snapshotTilemapEditor(input: TilemapEditorSnapshot): TilemapEdit
 
 export type TileTransformToggle = "mirror-x" | "mirror-y" | "rotate-cw" | "rotate-ccw";
 
+export function swapTilemapInkPaper(attribute: number): number {
+  return (attribute & 0xc0) | ((attribute & 0x07) << 3) | ((attribute >> 3) & 0x07);
+}
+
 const TRANSFORM_MARKER: Uint8Array = Uint8Array.from([0x81, 0x42, 0x24, 0x18, 0x83, 0x46, 0x29, 0x17]);
 
 function sameTile(left: Uint8Array, right: Uint8Array): boolean {

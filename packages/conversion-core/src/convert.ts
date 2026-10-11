@@ -2976,6 +2976,7 @@ function validateSettings(settings: ConversionSettings): void {
     settings.platformId,
     settings.attributeOptimizerId,
     settings.ditherEngineId,
+    settings.modeId,
   );
   if (ditherMethodForEngine(settings.ditherEngineId) !== settings.dithering) {
     throw new RangeError("Dither engine and dithering method do not match.");

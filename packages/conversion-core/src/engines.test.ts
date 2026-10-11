@@ -376,6 +376,27 @@ describe("versioned conversion engines", () => {
     expect(engine?.targetModeIds).toEqual(["zx48-mixed-256x192"]);
   });
 
+  it("validates target-mode compatibility when a hardware mode is supplied", () => {
+    expect(() => assertCompatibleEngines(
+      "zx-spectrum",
+      "zx-mixed-joint-quantized-v1",
+      "error-diffusion-decorrelated-v3",
+      "zx48-mixed-256x192",
+    )).not.toThrow();
+    expect(() => assertCompatibleEngines(
+      "zx-spectrum",
+      "zx-mixed-joint-quantized-v1",
+      "error-diffusion-decorrelated-v3",
+      "zx48-standard-256x192",
+    )).toThrow("supports only ZX Mixed mode");
+    expect(() => assertCompatibleEngines(
+      "zx-spectrum",
+      "zx-guide-reference-halo-v1",
+      "ordered-mixed-phase-stable-v8",
+      "zx48-standard-256x192",
+    )).toThrow(/does not support hardware mode/);
+  });
+
   it("tags only benchmark-proven duplicate engines for the selection cleanup group", () => {
     expect(ditherEngineSelectionGroupForTarget(
       "ordered-osg-v1",

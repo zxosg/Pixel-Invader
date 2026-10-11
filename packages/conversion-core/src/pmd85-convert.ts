@@ -435,7 +435,7 @@ export function convertToPmd85(
   if (settings.pmd85.mode !== hardwareMode) {
     throw new RangeError("PMD 85 settings and target hardware interpretation do not match.");
   }
-  assertCompatibleEngines("pmd-85", settings.attributeOptimizerId, settings.ditherEngineId);
+  assertCompatibleEngines("pmd-85", settings.attributeOptimizerId, settings.ditherEngineId, settings.modeId);
   const engineFallback = engineFallbackFor(settings.ditherEngineId);
   if (ditherMethodForEngine(settings.ditherEngineId) !== settings.dithering) {
     throw new RangeError("Dither engine and dithering method do not match.");

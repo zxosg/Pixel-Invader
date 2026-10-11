@@ -3,6 +3,7 @@ import type { CharsetAssignment, TileTransform } from "@retro-converter/zx-chars
 import {
   setCellPixel,
   stampTilemapCells,
+  swapTilemapInkPaper,
   tileForCell,
   tileTransformToggleState,
   toggleCellPixel,
@@ -21,6 +22,12 @@ function assignment(overrides: Partial<CharsetAssignment> = {}): CharsetAssignme
 }
 
 describe("tilemap editor cell operations", () => {
+  it("swaps INK and PAPER while preserving BRIGHT and FLASH", () => {
+    const attribute = 2 | (5 << 3) | 0x40 | 0x80;
+
+    expect(swapTilemapInkPaper(attribute)).toBe(5 | (2 << 3) | 0x40 | 0x80);
+  });
+
   it("stamps tile identity, transform, polarity, and color only into requested cells", () => {
     const assignments = [assignment({ characterIndex: 0 }), assignment({ characterIndex: 1, transform: 2 })];
     const attributes = Uint8Array.from([0x07, 0x38]);

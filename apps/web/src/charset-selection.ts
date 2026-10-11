@@ -5,6 +5,14 @@ export function allCharsetIndices(count: number): number[] {
   return Array.from({ length: count }, (_, index) => index);
 }
 
+export function mapSourceTileToOutputIndex(
+  sourceIndex: number,
+  outputSourceIndices: readonly (number | null)[] | null,
+): number {
+  if (!Number.isInteger(sourceIndex) || outputSourceIndices === null) return -1;
+  return outputSourceIndices.findIndex((candidate) => candidate === sourceIndex);
+}
+
 export function effectiveCharsetSelection(
   selection: readonly number[] | null,
   count: number,

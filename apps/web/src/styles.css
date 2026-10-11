@@ -2107,6 +2107,41 @@ h1 {
   background: #111824;
 }
 
+.tilemap-charset-panel.has-source-view {
+  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
+}
+
+.tilemap-charset-panel.has-source-tabs {
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+}
+
+.tilemap-charset-control-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.2rem;
+  align-items: stretch;
+  margin-bottom: 0.25rem;
+}
+
+.tilemap-charset-control-row.has-selection-action {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.tilemap-charset-control-row > button {
+  min-width: 0;
+  white-space: nowrap;
+  padding-inline: 0.1rem;
+}
+
+.tilemap-selection-mode {
+  min-width: 0;
+  padding-bottom: 0.2rem;
+}
+
+.tilemap-selection-mode .control-help {
+  font-size: 0.5rem;
+}
+
 .tilemap-charset-heading {
   display: grid;
   gap: 0.1rem;
@@ -2173,17 +2208,19 @@ h1 {
   background: #080c13;
 }
 
-.tilemap-charset-actions {
+.tilemap-charset-actions.unified-segmented {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 0.15rem;
+  align-self: start;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   padding-top: 0.3rem;
+}
+
+.tilemap-charset-actions.unified-segmented.source-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .tilemap-charset-actions button {
   min-width: 0;
-  padding-inline: 0.08rem;
-  font-size: 0.5rem;
   white-space: nowrap;
 }
 
@@ -2253,6 +2290,12 @@ h1 {
 }
 
 .glyph-item.editor-selected {
+  border: 2px solid #f4c95d;
+  outline: 1px solid #f4c95d;
+  outline-offset: 1px;
+}
+
+.glyph-item.source-picked {
   border: 2px solid #f4c95d;
   outline: 1px solid #f4c95d;
   outline-offset: 1px;
@@ -2466,6 +2509,11 @@ h1 {
   gap: 0.25rem;
 }
 
+.unified-editor-context-tabs {
+  width: min(100%, 18rem);
+  margin-left: 0.35rem;
+}
+
 .unified-highlight-control {
   margin-left: auto;
 }
@@ -2538,6 +2586,10 @@ h1 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.unified-segmented.unified-cell-pickers.map-cell-pickers {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .tilemap-put-cursor {
   cursor: crosshair;
   touch-action: none;
@@ -2583,6 +2635,29 @@ h1 {
   box-shadow: inset 0 0 0 1px #79b7ff;
 }
 
+.unified-cell-flag-buttons > .unified-attribute-toggle {
+  position: relative;
+}
+
+.unified-cell-flag-buttons > .unified-attribute-toggle.active {
+  border: 2px solid #f5f8ff;
+  box-shadow: 0 0 0 1px #111824 inset, 0 0 0 1px #79b7ff;
+}
+
+.unified-cell-flag-buttons > .unified-attribute-toggle.active::after {
+  position: absolute;
+  top: 0.12rem;
+  right: 0.16rem;
+  width: 0.3rem;
+  height: 0.3rem;
+  border: 1px solid #111824;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 75%);
+  content: "";
+  pointer-events: none;
+}
+
 .unified-segmented > button:focus-visible {
   position: relative;
   z-index: 1;
@@ -2593,12 +2668,21 @@ h1 {
   display: grid;
   width: 192px;
   height: 192px;
-  grid-template-columns: repeat(8, 24px);
-  grid-template-rows: repeat(8, 24px);
+  box-sizing: border-box;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  grid-template-rows: repeat(8, minmax(0, 1fr));
+  gap: 1px;
+  padding: 1px;
   border: 1px solid #52627d;
-  background: #000;
+  background: #52627d;
   cursor: crosshair;
   touch-action: none;
+}
+
+.unified-tile-bitmap .tile-editor-pixel {
+  width: auto;
+  height: auto;
+  border: 0;
 }
 
 .unified-rendered-tile {
@@ -2638,6 +2722,59 @@ h1 {
   gap: 0.35rem;
   color: #d6deea;
   font-size: 0.68rem;
+}
+
+.unified-color-swap-label {
+  justify-self: start;
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+}
+
+.unified-color-swap-label:hover:not(:disabled) {
+  color: #79b7ff;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.unified-color-swap-label:focus-visible {
+  border-radius: 0.15rem;
+  outline: 2px solid #79b7ff;
+  outline-offset: 2px;
+}
+
+.unified-color-swap-label:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.unified-cell-colors .bitmap-editor-attribute-color.selected {
+  z-index: 1;
+  border: 2px solid #f5f8ff;
+  box-shadow: 0 0 0 1px #111824 inset, 0 0 0 1px #79b7ff;
+}
+
+.unified-cell-colors .bitmap-editor-attribute-color.selected::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0.32rem;
+  height: 0.32rem;
+  border: 1px solid #111824;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 75%);
+  content: "";
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }
 
 .unified-color-swatches {
