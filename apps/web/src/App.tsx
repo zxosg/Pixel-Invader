@@ -163,6 +163,7 @@ import {
   type DitherEngineId,
   type FramingMode,
   type OrderedMatrixId,
+  type OrderedMatrix,
   type PaletteSelection,
   type PanEdgeMode,
   type Pmd85TargetModeId,
@@ -352,11 +353,22 @@ import {
 import {
   applyNativeResultPixels,
   cloneNativeResultBitmap,
+  composeNativeResultRegion,
   createNativeResultBitmap,
   nativePaletteForResult,
   type NativeResultBitmap,
   type NativeResultFrameInput,
 } from "./result-bitmap-editor.js";
+import {
+  bitmapEditorStippleFootprint,
+  bitmapSelectionOutlinePath,
+  makeBitmapRegionSelection,
+  shiftBitmapRegionPixels,
+  type BitmapRegionSelection,
+  type BitmapSelectionKind,
+  type BitmapSelectionResolution,
+} from "./bitmap-editor-selection.js";
+import { BitmapEditorStipplePicker } from "./bitmap-editor-stipple-picker.js";
 
 const BUILTIN_WORKSPACE_PROFILE_PREFIX = "builtin:";
 const STARTUP_WORKSPACE_LAYOUTS: readonly WorkspaceLayoutId[] = [
@@ -377,6 +389,21 @@ type ConversionState =
 type DraftState = RetainedDraftState<WorkerConversionResult>;
 
 type BitmapEditorTarget = "source" | "result";
+type BitmapEditorClipboard = {
+  readonly width: number;
+  readonly height: number;
+  readonly paletteIndices: Uint8Array;
+  readonly mask: Uint8Array;
+  readonly sourceX: number;
+  readonly sourceY: number;
+  readonly gridWidth: number;
+  readonly gridHeight: number;
+  readonly resolution: BitmapSelectionResolution;
+  readonly attributes: Uint8Array | null;
+  readonly attributeMask: Uint8Array | null;
+  readonly attributeWidth: number;
+  readonly attributeHeight: number;
+};
 
 interface BitmapEditorResultHistoryEntry {
   readonly result: WorkerConversionResult;
@@ -439,6 +466,27 @@ function gridPathForDimensions(
   for (let y = stepY; y < height; y += stepY) segments.push(`M0 ${y}H${width}`);
   return segments.join(" ");
 }
+
+function bitmapEditorLinePoints(
+  start: { readonly x: number; readonly y: number },
+  end: { readonly x: number; readonly y: number },
+): readonly { readonly x: number; readonly y: number }[] {
+  const points: Array<{ readonly x: number; readonly y: number }> = [];
+  let x = start.x;
+  let y = start.y;
+  const dx = Math.abs(end.x - start.x);
+  const sx = start.x < end.x ? 1 : -1;
+  const dy = -Math.abs(end.y - start.y);
+  const sy = start.y < end.y ? 1 : -1;
+  let error = dx + dy;
+  while (x !== end.x || y !== end.y) {
+    const doubled = error * 2;
+    if (doubled >= dy) { error += dy; x += sx; }
+    if (doubled <= dx) { error += dx; y += sy; }
+    points.push({ x, y });
+  }
+  return points;
+}
 const ORDERED_MATRIX_IDS: readonly OrderedMatrixId[] = [
   "checkerboard-2x1",
   "bayer-2x2",
@@ -448,6 +496,7 @@ const ORDERED_MATRIX_IDS: readonly OrderedMatrixId[] = [
   "clustered-dot-8x8",
   "void-cluster-8x8",
 ];
+const BITMAP_EDITOR_STIPPLE_DENSITY = 50;
 
 function orderedMatrixLabel(matrixId: OrderedMatrixId): string {
   switch (matrixId) {
@@ -1160,6 +1209,12 @@ export function App() {
     readonly scrollLeft: number;
     readonly scrollTop: number;
   } | null>(null);
+  const bitmapEditorSelectionPointerRef = useRef<{
+    readonly side: PreviewSide;
+    readonly pointerId: number;
+    readonly kind: BitmapSelectionKind;
+    points: Array<{ readonly x: number; readonly y: number }>;
+  } | null>(null);
   const bitmapEditorSpaceRef = useRef(false);
   const existingCharsetSelectionRef =
     useRef<readonly number[] | null>(null);
@@ -1229,6 +1284,14 @@ export function App() {
   const [bitmapEditorScope, setBitmapEditorScope] = useState<BitmapEditorScope>("pixel");
   const [bitmapEditorOperation, setBitmapEditorOperation] = useState<BitmapEditorOperation>("copy");
   const [bitmapEditorBrushSize, setBitmapEditorBrushSize] = useState<BitmapEditorBrushSize>("1x1");
+  const [bitmapEditorSelectionTool, setBitmapEditorSelectionTool] = useState<"none" | BitmapSelectionKind>("none");
+  const [bitmapEditorSelectionResolution, setBitmapEditorSelectionResolution] = useState<BitmapSelectionResolution>("pixel");
+  const [bitmapEditorRegionSelection, setBitmapEditorRegionSelection] = useState<BitmapRegionSelection | null>(null);
+  const [bitmapEditorSelectionDraft, setBitmapEditorSelectionDraft] = useState<BitmapRegionSelection | null>(null);
+  const [bitmapEditorClipboard, setBitmapEditorClipboard] = useState<BitmapEditorClipboard | null>(null);
+  const [bitmapEditorPasteMode, setBitmapEditorPasteMode] = useState<"copy" | "move" | null>(null);
+  const [bitmapEditorStippleEnabled, setBitmapEditorStippleEnabled] = useState(false);
+  const [bitmapEditorStipplePattern, setBitmapEditorStipplePattern] = useState<string>(DEFAULT_CONVERSION_SETTINGS.orderedMatrix);
   const [bitmapEditorCellMode, setBitmapEditorCellMode] = useState<BitmapEditorCellMode>("filled");
   const [bitmapEditorInkColor, setBitmapEditorInkColor] = useState<number | null>(null);
   const [bitmapEditorPaperColor, setBitmapEditorPaperColor] = useState<number | null>(null);
@@ -7499,6 +7562,10 @@ export function App() {
     clearBitmapEditorPickedCell();
     setBitmapEditorColorPickerActive(false);
     setBitmapEditorPatternPickerActive(false);
+    setBitmapEditorRegionSelection(null);
+    setBitmapEditorSelectionDraft(null);
+    setBitmapEditorClipboard(null);
+    setBitmapEditorPasteMode(null);
     setBitmapEditorScope("pixel");
     bitmapEditorResultSourceRef.current = null;
     bitmapEditorCurrentResultRef.current = null;
@@ -7526,6 +7593,211 @@ export function App() {
     return bitmap;
   }
 
+  function bitmapEditorActiveResult(): WorkerConversionResult | null {
+    return bitmapEditorCurrentResultRef.current ?? draftPreviewResult(draftState) ?? lastFinal;
+  }
+
+  function bitmapEditorActiveNativeBuffer(): NativeResultBitmap | null {
+    const result = bitmapEditorActiveResult();
+    if (result === null) return null;
+    const frameIndex = Math.min(bitmapEditorResultFrameIndex, Math.max(0, result.frames.length - 1));
+    return bitmapEditorResultBufferRef.current ?? initializeResultEditor(result, frameIndex);
+  }
+
+  function bitmapEditorAttributeGrid(): { readonly width: number | null; readonly height: number | null } {
+    const result = bitmapEditorActiveResult();
+    if (result?.platformId === "zx-spectrum") {
+      return { width: 8, height: result.attributeHeight ?? attributeHeight };
+    }
+    if (result?.platformId === "pmd-85") {
+      return { width: 6, height: targetModeId.replace(/-vertical-spatial$/, "") === "pmd85-colorace" ? 2 : 1 };
+    }
+    return { width: null, height: null };
+  }
+
+  function bitmapEditorOrderedMatrix(patternId = bitmapEditorStipplePattern): OrderedMatrix | null {
+    if (patternId in ORDERED_MATRICES) return ORDERED_MATRICES[patternId as OrderedMatrixId];
+    const custom = customOrderedMatrices.find((candidate) => candidate.id === patternId);
+    if (custom === undefined) return null;
+    return { width: custom.width, height: custom.height, values: custom.values, levels: new Set(custom.values).size };
+  }
+
+  function copyBitmapEditorSelection(): void {
+    const selection = bitmapEditorRegionSelection;
+    const result = bitmapEditorActiveResult();
+    const bitmap = bitmapEditorActiveNativeBuffer();
+    if (selection === null || result === null || bitmap === null) return;
+    const paletteIndices = new Uint8Array(selection.width * selection.height);
+    for (let y = 0; y < selection.height; y += 1) {
+      for (let x = 0; x < selection.width; x += 1) {
+        const offset = y * selection.width + x;
+        if (selection.mask[offset] !== 1) continue;
+        paletteIndices[offset] = bitmap.paletteIndices[(selection.y + y) * bitmap.width + selection.x + x] ?? 0;
+      }
+    }
+    const grid = bitmapEditorAttributeGrid();
+    const attributeWidth = grid.width ?? 1;
+    const attributeHeight = grid.height ?? 1;
+    let attributes: Uint8Array | null = null;
+    let attributeMask: Uint8Array | null = null;
+    if (selection.resolution === "attribute" && result.platformId === "zx-spectrum" &&
+        grid.width !== null && grid.height !== null && selection.width % grid.width === 0 && selection.height % grid.height === 0) {
+      const columns = selection.width / grid.width;
+      const rows = selection.height / grid.height;
+      attributes = new Uint8Array(columns * rows);
+      attributeMask = new Uint8Array(columns * rows);
+      for (let cellY = 0; cellY < rows; cellY += 1) {
+        for (let cellX = 0; cellX < columns; cellX += 1) {
+          const cellIndex = cellY * columns + cellX;
+          let complete = true;
+          for (let y = 0; y < grid.height; y += 1) {
+            for (let x = 0; x < grid.width; x += 1) {
+              if (selection.mask[(cellY * grid.height + y) * selection.width + cellX * grid.width + x] !== 1) complete = false;
+            }
+          }
+          if (!complete) continue;
+          attributeMask[cellIndex] = 1;
+          const absoluteCellX = Math.floor(selection.x / grid.width) + cellX;
+          const absoluteCellY = Math.floor(selection.y / grid.height) + cellY;
+          attributes[cellIndex] = bitmap.encoded[ZX_BITMAP_BYTES + absoluteCellY * 32 + absoluteCellX] ?? 0;
+        }
+      }
+    }
+    setBitmapEditorClipboard({
+      width: selection.width,
+      height: selection.height,
+      paletteIndices,
+      mask: selection.mask.slice(),
+      sourceX: selection.x,
+      sourceY: selection.y,
+      gridWidth: selection.gridWidth,
+      gridHeight: selection.gridHeight,
+      resolution: selection.resolution,
+      attributes,
+      attributeMask,
+      attributeWidth,
+      attributeHeight,
+    });
+    setImageStatus(`Copied ${selection.width}×${selection.height} pixel region. Choose Paste or Move, then place it on the bitmap.`);
+  }
+
+  function eraseBitmapEditorSelection(): void {
+    const selection = bitmapEditorRegionSelection;
+    const result = bitmapEditorActiveResult();
+    const current = bitmapEditorActiveNativeBuffer();
+    if (selection === null || result === null || current === null) return;
+    const frameIndex = Math.min(bitmapEditorResultFrameIndex, result.frames.length - 1);
+    const input = resultFrameInput(result, frameIndex);
+    if (input === null) return;
+    const erasePixels = new Uint8Array(selection.width * selection.height).fill(1);
+    const next = composeNativeResultRegion(
+      current, input, erasePixels, selection.mask, selection.width, selection.height,
+      selection.x, selection.y, "and", bitmapEditorResultPaletteIndex,
+    );
+    commitBitmapEditorResultEdit(result, frameIndex, current, next);
+    setImageStatus("Selected pixels erased.");
+  }
+
+  function startBitmapEditorPaste(mode: "copy" | "move"): void {
+    if (bitmapEditorRegionSelection !== null) {
+      copyBitmapEditorSelection();
+    }
+    if (bitmapEditorClipboard === null && bitmapEditorRegionSelection === null) return;
+    setBitmapEditorPasteMode(mode);
+    setBitmapEditorSelectionTool("none");
+    setImageStatus(mode === "move"
+      ? "Move selected pixels · click a destination. Escape cancels."
+      : "Paste copied pixels · click a destination. The C/O/R/I/N operation applies. Escape cancels.");
+  }
+
+  function shiftBitmapEditorSelection(direction: "left" | "right" | "up" | "down"): void {
+    const selection = bitmapEditorRegionSelection;
+    const result = bitmapEditorActiveResult();
+    const current = bitmapEditorActiveNativeBuffer();
+    if (selection === null || result === null || current === null) return;
+    const frameIndex = Math.min(bitmapEditorResultFrameIndex, result.frames.length - 1);
+    const input = resultFrameInput(result, frameIndex);
+    if (input === null) return;
+    const values = new Uint8Array(selection.width * selection.height);
+    for (let y = 0; y < selection.height; y += 1) {
+      for (let x = 0; x < selection.width; x += 1) {
+        const offset = y * selection.width + x;
+        if (selection.mask[offset] !== 1) continue;
+        values[offset] = current.paletteIndices[(selection.y + y) * current.width + selection.x + x] ?? 0;
+      }
+    }
+    const shiftedValues = shiftBitmapRegionPixels(values, selection.mask, selection.width, selection.height, direction);
+    const next = composeNativeResultRegion(
+      current,
+      input,
+      shiftedValues,
+      selection.mask,
+      selection.width,
+      selection.height,
+      selection.x,
+      selection.y,
+      "copy",
+      bitmapEditorResultPaletteIndex,
+    );
+    commitBitmapEditorResultEdit(result, frameIndex, current, next);
+    setImageStatus(`Selected pixels rotated ${direction} with wrap.`);
+  }
+
+  function placeBitmapEditorClipboard(destination: { readonly x: number; readonly y: number }): void {
+    const clipboard = bitmapEditorClipboard;
+    const result = bitmapEditorActiveResult();
+    const current = bitmapEditorActiveNativeBuffer();
+    if (clipboard === null || result === null || current === null) return;
+    if (bitmapEditorOperation === "none") {
+      setImageStatus("N · Nothing changed. Choose another operation or press Escape to finish.");
+      return;
+    }
+    const frameIndex = Math.min(bitmapEditorResultFrameIndex, result.frames.length - 1);
+    const input = resultFrameInput(result, frameIndex);
+    if (input === null) return;
+    const snapWidth = clipboard.resolution === "attribute" ? clipboard.gridWidth : 1;
+    const snapHeight = clipboard.resolution === "attribute" ? clipboard.gridHeight : 1;
+    const x = Math.floor(destination.x / snapWidth) * snapWidth;
+    const y = Math.floor(destination.y / snapHeight) * snapHeight;
+    let base = current;
+    if (bitmapEditorPasteMode === "move") {
+      const sourceOn = new Uint8Array(clipboard.width * clipboard.height).fill(1);
+      base = composeNativeResultRegion(
+        base, input, sourceOn, clipboard.mask, clipboard.width, clipboard.height,
+        clipboard.sourceX, clipboard.sourceY, "and", bitmapEditorResultPaletteIndex,
+      );
+    }
+    let next = composeNativeResultRegion(
+      base, input, clipboard.paletteIndices, clipboard.mask, clipboard.width, clipboard.height,
+      x, y, bitmapEditorOperation, bitmapEditorResultPaletteIndex,
+    );
+    if (bitmapEditorOperation === "copy" && next.platformId === "zx-spectrum" &&
+        input.attributeHeight !== null && clipboard.attributes !== null && clipboard.attributeMask !== null) {
+      const cellColumns = clipboard.width / clipboard.attributeWidth;
+      const cellRows = clipboard.height / clipboard.attributeHeight;
+      const encoded = next.encoded.slice();
+      for (let cellY = 0; cellY < cellRows; cellY += 1) {
+        for (let cellX = 0; cellX < cellColumns; cellX += 1) {
+          const sourceCell = cellY * cellColumns + cellX;
+          if (clipboard.attributeMask[sourceCell] !== 1) continue;
+          const destinationCellX = Math.floor(x / clipboard.attributeWidth) + cellX;
+          const destinationCellY = Math.floor(y / clipboard.attributeHeight) + cellY;
+          if (destinationCellX < 0 || destinationCellX >= 32 ||
+              destinationCellY < 0 || destinationCellY >= 192 / clipboard.attributeHeight) continue;
+          encoded[ZX_BITMAP_BYTES + destinationCellY * 32 + destinationCellX] = clipboard.attributes[sourceCell] ?? 0;
+        }
+      }
+      next = createNativeResultBitmap({ ...input, encoded });
+    }
+    commitBitmapEditorResultEdit(result, frameIndex, current, next);
+    if (bitmapEditorPasteMode === "move") {
+      setBitmapEditorPasteMode(null);
+      setImageStatus("Selection moved.");
+    } else {
+      setImageStatus(`Pasted region using ${bitmapEditorOperationLabel(bitmapEditorOperation)} · ${bitmapEditorOperationDescription(bitmapEditorOperation, "pixel")}. Click another destination or press Escape to finish.`);
+    }
+  }
+
   function selectResultEditorFrame(
     result: WorkerConversionResult,
     frameIndex: number,
@@ -7535,6 +7807,10 @@ export function App() {
       clearBitmapEditorPickedCell();
       setBitmapEditorColorPickerActive(false);
       setBitmapEditorPatternPickerActive(false);
+      setBitmapEditorRegionSelection(null);
+      setBitmapEditorSelectionDraft(null);
+      setBitmapEditorClipboard(null);
+      setBitmapEditorPasteMode(null);
     }
     const safeFrameIndex = Math.min(frameIndex, Math.max(0, result.frames.length - 1));
     const input = resultFrameInput(result, safeFrameIndex);
@@ -7816,6 +8092,38 @@ export function App() {
     const pixels = bitmapEditorBrushPixels(pixel.x, pixel.y, bitmapEditorBrushSize, current.width, current.height)
       .filter((point) => pointer === null || !pointer.visited.has(`${point.x},${point.y}`));
     for (const point of pixels) pointer?.visited.add(`${point.x},${point.y}`);
+    if (bitmapEditorStippleEnabled && bitmapEditorOperation !== "none") {
+      const matrix = bitmapEditorOrderedMatrix();
+      if (matrix !== null && pixels.length > 0) {
+        const left = Math.min(...pixels.map(({ x }) => x));
+        const top = Math.min(...pixels.map(({ y }) => y));
+        const right = Math.max(...pixels.map(({ x }) => x));
+        const bottom = Math.max(...pixels.map(({ y }) => y));
+        const width = right - left + 1;
+        const height = bottom - top + 1;
+        const mask = new Uint8Array(width * height);
+        const paletteIndices = new Uint8Array(width * height);
+        for (const point of pixels) mask[(point.y - top) * width + point.x - left] = 1;
+        const stipplePixels = bitmapEditorStippleFootprint(
+          pixel.x, pixel.y, bitmapEditorBrushSize, current.width, current.height,
+          matrix, BITMAP_EDITOR_STIPPLE_DENSITY, false,
+        );
+        for (const point of stipplePixels) {
+          if (point.x < left || point.x > right || point.y < top || point.y > bottom) continue;
+          paletteIndices[(point.y - top) * width + point.x - left] = Math.max(1, bitmapEditorResultPaletteIndex);
+        }
+        let next = composeNativeResultRegion(
+          current, input, paletteIndices, mask, width, height, left, top,
+          bitmapEditorOperation, bitmapEditorResultPaletteIndex,
+        );
+        if (next.platformId === "zx-spectrum" && input.attributeHeight !== null) {
+          const encoded = applyBitmapEditorAttributesToPixels(next.encoded, input.attributeHeight, pixels);
+          next = createNativeResultBitmap({ ...input, encoded });
+        }
+        commitBitmapEditorResultEdit(result, frameIndex, current, next);
+        return;
+      }
+    }
     let next = applyNativeResultPixels(
       current,
       input,
@@ -8015,6 +8323,28 @@ export function App() {
     return x >= 0 && x < width && y >= 0 && y < height ? { x, y } : null;
   }
 
+  function bitmapEditorSelectionDimensions(): { readonly width: number; readonly height: number } | null {
+    const result = bitmapEditorActiveResult();
+    const bitmap = bitmapEditorResultBufferRef.current;
+    const frame = result?.frames[Math.min(bitmapEditorResultFrameIndex, Math.max(0, result.frames.length - 1))];
+    const width = bitmap?.width ?? frame?.nativeWidth;
+    const height = bitmap?.height ?? frame?.nativeHeight;
+    return width === undefined || height === undefined ? null : { width, height };
+  }
+
+  function makeSelectionDraft(kind: BitmapSelectionKind, points: readonly { readonly x: number; readonly y: number }[]): BitmapRegionSelection | null {
+    const dimensions = bitmapEditorSelectionDimensions();
+    if (dimensions === null) return null;
+    return makeBitmapRegionSelection(
+      kind,
+      kind === "rectangle" && points.length > 1 ? [points[0]!, points[points.length - 1]!] : points,
+      dimensions.width,
+      dimensions.height,
+      bitmapEditorSelectionResolution,
+      bitmapEditorAttributeGrid(),
+    );
+  }
+
   function beginFullBitmapPointer(side: PreviewSide, event: ReactPointerEvent<HTMLDivElement>): void {
     if (event.pointerType === "mouse" && event.button !== 0 && event.button !== 1 && event.button !== 2) return;
     event.preventDefault();
@@ -8038,6 +8368,25 @@ export function App() {
         scrollTop: viewport.scrollTop,
       };
       event.currentTarget.setPointerCapture(event.pointerId);
+      return;
+    }
+    if (event.button === 0 && bitmapEditorSelectionTool !== "none") {
+      const pixel = fullBitmapPixelFromEvent(event);
+      if (pixel === null) return;
+      bitmapEditorSelectionPointerRef.current = {
+        side,
+        pointerId: event.pointerId,
+        kind: bitmapEditorSelectionTool,
+        points: [pixel],
+      };
+      setBitmapEditorPasteMode(null);
+      setBitmapEditorSelectionDraft(null);
+      event.currentTarget.setPointerCapture(event.pointerId);
+      return;
+    }
+    if (event.button === 0 && bitmapEditorPasteMode !== null) {
+      const pixel = fullBitmapPixelFromEvent(event);
+      if (pixel !== null) placeBitmapEditorClipboard(pixel);
       return;
     }
     if (bitmapEditorNativeSourcePickerActive()) {
@@ -8103,6 +8452,21 @@ export function App() {
   }
 
   function moveFullBitmapPointer(event: ReactPointerEvent<HTMLDivElement>): void {
+    const selectionPointer = bitmapEditorSelectionPointerRef.current;
+    if (selectionPointer !== null && selectionPointer.pointerId === event.pointerId) {
+      event.preventDefault();
+      event.stopPropagation();
+      const pixel = fullBitmapPixelFromEvent(event);
+      const last = selectionPointer.points[selectionPointer.points.length - 1];
+      if (pixel !== null && last !== undefined && (pixel.x !== last.x || pixel.y !== last.y)) {
+        selectionPointer.points.push(...bitmapEditorLinePoints(last, pixel));
+        const previewPoints = selectionPointer.kind === "rectangle"
+          ? [selectionPointer.points[0]!, selectionPointer.points[selectionPointer.points.length - 1]!]
+          : selectionPointer.points;
+        setBitmapEditorSelectionDraft(makeSelectionDraft(selectionPointer.kind, previewPoints));
+      }
+      return;
+    }
     const pointer = bitmapEditorFullPointerRef.current;
     if (pointer === null || pointer.pointerId !== event.pointerId) return;
     event.preventDefault();
@@ -8132,6 +8496,18 @@ export function App() {
   }
 
   function endFullBitmapPointer(event: ReactPointerEvent<HTMLDivElement>): void {
+    const selectionPointer = bitmapEditorSelectionPointerRef.current;
+    if (selectionPointer?.pointerId === event.pointerId) {
+      const points = selectionPointer.kind === "rectangle"
+        ? [selectionPointer.points[0]!, selectionPointer.points[selectionPointer.points.length - 1]!]
+        : selectionPointer.points;
+      setBitmapEditorRegionSelection(makeSelectionDraft(selectionPointer.kind, points));
+      setBitmapEditorSelectionDraft(null);
+      bitmapEditorSelectionPointerRef.current = null;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+      event.stopPropagation();
+      return;
+    }
     const pointer = bitmapEditorFullPointerRef.current;
     if (pointer?.pointerId === event.pointerId && pointer.button === 2 && !pointer.moved) {
       cycleBitmapEditorOperation();
@@ -9711,11 +10087,18 @@ export function App() {
     const target = activeEditorBuffer ?? (bitmapEditorTarget === "source"
       ? fullBitmapBufferFromSource()
       : (() => {
-      const frameIndex = outputPreviewStage === "screen-2" ? 1 : 0;
-      const frame = displayedResult?.frames[frameIndex] ?? displayedResult?.frames[0];
-      const rgba = frame?.previewRgba ?? displayedResult?.mergedPreviewRgba;
-      if (rgba === undefined || displayedResult === null) return null;
-      return { width: displayedResult.width, height: displayedResult.height, rgba };
+      if (displayedResult === null) return null;
+      const frameIndex = Math.min(bitmapEditorResultFrameIndex, Math.max(0, displayedResult.frames.length - 1));
+      const frame = displayedResult.frames[frameIndex];
+      const input = resultFrameInput(displayedResult, frameIndex);
+      const nativeBitmap = input === null ? null : createNativeResultBitmap(input);
+      if (frame === undefined || nativeBitmap === null) return null;
+      return {
+        width: frame.nativeWidth,
+        height: frame.nativeHeight,
+        rgba: nativeBitmap.rgba,
+        pixels: nativeBitmap.paletteIndices,
+      };
     })());
     if (target === null || target === undefined) return;
     const editorFlashPhase = bitmapEditorFlashPreviewMode === "inverted" ||
@@ -9954,6 +10337,14 @@ export function App() {
     const nativePalette = bitmapEditorTarget === "result" && resultInput !== null
       ? nativePaletteForResult(resultInput)
       : [];
+    const stippleOptions = [
+      ...ORDERED_MATRIX_IDS.map((id) => ({ id, label: orderedMatrixLabel(id), matrix: ORDERED_MATRICES[id] })),
+      ...customOrderedMatrices.map((matrix) => ({
+        id: matrix.id,
+        label: `Custom ${matrix.width}×${matrix.height}`,
+        matrix: { width: matrix.width, height: matrix.height, values: matrix.values, levels: new Set(matrix.values).size },
+      })),
+    ];
     const attributeWidth = bitmapEditorTarget === "result" && displayedResult?.platformId === "pmd-85" ? 6 : bitmapEditorTarget === "result" && displayedResult?.platformId === "zx-spectrum" ? 8 : null;
     const attributeHeight = bitmapEditorTarget === "result" && displayedResult?.platformId === "pmd-85" ? targetModeId === "pmd85-colorace" ? 2 : 1 : bitmapEditorTarget === "result" ? displayedResult?.attributeHeight ?? null : null;
     const pickedPreviewHeight = bitmapEditorPickedCell?.attributeHeight ?? (attributeHeight === 1 || attributeHeight === 2 || attributeHeight === 4 || attributeHeight === 8 ? attributeHeight : 8);
@@ -9976,23 +10367,26 @@ export function App() {
         <button className="secondary compact bitmap-editor-full-action" type="button" onClick={bitmapEditorTarget === "result" ? redoFullResult : redoFullBitmap} disabled={bitmapEditorTarget === "result" ? bitmapEditorResultRedo.length === 0 : bitmapEditorRedoFull.length === 0} title="Redo last edit" aria-label="Redo">Redo</button>
       </div>
       <div className="bitmap-editor-action-grid bitmap-editor-tools-grid" aria-label="Bitmap editing tools">
-        <div className="bitmap-editor-split-button" aria-label="Pixel and cell tools">
-          <button className={`secondary compact bitmap-editor-full-action bitmap-editor-split-action${bitmapEditorScope === "pixel" ? " active" : ""}`} type="button" onClick={() => { if (bitmapEditorScope !== "pixel") selectBitmapEditorScope("pixel"); else cycleBitmapEditorBrushSize(); }} title={`Pixel tool: ${bitmapEditorBrushSize} brush`} aria-label={`Pixel tool, ${bitmapEditorBrushSize} brush`} aria-pressed={bitmapEditorScope === "pixel"}>
+        <div className="bitmap-editor-tool-array" role="group" aria-label="Pixel, fill, and selection tools">
+          <button className={`secondary compact bitmap-editor-full-action${bitmapEditorScope === "pixel" ? " active" : ""}`} type="button" onClick={() => { if (bitmapEditorScope !== "pixel") selectBitmapEditorScope("pixel"); else cycleBitmapEditorBrushSize(); }} title={`Pixel tool: ${bitmapEditorBrushSize} brush · select to cycle size`} aria-label={`Pixel tool, ${bitmapEditorBrushSize} brush`} aria-pressed={bitmapEditorScope === "pixel"}>
             {bitmapEditorBrushSize.replace("x", "×")}
           </button>
-          <button className={`secondary compact bitmap-editor-full-action bitmap-editor-split-action${bitmapEditorScope === "cell" ? " active" : ""}`} type="button" onClick={() => { if (bitmapEditorScope !== "cell") selectBitmapEditorScope("cell"); else cycleBitmapEditorCellMode(); }} disabled={bitmapEditorTarget !== "result" || displayedResult?.platformId !== "zx-spectrum"} title={bitmapEditorTarget === "result" && displayedResult?.platformId === "zx-spectrum" ? `Cell tool: ${bitmapEditorCellModeLabel(bitmapEditorCellMode)} · ${bitmapEditorCellMode === "filled" ? "draw a filled attribute cell" : "draw the picked scratch tile"}` : "Cell tools are available for a converted ZX Spectrum result"} aria-label={`Cell tool: ${bitmapEditorCellModeLabel(bitmapEditorCellMode)}`} aria-pressed={bitmapEditorScope === "cell"}>
-            {bitmapEditorCellModeLabel(bitmapEditorCellMode)}
+          <button className={`secondary compact bitmap-editor-full-action${bitmapEditorScope === "cell" ? " active" : ""}`} type="button" onClick={() => { if (bitmapEditorScope !== "cell") selectBitmapEditorScope("cell"); else cycleBitmapEditorCellMode(); }} disabled={bitmapEditorTarget !== "result" || displayedResult?.platformId !== "zx-spectrum"} title={bitmapEditorTarget === "result" && displayedResult?.platformId === "zx-spectrum" ? `Fill tool: ${bitmapEditorCellModeLabel(bitmapEditorCellMode)} · select to cycle cell mode` : "Fill tool is available for a converted ZX Spectrum result"} aria-label={`Fill tool: ${bitmapEditorCellModeLabel(bitmapEditorCellMode)}`} aria-pressed={bitmapEditorScope === "cell"}>
+            {bitmapEditorCellMode === "filled" ? "FILL" : "TILE"}
+          </button>
+          <button className={`secondary compact bitmap-editor-full-action${bitmapEditorPasteMode === "copy" ? " active" : ""}`} type="button" onClick={() => startBitmapEditorPaste("copy")} disabled={bitmapEditorClipboard === null && bitmapEditorRegionSelection === null} title="Place the selected region using the active C/O/R/I/N operation" aria-label="Selection paste tool" aria-pressed={bitmapEditorPasteMode === "copy"}>
+            SEL
           </button>
         </div>
-        <div className="bitmap-editor-operation-split" aria-label="Bitmap operation">
+        <div className="bitmap-editor-operation-split" role="group" aria-label="Bitmap operation for pixel, graphics, and selection paste">
           {(["copy", "or", "and", "xor", "none"] as const).map((operation) => {
             const shortLabel = operation === "copy" ? "C" : operation === "or" ? "O" : operation === "and" ? "R" : operation === "xor" ? "I" : "N";
-            return <button className={`secondary compact bitmap-editor-full-action bitmap-editor-operation-action${bitmapEditorOperation === operation ? " active" : ""}`} type="button" key={operation} onClick={() => setBitmapEditorOperation(operation)} title={`Operation ${bitmapEditorOperationLabel(operation)}: ${bitmapEditorOperationDescription(operation, bitmapEditorScope)}`} aria-label={`Operation ${bitmapEditorOperationLabel(operation)}: ${bitmapEditorOperationDescription(operation, bitmapEditorScope)}`} aria-pressed={bitmapEditorOperation === operation}>{shortLabel}</button>;
+            return <button className={`secondary compact bitmap-editor-full-action bitmap-editor-operation-action${bitmapEditorOperation === operation ? " active" : ""}`} type="button" key={operation} onClick={() => setBitmapEditorOperation(operation)} title={`${bitmapEditorOperationLabel(operation)} · ${bitmapEditorOperationDescription(operation, bitmapEditorScope)}`} aria-label={`Operation ${bitmapEditorOperationLabel(operation)}: ${bitmapEditorOperationDescription(operation, bitmapEditorScope)}`} aria-pressed={bitmapEditorOperation === operation}>{shortLabel}</button>;
           })}
         </div>
-        <div className="bitmap-editor-split-button" aria-label="Color and pattern pickers">
-          <button className={`secondary compact bitmap-editor-full-action bitmap-editor-split-action${bitmapEditorColorPickerActive ? " active" : ""}`} type="button" onClick={toggleBitmapEditorColorPicker} disabled={bitmapEditorTarget !== "result" || displayedResult?.platformId !== "zx-spectrum"} title="Color picker: select complete INK, PAPER, BRIGHT, and FLASH attributes" aria-label="Color picker" aria-pressed={bitmapEditorColorPickerActive}>COL</button>
-          <button className={`secondary compact bitmap-editor-full-action bitmap-editor-split-action${bitmapEditorPatternPickerActive ? " active" : ""}`} type="button" onClick={toggleBitmapEditorPatternPicker} disabled={bitmapEditorTarget !== "result" || displayedResult?.platformId !== "zx-spectrum"} title="Pattern picker: select a source cell for Cell Tile" aria-label="Pattern picker" aria-pressed={bitmapEditorPatternPickerActive}>GFX</button>
+        <div className="bitmap-editor-tool-array bitmap-editor-picker-array" role="group" aria-label="Color and graphics pickers">
+          <button className={`secondary compact bitmap-editor-full-action${bitmapEditorColorPickerActive ? " active" : ""}`} type="button" onClick={toggleBitmapEditorColorPicker} disabled={bitmapEditorTarget !== "result" || displayedResult?.platformId !== "zx-spectrum"} title="Color picker: select complete INK, PAPER, BRIGHT, and FLASH attributes" aria-label="Color picker" aria-pressed={bitmapEditorColorPickerActive}>COL</button>
+          <button className={`secondary compact bitmap-editor-full-action${bitmapEditorPatternPickerActive ? " active" : ""}`} type="button" onClick={toggleBitmapEditorPatternPicker} disabled={bitmapEditorTarget !== "result" || displayedResult?.platformId !== "zx-spectrum"} title="Pattern picker: select a source cell for Cell Tile" aria-label="Graphics picker" aria-pressed={bitmapEditorPatternPickerActive}>GFX</button>
         </div>
       </div>
       {bitmapEditorTarget === "result" && displayedResult?.platformId !== "zx-spectrum" && nativePalette.length > 0 ? <div className="bitmap-editor-native-palette" aria-label="Native result palette">{nativePalette.map((color) => <button className={`bitmap-editor-attribute-color${bitmapEditorResultPaletteIndex === color.index ? " selected" : ""}`} type="button" key={color.index} title={`Use palette color ${color.index}`} aria-label={`Use palette color ${color.index}`} aria-pressed={bitmapEditorResultPaletteIndex === color.index} onClick={() => setBitmapEditorResultPaletteIndex(color.index)}><span style={{ background: `rgb(${color.r} ${color.g} ${color.b})` }} /></button>)}</div> : null}
@@ -10009,6 +10403,21 @@ export function App() {
         <div className="bitmap-editor-attribute-policy-row"><span className="bitmap-editor-policy-symbol" aria-hidden="true">☀</span>{([true, false, null] as const).map((value) => <button className={`bitmap-editor-attribute-icon${bitmapEditorBrightPolicy === value ? " selected" : ""}`} type="button" key={String(value)} title={value === null ? "Preserve BRIGHT" : value ? "Set BRIGHT" : "Reset BRIGHT"} aria-label={value === null ? "Preserve BRIGHT" : value ? "Set BRIGHT" : "Reset BRIGHT"} aria-pressed={bitmapEditorBrightPolicy === value} onClick={() => setBitmapEditorBrightPolicy(value)}>{value === true ? "●" : value === false ? "○" : <span className="bitmap-editor-transparent-swatch" aria-hidden="true" />}</button>)}</div>
         <div className="bitmap-editor-attribute-policy-row"><span className="bitmap-editor-policy-symbol" aria-hidden="true">ϟ</span>{([true, false, null] as const).map((value) => <button className={`bitmap-editor-attribute-icon${bitmapEditorFlashPolicy === value ? " selected" : ""}`} type="button" key={String(value)} title={value === null ? "Preserve FLASH" : value ? "Set FLASH" : "Reset FLASH"} aria-label={value === null ? "Preserve FLASH" : value ? "Set FLASH" : "Reset FLASH"} aria-pressed={bitmapEditorFlashPolicy === value} onClick={() => setBitmapEditorFlashPolicy(value)}>{value === true ? "●" : value === false ? "○" : <span className="bitmap-editor-transparent-swatch" aria-hidden="true" />}</button>)}</div>
       </div> : null}
+      <div className="bitmap-editor-region-tools" aria-label="Region selection tools">
+        <label><span>Selection</span><select aria-label="Selection tool" value={bitmapEditorSelectionTool} onChange={(event) => setBitmapEditorSelectionTool(event.target.value as "none" | BitmapSelectionKind)}><option value="none">Off</option><option value="rectangle">Rectangle</option><option value="freeform">Freeform</option></select></label>
+        <label><span>Resolution</span><select aria-label="Selection resolution" value={bitmapEditorSelectionResolution} onChange={(event) => setBitmapEditorSelectionResolution(event.target.value as BitmapSelectionResolution)}><option value="pixel">Pixel</option><option value="attribute" disabled={attributeWidth === null || attributeHeight === null}>Attribute {attributeWidth ?? ""}×{attributeHeight ?? ""}</option></select></label>
+        <div className="bitmap-editor-region-buttons unified-segmented" role="group" aria-label="Selection actions">
+          <button className="secondary compact" type="button" disabled={bitmapEditorRegionSelection === null} onClick={copyBitmapEditorSelection}>Copy</button>
+          <button className="secondary compact" type="button" disabled={bitmapEditorRegionSelection === null} onClick={eraseBitmapEditorSelection}>Erase</button>
+          <button className={`secondary compact${bitmapEditorPasteMode === "move" ? " active" : ""}`} type="button" disabled={bitmapEditorClipboard === null && bitmapEditorRegionSelection === null} aria-pressed={bitmapEditorPasteMode === "move"} onClick={() => startBitmapEditorPaste("move")}>Move</button>
+          <button className="secondary compact" type="button" disabled={bitmapEditorRegionSelection === null && bitmapEditorPasteMode === null} onClick={() => { setBitmapEditorRegionSelection(null); setBitmapEditorSelectionDraft(null); setBitmapEditorPasteMode(null); setBitmapEditorSelectionTool("none"); }}>Clear</button>
+        </div>
+        {bitmapEditorPasteMode !== null ? <span role="status" className="bitmap-editor-selection-status">{bitmapEditorPasteMode === "move" ? "Click destination to move · Esc cancels" : `Click destination · ${bitmapEditorOperationLabel(bitmapEditorOperation)} ${bitmapEditorOperationDescription(bitmapEditorOperation, "pixel")} · click again to paste another · Esc finishes`}</span> : bitmapEditorRegionSelection !== null ? <span className="bitmap-editor-selection-status">Selected {bitmapEditorRegionSelection.width}×{bitmapEditorRegionSelection.height} px{bitmapEditorRegionSelection.resolution === "attribute" ? ` · ${bitmapEditorRegionSelection.gridWidth}×${bitmapEditorRegionSelection.gridHeight} grid` : ""}</span> : null}
+      </div>
+      <div className="bitmap-editor-stipple-tools" aria-label="Stipple brush">
+        <label className="bitmap-editor-stipple-toggle"><input type="checkbox" checked={bitmapEditorStippleEnabled} onChange={(event) => setBitmapEditorStippleEnabled(event.target.checked)} /><span>Stipple</span></label>
+        <BitmapEditorStipplePicker choices={stippleOptions} selectedId={bitmapEditorStipplePattern} onSelect={setBitmapEditorStipplePattern} disabled={!bitmapEditorStippleEnabled} />
+      </div>
       </div>
       <div className="bitmap-editor-picked-cell-preview" aria-live="polite" aria-label="Picked attribute cell preview">
         <span className="bitmap-editor-picked-cell-title">Picked cell</span>
@@ -10023,14 +10432,21 @@ export function App() {
             })}
           </div>
         </div>
-        {bitmapEditorTarget === "result" && displayedResult?.platformId === "zx-spectrum" ? <div className="bitmap-editor-picked-cell-manipulation" aria-label="Picked tile controls">
-          <div className="bitmap-editor-picked-cell-directions" role="group" aria-label="Rotate picked tile">
-            {(["left", "right", "up", "down"] as const).map((direction) => <button className="secondary compact bitmap-editor-full-action bitmap-editor-picked-cell-action" type="button" key={direction} disabled={bitmapEditorPickedCell === null} title={`Rotate picked tile ${direction}`} aria-label={`Rotate picked tile ${direction}`} onClick={() => setBitmapEditorPickedCell((cell) => cell === null ? null : transformZxAttributeCell(cell, direction))}>{direction === "left" ? "←" : direction === "right" ? "→" : direction === "up" ? "↑" : "↓"}</button>)}
+        {bitmapEditorTarget === "result" && displayedResult !== null &&
+          (displayedResult.platformId === "zx-spectrum" || bitmapEditorRegionSelection !== null) ? <div className="bitmap-editor-picked-cell-manipulation" aria-label="Picked cell and selection controls">
+          <div className="bitmap-editor-picked-cell-directions" role="group" aria-label={bitmapEditorRegionSelection === null ? "Rotate picked tile" : "Rotate selected pixels with wrap"}>
+            {(["left", "right", "up", "down"] as const).map((direction) => {
+              const rotateSelection = bitmapEditorRegionSelection !== null;
+              return <button className="secondary compact bitmap-editor-full-action bitmap-editor-picked-cell-action" type="button" key={direction} disabled={!rotateSelection && bitmapEditorPickedCell === null} title={rotateSelection ? `Rotate selected pixels ${direction} with wrap` : `Rotate picked tile ${direction}`} aria-label={rotateSelection ? `Rotate selection ${direction}` : `Rotate picked tile ${direction}`} onClick={() => {
+                if (rotateSelection) shiftBitmapEditorSelection(direction);
+                else setBitmapEditorPickedCell((cell) => cell === null ? null : transformZxAttributeCell(cell, direction));
+              }}>{direction === "left" ? "←" : direction === "right" ? "→" : direction === "up" ? "↑" : "↓"}</button>;
+            })}
           </div>
-          <div className="bitmap-editor-split-button bitmap-editor-picked-cell-actions" role="group" aria-label="Invert or reset picked tile">
+          {displayedResult.platformId === "zx-spectrum" ? <div className="bitmap-editor-split-button bitmap-editor-picked-cell-actions" role="group" aria-label="Invert or reset picked tile">
             <button className="secondary compact bitmap-editor-full-action bitmap-editor-split-action" type="button" disabled={bitmapEditorPickedCell === null} title="Invert picked tile pixels" aria-label="Invert picked tile" onClick={() => setBitmapEditorPickedCell((cell) => cell === null ? null : transformZxAttributeCell(cell, "invert"))}>INV</button>
             <button className="secondary compact bitmap-editor-full-action bitmap-editor-split-action" type="button" disabled={bitmapEditorPickedCell === null} title="Empty/reset picked tile pixels" aria-label="Empty or reset picked tile" onClick={() => setBitmapEditorPickedCell((cell) => cell === null ? null : transformZxAttributeCell(cell, "reset"))}>RST</button>
-          </div>
+          </div> : null}
         </div> : null}
         {bitmapEditorPickedCell === null ? <span className="bitmap-editor-picked-cell-empty">Empty · 8×{pickedPreviewHeight} · select a result cell with Pattern picker</span> : <span className="bitmap-editor-picked-cell-meta">{bitmapEditorPickedCell.cellX},{bitmapEditorPickedCell.cellY} · 8×{bitmapEditorPickedCell.attributeHeight} · INK {bitmapEditorPickedCell.attribute & 7} / PAPER {(bitmapEditorPickedCell.attribute >> 3) & 7} · BRIGHT {(bitmapEditorPickedCell.attribute & 0x40) !== 0 ? "on" : "off"} · FLASH {(bitmapEditorPickedCell.attribute & 0x80) !== 0 ? "on" : "off"} · 0x{bitmapEditorPickedCell.attribute.toString(16).padStart(2, "0")}</span>}
       </div>
@@ -10059,7 +10475,8 @@ export function App() {
             <canvas ref={canvasRefForSide} aria-label="Full bitmap editor" tabIndex={0} />
             <svg className="pixel-grid-overlay" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-hidden="true"><path d={gridPathForDimensions(width, height, 1, 1)} vectorEffect="non-scaling-stroke" /></svg>
             {attributeWidth !== null && attributeHeight !== null ? <svg className="attribute-grid-overlay" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-hidden="true"><path d={gridPathForDimensions(width, height, attributeWidth, attributeHeight)} vectorEffect="non-scaling-stroke" /></svg> : null}
-            <div className="bitmap-editor-interaction-layer" role="grid" tabIndex={0} aria-label={`Bitmap editor ${width} by ${height} pixels`} onContextMenu={(event) => event.preventDefault()} onKeyDown={(event) => { if (event.code === "Escape") { event.preventDefault(); setBitmapEditorColorPickerActive(false); setBitmapEditorPatternPickerActive(false); clearBitmapEditorPickedCell(); bitmapEditorFullPointerRef.current = null; } if (event.code === "Space") { event.preventDefault(); bitmapEditorSpaceRef.current = true; } }} onKeyUp={(event) => { if (event.code === "Space") bitmapEditorSpaceRef.current = false; }} onPointerDown={(event) => beginFullBitmapPointer(side, event)} onPointerMove={moveFullBitmapPointer} onPointerUp={endFullBitmapPointer} onPointerCancel={endFullBitmapPointer} />
+            {(bitmapEditorSelectionDraft ?? bitmapEditorRegionSelection) !== null ? <svg className="bitmap-editor-selection-overlay" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-hidden="true"><path d={bitmapSelectionOutlinePath((bitmapEditorSelectionDraft ?? bitmapEditorRegionSelection)!)} /></svg> : null}
+            <div className={`bitmap-editor-interaction-layer${bitmapEditorSelectionTool !== "none" ? " selecting" : ""}${bitmapEditorPasteMode !== null ? " pasting" : ""}`} role="grid" tabIndex={0} aria-label={`Bitmap editor ${width} by ${height} pixels`} onContextMenu={(event) => event.preventDefault()} onKeyDown={(event) => { if (event.code === "Escape") { event.preventDefault(); setBitmapEditorColorPickerActive(false); setBitmapEditorPatternPickerActive(false); clearBitmapEditorPickedCell(); bitmapEditorFullPointerRef.current = null; bitmapEditorSelectionPointerRef.current = null; setBitmapEditorSelectionDraft(null); setBitmapEditorRegionSelection(null); setBitmapEditorSelectionTool("none"); setBitmapEditorPasteMode(null); } if (event.code === "Space") { event.preventDefault(); bitmapEditorSpaceRef.current = true; } }} onKeyUp={(event) => { if (event.code === "Space") bitmapEditorSpaceRef.current = false; }} onPointerDown={(event) => beginFullBitmapPointer(side, event)} onPointerMove={moveFullBitmapPointer} onPointerUp={endFullBitmapPointer} onPointerCancel={endFullBitmapPointer} />
           </div>
         </div>}
       </div>

@@ -36,6 +36,7 @@ import {
   type BitmapEditorBrushSize,
   type BitmapEditorOperation,
 } from "./bitmap-editor-tools.js";
+import { applyBitmapEditorOperation } from "./bitmap-editor-tools.js";
 
 export type NativeResultPaintMode = "set" | "reset" | "toggle";
 
@@ -311,6 +312,100 @@ export function applyNativeResultPixels(
     next = applyNativeResultPixel(next, input, pixel.x, pixel.y, paintMode, selectedPaletteIndex);
   }
   return next;
+}
+
+/** Composite a copied native-pixel region using the editor's C/O/R/I/N mask operations. */
+export function composeNativeResultRegion(
+  bitmap: NativeResultBitmap,
+  input: NativeResultFrameInput,
+  sourceIndices: Uint8Array,
+  mask: Uint8Array,
+  sourceWidth: number,
+  sourceHeight: number,
+  destinationX: number,
+  destinationY: number,
+  operation: BitmapEditorOperation,
+  selectedPaletteIndex = 1,
+): NativeResultBitmap {
+  if (!Number.isInteger(sourceWidth) || sourceWidth < 1 ||
+      !Number.isInteger(sourceHeight) || sourceHeight < 1 ||
+      sourceIndices.length !== sourceWidth * sourceHeight ||
+      mask.length !== sourceWidth * sourceHeight) {
+    throw new RangeError("Bitmap clipboard dimensions are invalid.");
+  }
+  if (operation === "none") return cloneNativeResultBitmap(bitmap);
+  const resultIndices = bitmap.paletteIndices.slice();
+  const changedPoints: Array<{ readonly x: number; readonly y: number; readonly value: number }> = [];
+  for (let y = 0; y < sourceHeight; y += 1) {
+    for (let x = 0; x < sourceWidth; x += 1) {
+      const sourceOffset = y * sourceWidth + x;
+      if (mask[sourceOffset] !== 1) continue;
+      const destinationPixelX = destinationX + x;
+      const destinationPixelY = destinationY + y;
+      if (destinationPixelX < 0 || destinationPixelX >= bitmap.width ||
+          destinationPixelY < 0 || destinationPixelY >= bitmap.height) continue;
+      const sourceIndex = sourceIndices[sourceOffset] ?? 0;
+      const destinationOffset = destinationPixelY * bitmap.width + destinationPixelX;
+      const destinationIndex = resultIndices[destinationOffset] ?? 0;
+      const composedBit = applyBitmapEditorOperation(
+        destinationIndex === 0 ? 0 : 1,
+        sourceIndex === 0 ? 0 : 1,
+        operation,
+      );
+      const resultIndex = operation === "copy"
+        ? sourceIndex
+        : composedBit === 0
+          ? 0
+          : destinationIndex === 0 ? sourceIndex || selectedPaletteIndex : destinationIndex;
+      if (resultIndex === destinationIndex) continue;
+      resultIndices[destinationOffset] = resultIndex;
+      changedPoints.push({ x: destinationPixelX, y: destinationPixelY, value: resultIndex });
+    }
+  }
+  if (changedPoints.length === 0) return cloneNativeResultBitmap(bitmap);
+  if (bitmap.platformId === "zx-spectrum") {
+    if (input.attributeHeight === null) throw new RangeError("ZX result attribute height is missing.");
+    const encoded = packZxBitmap(resultIndices, bitmap.encoded);
+    return { ...bitmap, paletteIndices: resultIndices, encoded, rgba: renderZx(encoded, input.attributeHeight, input.zxPalette) };
+  }
+  if (bitmap.platformId === "sinclair-ql") {
+    const mode = qlHardwareMode(input.hardwareModeId);
+    const encoded = encodeQlScreen(resultIndices, mode);
+    return { ...bitmap, paletteIndices: resultIndices, encoded, rgba: renderQlRgba(resultIndices, mode) };
+  }
+
+  const mode = pmdHardwareMode(input.hardwareModeId);
+  const palette = assertPmdPalette(mode, input.pmd85ForegroundPalette);
+  const decoded = decodePmd85Screen(bitmap.encoded, mode);
+  const pixelMasks = decoded.pixelMasks.slice();
+  const attributes = decoded.attributes.slice();
+  for (const { x, y, value } of changedPoints) {
+    const byteX = Math.floor(x / 6);
+    const bit = 1 << (x % 6);
+    const byteIndex = y * PMD85_VISIBLE_BYTES_PER_LINE + byteX;
+    pixelMasks[byteIndex] = value === 0
+      ? (pixelMasks[byteIndex] ?? 0) & ~bit
+      : (pixelMasks[byteIndex] ?? 0) | bit;
+    if (value === 0) continue;
+    if (mode === "pmd85-colorace") {
+      const pair = PMD85_COLORACE_CANONICAL_PAIRS[value - 1];
+      if (pair === undefined) throw new RangeError("PMD ColorAce palette index is invalid.");
+      const evenIndex = (y & ~1) * PMD85_VISIBLE_BYTES_PER_LINE + byteX;
+      const oddIndex = (y | 1) * PMD85_VISIBLE_BYTES_PER_LINE + byteX;
+      attributes[evenIndex] = pair[0];
+      attributes[oddIndex] = pair[1];
+    } else {
+      attributes[byteIndex] = pmdAttributeForPalette(mode, value);
+    }
+  }
+  const encoded = encodePmd85Screen(
+    pixelMasks,
+    attributes,
+    input.pmd85GapPolicy ?? "zero",
+    input.pmd85ImportedGapBytes,
+  );
+  const nextDecoded = decodePmd85Screen(encoded, mode);
+  return { ...bitmap, paletteIndices: nextDecoded.paletteIndices, encoded, rgba: renderPmd85Rgba(nextDecoded, palette) };
 }
 
 export function nativePaletteForResult(

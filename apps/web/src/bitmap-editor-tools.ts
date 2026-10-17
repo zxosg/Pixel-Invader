@@ -17,20 +17,20 @@ const BRUSH_DIMENSIONS: Readonly<Record<BitmapEditorBrushSize, { readonly width:
 
 export const BITMAP_EDITOR_BRUSH_SIZES: readonly BitmapEditorBrushSize[] = ["1x1", "2x2", "3x3", "4x4"];
 
-export function bitmapEditorOperationLabel(operation: BitmapEditorOperation): "SET" | "OVR" | "RES" | "INV" | "NONE" {
-  return operation === "copy" ? "SET"
-    : operation === "or" ? "OVR"
-      : operation === "and" ? "RES"
-        : operation === "xor" ? "INV"
-          : "NONE";
+export function bitmapEditorOperationLabel(operation: BitmapEditorOperation): "C" | "O" | "R" | "I" | "N" {
+  return operation === "copy" ? "C"
+    : operation === "or" ? "O"
+      : operation === "and" ? "R"
+        : operation === "xor" ? "I"
+          : "N";
 }
 
-export function bitmapEditorOperationDescription(operation: BitmapEditorOperation, scope: BitmapEditorScope = "cell"): "Copy" | "OR" | "Reset" | "AND NOT" | "XOR" | "None" {
+export function bitmapEditorOperationDescription(operation: BitmapEditorOperation, _scope: BitmapEditorScope = "cell"): "Copy" | "OR" | "Remove" | "Inverse" | "Nothing" {
   return operation === "copy" ? "Copy"
     : operation === "or" ? "OR"
-      : operation === "and" ? scope === "pixel" ? "Reset" : "AND NOT"
-        : operation === "xor" ? "XOR"
-          : "None";
+      : operation === "and" ? "Remove"
+        : operation === "xor" ? "Inverse"
+          : "Nothing";
 }
 
 export function bitmapEditorCellModeLabel(mode: BitmapEditorCellMode): "FILL" | "TILE" {
