@@ -420,3 +420,75 @@ export function nativePaletteForResult(
   }
   return [];
 }
+
+export type NativePaletteIndexOperation = "replace" | "increase" | "decrease";
+
+/** Applies palette-index changes to selected QL/PMD pixels and clamps index steps to each native palette. */
+export function applyNativePaletteIndexOperation(
+  bitmap: NativeResultBitmap,
+  input: NativeResultFrameInput,
+  mask: Uint8Array,
+  operation: NativePaletteIndexOperation,
+  fromIndex: number,
+  toIndex: number,
+): NativeResultBitmap {
+  if (bitmap.platformId === "zx-spectrum") return cloneNativeResultBitmap(bitmap);
+  if (mask.length !== bitmap.width * bitmap.height) {
+    throw new RangeError("Palette selection mask dimensions are invalid.");
+  }
+  const palette = nativePaletteForResult(input);
+  const maximumIndex = Math.max(0, ...palette.map((color) => color.index));
+  const safeFromIndex = Math.max(0, Math.min(maximumIndex, fromIndex));
+  const safeToIndex = Math.max(0, Math.min(maximumIndex, toIndex));
+  const nextIndices = bitmap.paletteIndices.slice();
+  const changed: Array<{ readonly x: number; readonly y: number; readonly value: number }> = [];
+  for (let offset = 0; offset < nextIndices.length; offset += 1) {
+    if (mask[offset] !== 1) continue;
+    const current = nextIndices[offset] ?? 0;
+    if (operation !== "replace" && bitmap.platformId === "pmd-85" && current === 0) continue;
+    const value = operation === "replace"
+      ? current === safeFromIndex ? safeToIndex : current
+      : Math.max(bitmap.platformId === "pmd-85" ? 1 : 0, Math.min(maximumIndex, current + (operation === "increase" ? 1 : -1)));
+    if (value === current) continue;
+    nextIndices[offset] = value;
+    changed.push({ x: offset % bitmap.width, y: Math.floor(offset / bitmap.width), value });
+  }
+  if (changed.length === 0) return cloneNativeResultBitmap(bitmap);
+  if (bitmap.platformId === "sinclair-ql") {
+    const mode = qlHardwareMode(input.hardwareModeId);
+    const encoded = encodeQlScreen(nextIndices, mode);
+    return { ...bitmap, paletteIndices: nextIndices, encoded, rgba: renderQlRgba(nextIndices, mode) };
+  }
+
+  const mode = pmdHardwareMode(input.hardwareModeId);
+  const foregroundPalette = assertPmdPalette(mode, input.pmd85ForegroundPalette);
+  const decoded = decodePmd85Screen(bitmap.encoded, mode);
+  const pixelMasks = decoded.pixelMasks.slice();
+  const attributes = decoded.attributes.slice();
+  for (const { x, y, value } of changed) {
+    const byteX = Math.floor(x / 6);
+    const bit = 1 << (x % 6);
+    const byteIndex = y * PMD85_VISIBLE_BYTES_PER_LINE + byteX;
+    if (value === 0) {
+      pixelMasks[byteIndex] = (pixelMasks[byteIndex] ?? 0) & ~bit;
+      continue;
+    }
+    pixelMasks[byteIndex] = (pixelMasks[byteIndex] ?? 0) | bit;
+    if (mode === "pmd85-colorace") {
+      const pair = PMD85_COLORACE_CANONICAL_PAIRS[value - 1];
+      if (pair === undefined) throw new RangeError("PMD ColorAce palette index is invalid.");
+      attributes[(y & ~1) * PMD85_VISIBLE_BYTES_PER_LINE + byteX] = pair[0];
+      attributes[(y | 1) * PMD85_VISIBLE_BYTES_PER_LINE + byteX] = pair[1];
+    } else {
+      attributes[byteIndex] = pmdAttributeForPalette(mode, value);
+    }
+  }
+  const encoded = encodePmd85Screen(
+    pixelMasks,
+    attributes,
+    input.pmd85GapPolicy ?? "zero",
+    input.pmd85ImportedGapBytes,
+  );
+  const nextDecoded = decodePmd85Screen(encoded, mode);
+  return { ...bitmap, paletteIndices: nextDecoded.paletteIndices, encoded, rgba: renderPmd85Rgba(nextDecoded, foregroundPalette) };
+}
