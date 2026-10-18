@@ -21,11 +21,11 @@ describe("bitmap editor tools", () => {
     expect(nextBitmapEditorCellMode("picked")).toBe("filled");
     expect(bitmapEditorCellModeLabel("filled")).toBe("FILL");
     expect(bitmapEditorCellModeLabel("picked")).toBe("TILE");
-    expect(bitmapEditorOperationLabel("copy")).toBe("C");
-    expect(bitmapEditorOperationLabel("or")).toBe("O");
-    expect(bitmapEditorOperationLabel("and")).toBe("R");
-    expect(bitmapEditorOperationLabel("xor")).toBe("I");
-    expect(bitmapEditorOperationLabel("none")).toBe("N");
+    expect(bitmapEditorOperationLabel("copy")).toBe("Copy");
+    expect(bitmapEditorOperationLabel("or")).toBe("OR");
+    expect(bitmapEditorOperationLabel("and")).toBe("AND");
+    expect(bitmapEditorOperationLabel("xor")).toBe("XOR");
+    expect(bitmapEditorOperationLabel("none")).toBe("None");
     expect(bitmapEditorOperationDescription("copy")).toBe("Copy");
     expect(bitmapEditorOperationDescription("and")).toBe("Remove");
     expect(bitmapEditorOperationDescription("and", "pixel")).toBe("Remove");

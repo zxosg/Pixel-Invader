@@ -4,6 +4,7 @@ import { bitmapEditorBrushPixels } from "./bitmap-editor-tools.js";
 
 export type BitmapSelectionResolution = "pixel" | "attribute";
 export type BitmapSelectionKind = "rectangle" | "freeform";
+export type BitmapSelectionTransform = "mirror-x" | "mirror-y" | "rotate-cw" | "rotate-ccw";
 
 export interface BitmapRegionSelection {
   readonly x: number;
@@ -20,6 +21,45 @@ export interface BitmapRegionSelection {
 export interface BitmapSelectionGrid {
   readonly width: number | null;
   readonly height: number | null;
+}
+
+export function transformBitmapRegionData(
+  data: Uint8Array,
+  width: number,
+  height: number,
+  transform: BitmapSelectionTransform,
+  valuesPerCell = 1,
+): { readonly width: number; readonly height: number; readonly data: Uint8Array } {
+  if (!Number.isInteger(width) || width < 1 || !Number.isInteger(height) || height < 1 ||
+      !Number.isInteger(valuesPerCell) || valuesPerCell < 1 || data.length !== width * height * valuesPerCell) {
+    throw new RangeError("Bitmap selection data dimensions are invalid.");
+  }
+  const rotates = transform === "rotate-cw" || transform === "rotate-ccw";
+  const outputWidth = rotates ? height : width;
+  const outputHeight = rotates ? width : height;
+  const output = new Uint8Array(data.length);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const targetX = transform === "mirror-x" ? width - 1 - x
+        : transform === "mirror-y" ? x
+          : transform === "rotate-cw" ? height - 1 - y : y;
+      const targetY = transform === "mirror-x" ? y
+        : transform === "mirror-y" ? height - 1 - y
+          : transform === "rotate-cw" ? x : width - 1 - x;
+      const sourceOffset = (y * width + x) * valuesPerCell;
+      const targetOffset = (targetY * outputWidth + targetX) * valuesPerCell;
+      output.set(data.subarray(sourceOffset, sourceOffset + valuesPerCell), targetOffset);
+    }
+  }
+  return { width: outputWidth, height: outputHeight, data: output };
+}
+
+export function transformBitmapRegionSelection(
+  selection: BitmapRegionSelection,
+  transform: BitmapSelectionTransform,
+): BitmapRegionSelection {
+  const transformed = transformBitmapRegionData(selection.mask, selection.width, selection.height, transform);
+  return { ...selection, width: transformed.width, height: transformed.height, mask: transformed.data };
 }
 
 function assertDimensions(width: number, height: number): void {

@@ -9,76 +9,88 @@ export interface BitmapStipplePatternChoice {
 interface BitmapEditorStipplePickerProps {
   readonly choices: readonly BitmapStipplePatternChoice[];
   readonly selectedId: string;
+  readonly density: number;
   readonly onSelect: (id: string) => void;
+  readonly onDensityChange: (density: number) => void;
   readonly disabled?: boolean;
 }
 
-function BitmapStippleTile({
+function MatrixPreview({
   matrix,
-  className = "",
+  density,
+  width = matrix.width,
+  height = matrix.height,
+  label,
 }: {
   readonly matrix: OrderedMatrix;
-  readonly className?: string;
+  readonly density: number;
+  readonly width?: number;
+  readonly height?: number;
+  readonly label: string;
 }) {
+  const cells = Array.from({ length: width * height }, (_, index) => {
+    const x = index % width;
+    const y = Math.floor(index / width);
+    const rank = matrix.values[(y % matrix.height) * matrix.width + (x % matrix.width)] ?? 0;
+    return (rank + 0.5) / matrix.levels * 100 < density;
+  });
+
   return (
-    <span
-      className={`bitmap-stipple-tile ${className}`}
-      style={{
-        gridTemplateColumns: `repeat(${matrix.width}, minmax(0, 1fr))`,
-        gridTemplateRows: `repeat(${matrix.height}, minmax(0, 1fr))`,
-      }}
-      aria-hidden="true"
+    <div
+      className="bitmap-editor-stipple-matrix"
+      style={{ gridTemplateColumns: `repeat(${width}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${height}, minmax(0, 1fr))` }}
+      role="img"
+      aria-label={label}
     >
-      {matrix.values.map((rank, index) => (
-        <i className={(rank + 0.5) / matrix.levels < 0.5 ? "on" : ""} key={index} />
-      ))}
-    </span>
+      {cells.map((on, index) => <i className={on ? "on" : ""} key={index} />)}
+    </div>
   );
 }
 
 export function BitmapEditorStipplePicker({
   choices,
   selectedId,
+  density,
   onSelect,
+  onDensityChange,
   disabled = false,
 }: BitmapEditorStipplePickerProps) {
   const selected = choices.find(({ id }) => id === selectedId) ?? choices[0];
   if (selected === undefined) return null;
 
   return (
-    <details className="bitmap-editor-stipple-picker" data-disabled={disabled || undefined}>
-      <summary
-        aria-label={`Stipple pattern: ${selected.label}`}
-        aria-disabled={disabled}
-        onClick={(event) => { if (disabled) event.preventDefault(); }}
-      >
-        <BitmapStippleTile matrix={selected.matrix} className="selected-tile" />
-        <span className="bitmap-editor-stipple-selected-label">{selected.label}</span>
-        <span className="bitmap-editor-stipple-coverage">50%</span>
-        <span className="bitmap-editor-stipple-chevron" aria-hidden="true">▾</span>
-      </summary>
-      {!disabled ? (
-        <div className="bitmap-editor-stipple-menu" role="group" aria-label="Available stipple tiles">
-          {choices.map(({ id, label, matrix }) => (
-            <button
-              className="bitmap-editor-stipple-choice"
-              type="button"
-              key={id}
-              title={`${label} · 50% pattern`}
-              aria-label={`${label} stipple pattern`}
-              aria-pressed={id === selectedId}
-              onClick={(event) => {
-                onSelect(id);
-                const details = event.currentTarget.closest("details");
-                if (details !== null) details.open = false;
-              }}
-            >
-              <BitmapStippleTile matrix={matrix} />
-              <span>{label}</span>
-            </button>
-          ))}
+    <div className="bitmap-editor-stipple-picker">
+      <label className="bitmap-editor-stipple-matrix-select">
+        <span>Ordered matrix</span>
+        <select value={selected.id} onChange={(event) => onSelect(event.target.value)} disabled={disabled} aria-label="Ordered dithering matrix">
+          {choices.map(({ id, label }) => <option value={id} key={id}>{label}</option>)}
+        </select>
+      </label>
+      <div className="bitmap-editor-stipple-previews" aria-label="Stipple previews">
+        <div className="bitmap-editor-stipple-preview">
+          <span>Selected matrix · {selected.matrix.width}×{selected.matrix.height}</span>
+          <MatrixPreview matrix={selected.matrix} density={density} label={`${selected.label} threshold preview`} />
         </div>
-      ) : null}
-    </details>
+        <div className="bitmap-editor-stipple-preview">
+          <span>Stipple pattern · 8×8</span>
+          <MatrixPreview matrix={selected.matrix} density={density} width={8} height={8} label={`8 by 8 stipple pattern at ${density}%`} />
+        </div>
+      </div>
+      <label className="bitmap-editor-stipple-density">
+        <span>Pattern density</span>
+        <input
+          type="range"
+          min="0"
+          max="100"
+          step="1"
+          value={density}
+          onChange={(event) => onDensityChange(Number(event.target.value))}
+          disabled={disabled}
+          aria-label="Stipple pattern density"
+          aria-valuetext={`${density}%`}
+        />
+        <output>{density}%</output>
+      </label>
+    </div>
   );
 }

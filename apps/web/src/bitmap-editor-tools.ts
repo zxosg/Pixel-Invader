@@ -17,12 +17,12 @@ const BRUSH_DIMENSIONS: Readonly<Record<BitmapEditorBrushSize, { readonly width:
 
 export const BITMAP_EDITOR_BRUSH_SIZES: readonly BitmapEditorBrushSize[] = ["1x1", "2x2", "3x3", "4x4"];
 
-export function bitmapEditorOperationLabel(operation: BitmapEditorOperation): "C" | "O" | "R" | "I" | "N" {
-  return operation === "copy" ? "C"
-    : operation === "or" ? "O"
-      : operation === "and" ? "R"
-        : operation === "xor" ? "I"
-          : "N";
+export function bitmapEditorOperationLabel(operation: BitmapEditorOperation): "Copy" | "OR" | "AND" | "XOR" | "None" {
+  return operation === "copy" ? "Copy"
+    : operation === "or" ? "OR"
+      : operation === "and" ? "AND"
+        : operation === "xor" ? "XOR"
+          : "None";
 }
 
 export function bitmapEditorOperationDescription(operation: BitmapEditorOperation, _scope: BitmapEditorScope = "cell"): "Copy" | "OR" | "Remove" | "Inverse" | "Nothing" {
