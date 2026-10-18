@@ -14,6 +14,7 @@ import {
 } from "@retro-converter/sinclair-ql";
 import { ZX_BITMAP_BYTES, ZX_SCREEN_HEIGHT, ZX_SCREEN_WIDTH, zxBitmapOffset } from "@retro-converter/zx-spectrum";
 import {
+  applyNativePaletteIndexOperation,
   applyNativeResultPixel,
   applyNativeResultPixels,
   createNativeResultBitmap,
@@ -133,5 +134,22 @@ describe("native result bitmap editor", () => {
     const bitmap = createNativeResultBitmap(input);
     const cleared = applyNativeResultPixels(bitmap, input, [{ x: 0, y: 0 }], "and", 7);
     expect(cleared.encoded[zxBitmapOffset(0, 0)]).toBe(0);
+  });
+
+  it("clamps native palette increase, decrease, and replacement to selected pixels", () => {
+    const input = qlInput("mode8-256x256");
+    const bitmap = createNativeResultBitmap(input);
+    const highColor = applyNativeResultPixel(bitmap, input, 0, 0, "set", 7);
+    const mask = new Uint8Array(bitmap.width * bitmap.height);
+    mask[0] = 1;
+
+    const increased = applyNativePaletteIndexOperation(highColor, input, mask, "increase", 0, 7);
+    const decreased = applyNativePaletteIndexOperation(bitmap, input, mask, "decrease", 0, 7);
+    const replaced = applyNativePaletteIndexOperation(highColor, input, mask, "replace", 7, 99);
+
+    expect(increased.paletteIndices[0]).toBe(7);
+    expect(decreased.paletteIndices[0]).toBe(0);
+    expect(replaced.paletteIndices[0]).toBe(7);
+    expect(replaced.paletteIndices[1]).toBe(bitmap.paletteIndices[1]);
   });
 });

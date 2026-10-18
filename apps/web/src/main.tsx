@@ -1,6 +1,8 @@
 import { Component, StrictMode, type ErrorInfo, type ReactNode } from "react";
+import { MantineProvider } from "@mantine/core";
 import { createRoot } from "react-dom/client";
 import { App } from "./App.js";
+import "@mantine/core/styles.css";
 import "./styles.css";
 
 const root = document.querySelector<HTMLDivElement>("#root");
@@ -46,9 +48,11 @@ class AppErrorBoundary extends Component<{ readonly children: ReactNode }, Error
 
 createRoot(root).render(
   <StrictMode>
-    <AppErrorBoundary>
-      <App />
-    </AppErrorBoundary>
+    <MantineProvider>
+      <AppErrorBoundary>
+        <App />
+      </AppErrorBoundary>
+    </MantineProvider>
   </StrictMode>,
 );
 

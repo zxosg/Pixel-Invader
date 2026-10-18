@@ -66,7 +66,19 @@
   }
 }
 
+.workbench-workspace.workbench-bitmap-editor-active .workbench-tools-content > .tools-control-row,
+.workbench-workspace.workbench-bitmap-editor-active .workbench-tools-content > .tools-flash-preview {
+  display: none !important;
+}
+
 @media (min-width: 1280px) {
+  /* The expanded bottom-dock layout has higher specificity than the general
+     bitmap-editor rule. When the editor hides that dock, discard its reserved
+     minimum-height row so the preview stage can use the freed space. */
+  .workbench-workspace.workbench-settings-bottom.workbench-settings-expanded.workbench-bitmap-editor-active {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
   .workbench-workspace.workbench-bitmap-editor-active {
     height: calc(100dvh - 7.5rem);
     max-height: calc(100dvh - 7.5rem);
@@ -185,7 +197,8 @@
 
   .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-full-toolbar {
     display: grid;
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: 2.4rem minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
     gap: 0.3rem;
     height: auto;
     max-height: none;
@@ -193,10 +206,23 @@
     background: transparent;
   }
 
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-tool-panel {
+    grid-column: 2;
+    grid-row: 1;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-tool-mode-tabs {
+    grid-column: 1;
+    grid-row: 1;
+    margin: 0;
+  }
+
   .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-control-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    grid-column: 1;
+    grid-column: auto;
     grid-row: auto;
     align-content: start;
     overflow: visible;
@@ -3692,30 +3718,42 @@ input[type="range"] {
   position: relative;
   z-index: 3;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  grid-template-rows: minmax(0, 1fr) auto;
-  gap: 0.2rem;
+  grid-template-columns: 2.8rem minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0.35rem;
   width: 100%;
   height: 100%;
   min-width: 0;
   min-height: 0;
-  padding: 0.08rem 0;
+  padding: 0.15rem;
   background: #0f1827;
 }
 
+.bitmap-editor-tool-panel {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.25rem;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
 .bitmap-editor-control-grid {
-  grid-column: 1 / 3;
-  grid-row: 1 / 3;
+  flex: 0 0 auto;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-content: start;
   gap: 0.2rem;
   min-width: 0;
   min-height: 0;
-  overflow: auto;
+  overflow: visible;
 }
 
 .bitmap-editor-control-grid > .bitmap-editor-action-grid,
+.bitmap-editor-control-grid > .bitmap-editor-command-segments,
 .bitmap-editor-control-grid > .bitmap-editor-native-palette,
 .bitmap-editor-control-grid > .bitmap-editor-attribute-policy,
 .bitmap-editor-control-grid > .bitmap-editor-region-tools,
@@ -3733,15 +3771,82 @@ input[type="range"] {
 }
 
 .bitmap-editor-tool-mode-tabs {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35rem;
+  grid-column: 1;
+  grid-row: 1;
   min-width: 0;
+  padding-top: 0.1rem;
 }
 
-.bitmap-editor-tool-mode-tabs button {
+.bitmap-editor-tool-mode-tabs .bitmap-editor-tool-nav-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.65rem;
   min-width: 0;
-  padding-inline: 0.25rem;
+  padding: 0;
+  border: 1px solid #31415a;
+  border-radius: 0.35rem;
+  background: #111824;
+  color: #c5d3e6;
+  cursor: pointer;
+}
+
+.bitmap-editor-tool-mode-tabs .bitmap-editor-tool-nav-link:hover {
+  background: #1b2b40;
+}
+
+.bitmap-editor-tool-mode-tabs .bitmap-editor-tool-nav-link[data-active] {
+  border-color: #7ab4ff;
+  background: #285b78;
+  color: #f4f8ff;
+}
+
+.bitmap-editor-tool-mode-tabs .bitmap-editor-tool-icon,
+.bitmap-editor-tool-mode-tabs .bitmap-editor-tool-icon svg {
+  display: block;
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.bitmap-editor-tool-mode-tabs .bitmap-editor-tool-nav-section {
+  margin-inline: 0;
+}
+
+.bitmap-editor-tool-mode-tabs .bitmap-editor-tool-icon svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.bitmap-editor-tool-mode-tabs .bitmap-editor-tool-icon svg circle:not([r="2.7"]) {
+  fill: currentColor;
+  stroke: none;
+}
+
+.bitmap-editor-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.bitmap-editor-sync-pan {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: #b8c9df;
+  font-size: 0.68rem;
 }
 
 .bitmap-editor-display-tools,
@@ -3770,6 +3875,107 @@ input[type="range"] {
   min-width: 0;
   width: 100%;
   padding: 0.22rem 0.3rem;
+}
+
+.bitmap-editor-command-segments,
+.bitmap-editor-segmented {
+  --sc-color: #7189aa;
+  --sc-label-color: #f4fbff;
+  --sc-radius: 0.2rem;
+  --sc-font-size: 0.58rem;
+  --sc-padding: 0 0.1rem;
+  --separator-color: #52627d;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #52627d;
+  border-radius: 0.2rem;
+  background: #52627d;
+  padding: 0;
+}
+
+.bitmap-editor-command-segments .bitmap-editor-segment-control,
+.bitmap-editor-segmented .bitmap-editor-segment-control {
+  min-height: 1.25rem;
+  background: transparent;
+}
+
+.bitmap-editor-command-segments .bitmap-editor-segment-label,
+.bitmap-editor-segmented .bitmap-editor-segment-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 2;
+  min-height: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.1rem;
+  border: 0;
+  border-radius: 0;
+  color: #e8edf5;
+  background: transparent;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.bitmap-editor-command-segments .bitmap-editor-segment-label[data-disabled],
+.bitmap-editor-segmented .bitmap-editor-segment-label[data-disabled] {
+  color: #d5ddeb;
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+.bitmap-editor-command-segments .bitmap-editor-segment-label[data-active]::before,
+.bitmap-editor-segmented .bitmap-editor-segment-label[data-active]::before {
+  background: var(--sc-color);
+  box-shadow: inset 0 0 0 1px #79b7ff;
+}
+
+.bitmap-editor-command-segments .bitmap-editor-segment-indicator,
+.bitmap-editor-segmented .bitmap-editor-segment-indicator {
+  border: 1px solid #79b7ff;
+  border-radius: 0.15rem;
+  box-shadow: inset 0 0 0 1px #79b7ff;
+}
+
+.bitmap-editor-command-segments[data-with-items-borders] .bitmap-editor-segment-control::before,
+.bitmap-editor-segmented[data-with-items-borders] .bitmap-editor-segment-control::before {
+  background: #52627d;
+}
+
+.bitmap-editor-display-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.bitmap-editor-display-control {
+  display: grid;
+  align-content: start;
+  gap: 0.18rem;
+  min-width: 0;
+  color: #b8c9df;
+  font-size: 0.66rem;
+  font-weight: 750;
+}
+
+.bitmap-editor-display-control .bitmap-editor-segment-control {
+  min-width: 0;
+}
+
+.bitmap-editor-display-control .bitmap-editor-segment-label {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.bitmap-editor-flash-control {
+  grid-column: 1 / -1;
+}
+
+.bitmap-editor-content-visibility .bitmap-editor-display-control {
+  font-weight: 650;
 }
 
 .bitmap-editor-display-tools .bitmap-editor-grid-toggles,
@@ -3810,6 +4016,86 @@ input[type="range"] {
   gap: 0.3rem;
 }
 
+.bitmap-editor-color-mode-segments {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #52627d;
+  border-radius: 0.2rem;
+  background: #52627d;
+}
+
+.bitmap-editor-color-mode {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 1.45rem;
+  padding: 0.12rem 0.18rem;
+  border: 0;
+  border-right: 1px solid #43536d;
+  background: transparent;
+  color: #e8edf5;
+  font: inherit;
+  font-size: 0.65rem;
+  font-weight: 750;
+  line-height: 1.1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.bitmap-editor-color-mode:last-child {
+  border-right: 0;
+}
+
+.bitmap-editor-color-mode:hover,
+.bitmap-editor-color-mode:focus-visible {
+  background: #607a9e;
+}
+
+.bitmap-editor-color-mode.active {
+  background: #7189aa;
+  box-shadow: inset 0 0 0 1px #79b7ff;
+}
+
+.bitmap-editor-color-swatches {
+  display: grid;
+  gap: 0.16rem;
+  min-width: 0;
+  color: #b8c9df;
+  font-size: 0.66rem;
+  font-weight: 750;
+}
+
+.bitmap-editor-color-swatches > div {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.14rem;
+  min-width: 0;
+}
+
+.bitmap-editor-color-swatches button {
+  min-width: 0;
+  min-height: 1.35rem;
+  padding: 0;
+  border: 1px solid #52627d;
+  border-radius: 0.18rem;
+  background: var(--swatch-color);
+  cursor: pointer;
+}
+
+.bitmap-editor-color-swatches button:hover,
+.bitmap-editor-color-swatches button:focus-visible {
+  outline: 2px solid #dcecff;
+  outline-offset: 1px;
+}
+
+.bitmap-editor-color-swatches button.selected {
+  border: 2px solid #f4f8ff;
+  box-shadow: 0 0 0 1px #79b7ff;
+}
+
 .bitmap-editor-color-help {
   color: #9aacc4;
   font-size: 0.65rem;
@@ -3826,7 +4112,8 @@ input[type="range"] {
 }
 
 .bitmap-editor-region-tools > label,
-.bitmap-editor-stipple-tools > label {
+.bitmap-editor-stipple-tools > label,
+.bitmap-editor-region-tools > .bitmap-editor-tool-select {
   display: grid;
   gap: 0.08rem;
   min-width: 0;
@@ -3844,15 +4131,11 @@ input[type="range"] {
 
 .bitmap-editor-region-buttons {
   grid-column: 1 / 3;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.12rem;
+  min-width: 0;
 }
 
-.bitmap-editor-region-buttons > button {
-  min-width: 0;
-  padding-inline: 0.16rem;
-  font-size: 0.65rem;
+.bitmap-editor-selection-paste-content {
+  grid-column: 1 / 3;
 }
 
 .bitmap-editor-selection-status {
@@ -3879,6 +4162,59 @@ input[type="range"] {
   background: #52627d;
 }
 
+.bitmap-editor-tool-mode-segments,
+.bitmap-editor-picker-mode-segments {
+  display: grid;
+  gap: 1px;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #52627d;
+  border-radius: 0.2rem;
+  background: #52627d;
+}
+
+.bitmap-editor-tool-mode-segments {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.bitmap-editor-picker-mode-segments {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.bitmap-editor-tool-mode-segments > button,
+.bitmap-editor-picker-mode-segments > button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 1.25rem;
+  padding: 0 0.1rem;
+  border: 1px solid #52627d;
+  border-radius: 0;
+  background: #52627d;
+  color: #e8edf5;
+  font-size: 0.58rem;
+  font-weight: 750;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.bitmap-editor-tool-mode-segments > button.active,
+.bitmap-editor-picker-mode-segments > button.active {
+  border-color: #79b7ff;
+  background: #7189aa;
+  color: #f4fbff;
+  box-shadow: inset 0 0 0 1px #79b7ff;
+}
+
+.bitmap-editor-tool-mode-segments > button:disabled,
+.bitmap-editor-picker-mode-segments > button:disabled {
+  color: #d5ddeb;
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .bitmap-editor-tool-array > button {
   border: 1px solid #52627d;
   border-radius: 0;
@@ -3889,7 +4225,10 @@ input[type="range"] {
 }
 
 .bitmap-editor-tools-grid > .bitmap-editor-tool-array,
-.bitmap-editor-tools-grid > .bitmap-editor-operation-split {
+.bitmap-editor-tools-grid > .bitmap-editor-operation-split,
+.bitmap-editor-tools-grid > .bitmap-editor-tool-mode-segments,
+.bitmap-editor-tools-grid > .bitmap-editor-picker-mode-segments,
+.bitmap-editor-tools-grid > .bitmap-editor-tools-segment {
   grid-column: 1 / 3;
 }
 
@@ -4224,7 +4563,7 @@ input[type="range"] {
 
 .bitmap-editor-attribute-policy-row {
   display: grid;
-  grid-template-columns: 1.2rem repeat(3, minmax(0, 1fr));
+  grid-template-columns: 1.2rem minmax(0, 1fr);
   gap: 0.12rem;
   align-items: center;
   margin-top: 0.08rem;
@@ -4309,8 +4648,8 @@ input[type="range"] {
 .bitmap-editor-picked-cell-preview {
   display: grid;
   gap: 0.12rem;
-  grid-column: 3 / 5;
-  grid-row: 1;
+  grid-column: auto;
+  grid-row: auto;
   align-self: start;
   min-width: 0;
   margin: 0;
@@ -4344,33 +4683,14 @@ input[type="range"] {
 }
 
 .bitmap-editor-picked-cell-directions {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1px;
   width: 100%;
-  border-radius: 0.2rem;
-  overflow: hidden;
-  background: #52627d;
 }
 
-.bitmap-editor-picked-cell-action {
-  min-width: 0;
-  padding-inline: 0.1rem;
-  border-radius: 0;
-  font-size: 0.72rem;
-  line-height: 1;
-}
-
-.bitmap-editor-picked-cell-directions .bitmap-editor-picked-cell-action:first-child {
-  border-radius: 0.2rem 0 0 0.2rem;
-}
-
-.bitmap-editor-picked-cell-directions .bitmap-editor-picked-cell-action:last-child {
-  border-radius: 0 0.2rem 0.2rem 0;
-}
-
-.bitmap-editor-picked-cell-actions {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.bitmap-editor-control-heading {
+  color: #b8c9df;
+  font-size: 0.68rem;
+  font-weight: 750;
+  line-height: 1.2;
 }
 
 .bitmap-editor-picked-cell-title {
@@ -8435,6 +8755,53 @@ input[type="range"] {
   overflow: visible;
 }
 
+/* Location menus are rendered in document.body so dock windows and their
+   preview canvases cannot clip or paint over them. */
+.workbench-window-location-popover {
+  position: fixed;
+  z-index: 2147483000;
+  display: grid;
+  min-width: 10rem;
+  padding: 0.25rem;
+  gap: 0.12rem;
+  border: 1px solid #52627d;
+  border-radius: 0.4rem;
+  color: #d9e4f4;
+  background: #111824;
+  box-shadow: 0 0.7rem 1.5rem rgb(0 0 0 / 65%);
+}
+
+.workbench-window-location-popover button {
+  display: flex;
+  width: 100%;
+  min-height: 1.8rem;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.45rem;
+  border: 1px solid transparent;
+  border-radius: 0.25rem;
+  padding: 0.2rem 0.4rem;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.workbench-window-location-popover button > span {
+  width: 1rem;
+  flex: 0 0 1rem;
+  text-align: center;
+}
+
+.workbench-window-location-popover button:hover,
+.workbench-window-location-popover button:focus-visible,
+.workbench-window-location-popover button.active {
+  border-color: #79b7ff;
+  background: #245b7b;
+}
+
 /* Bitmap editing is a focused workbench: reuse the entire preview row and
    keep the tool group controls visible in either a dock or a floating window. */
 @media (min-width: 1280px) {
@@ -8462,6 +8829,18 @@ input[type="range"] {
     grid-template-rows: minmax(0, 1fr);
   }
 
+  /* The regular workbench places previews on row 2 because row 1 holds its
+     inspection heading. The bitmap editor hides that heading and collapses
+     the workspace to one flexible row, so keep each docked preview in row 1.
+     Otherwise CSS Grid creates an auto-sized implicit row and leaves the
+     lower part of the editor stage unused. */
+  .workbench-workspace.workbench-bitmap-editor-active .source-panel,
+  .workbench-workspace.workbench-bitmap-editor-active .result-panel {
+    grid-row: 1;
+    height: 100%;
+    align-self: stretch;
+  }
+
   .workbench-workspace.workbench-bitmap-editor-active .workbench-window-content.workbench-tools-content {
     min-height: 0;
     max-height: none;
@@ -8474,6 +8853,43 @@ input[type="range"] {
     height: min(var(--workbench-tools-floating-height), calc(100dvh - 9rem));
     max-height: calc(100dvh - 9rem);
     overflow: visible;
+  }
+
+  /* Docked and floating tools share the same compact bitmap editor footprint.
+     The dock may be taller than its controls; keep the toolbar content-sized
+     and let the tab panel scroll within the visible workbench. */
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-tools-section {
+    width: 100%;
+    max-width: 24rem;
+    min-width: 0;
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-full-toolbar {
+    height: 100%;
+    min-height: 0;
+    max-height: none;
+    grid-template-columns: 2.4rem minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-tool-panel {
+    height: 100%;
+    min-height: 0;
+    max-height: none;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-tools-host {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
   }
 
   .workbench-workspace.workbench-bitmap-editor-active .workbench-tools-floating > summary {
@@ -8493,15 +8909,22 @@ input[type="range"] {
   }
 
   .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-tool-mode-tabs {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 0.2rem;
-    margin-bottom: 0.3rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
   }
 
-  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-tool-mode-tabs button {
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-tool-mode-tabs .bitmap-editor-tool-nav-link {
+    min-height: 2.4rem;
     min-width: 0;
-    padding-inline: 0.25rem;
+    padding: 0.2rem;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-picked-cell-preview {
+    display: grid;
+    grid-column: auto;
+    grid-row: auto;
+    margin: 0;
   }
 
   .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-full-toolbar[data-tool-mode="display"] [data-editor-group]:not([data-editor-group="display"]),
@@ -8856,4 +9279,78 @@ input[type="range"] {
 }
 
 @media (min-width: 1280px) {
+}
+
+/* Bitmap editor controls use the same configurable typography and control
+   sizing as the rest of the application. Keep the tab buttons aligned with
+   segmented controls; the tall icon navigation buttons remain distinct. */
+.shell .bitmap-editor-full-toolbar {
+  font-family: var(--ui-font-family);
+  font-size: var(--ui-body-font-size);
+  font-weight: var(--ui-body-font-weight);
+}
+
+.shell .bitmap-editor-full-toolbar :is(button, select, .bitmap-editor-segment-label) {
+  font-family: var(--ui-font-family);
+  font-size: var(--ui-control-font-size) !important;
+  font-weight: var(--ui-label-font-weight) !important;
+}
+
+.shell .bitmap-editor-full-toolbar button:not(.bitmap-editor-tool-nav-link),
+.shell .bitmap-editor-full-toolbar select,
+.shell .bitmap-editor-full-toolbar .bitmap-editor-command-segments,
+.shell .bitmap-editor-full-toolbar .bitmap-editor-segmented,
+.shell .bitmap-editor-full-toolbar .bitmap-editor-color-mode-segments,
+.shell .bitmap-editor-full-toolbar .bitmap-editor-tool-mode-segments,
+.shell .bitmap-editor-full-toolbar .bitmap-editor-picker-mode-segments {
+  box-sizing: border-box;
+  height: var(--ui-control-height);
+  min-height: var(--ui-control-height);
+}
+
+.shell .bitmap-editor-full-toolbar .bitmap-editor-segment-control,
+.shell .bitmap-editor-full-toolbar .bitmap-editor-segment-label,
+.shell .bitmap-editor-full-toolbar .bitmap-editor-color-mode,
+.shell .bitmap-editor-full-toolbar .bitmap-editor-tool-mode-segments > button,
+.shell .bitmap-editor-full-toolbar .bitmap-editor-picker-mode-segments > button {
+  box-sizing: border-box;
+  height: 100%;
+  min-height: 0;
+}
+
+.shell .bitmap-editor-full-toolbar button:not(.bitmap-editor-tool-nav-link),
+.shell .bitmap-editor-full-toolbar select {
+  box-sizing: border-box;
+  height: var(--ui-control-height);
+  min-height: var(--ui-control-height);
+}
+
+.shell .bitmap-editor-full-toolbar :is(
+  label,
+  .bitmap-editor-control-heading,
+  .bitmap-editor-tool-select,
+  .bitmap-editor-display-control,
+  .bitmap-editor-color-swatches,
+  .bitmap-editor-region-tools > label,
+  .bitmap-editor-stipple-tools > label,
+  .bitmap-editor-grid-toggles label,
+  .bitmap-editor-zoom-tools > span,
+  .bitmap-editor-flash-tools > span
+) {
+  font-family: var(--ui-font-family);
+  font-size: var(--ui-label-font-size) !important;
+  font-weight: var(--ui-label-font-weight) !important;
+}
+
+.shell .bitmap-editor-full-toolbar :is(
+  .bitmap-editor-color-help,
+  .bitmap-editor-picked-cell-title,
+  .bitmap-editor-picked-cell-status,
+  .bitmap-editor-picked-cell-meta,
+  .bitmap-editor-picked-cell-empty,
+  .bitmap-editor-sync-pan
+) {
+  font-family: var(--ui-font-family);
+  font-size: var(--ui-body-font-size) !important;
+  font-weight: var(--ui-body-font-weight) !important;
 }

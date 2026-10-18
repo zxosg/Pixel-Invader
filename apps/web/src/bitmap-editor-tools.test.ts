@@ -21,14 +21,14 @@ describe("bitmap editor tools", () => {
     expect(nextBitmapEditorCellMode("picked")).toBe("filled");
     expect(bitmapEditorCellModeLabel("filled")).toBe("FILL");
     expect(bitmapEditorCellModeLabel("picked")).toBe("TILE");
-    expect(bitmapEditorOperationLabel("copy")).toBe("SET");
-    expect(bitmapEditorOperationLabel("or")).toBe("OVR");
-    expect(bitmapEditorOperationLabel("and")).toBe("RES");
-    expect(bitmapEditorOperationLabel("xor")).toBe("INV");
-    expect(bitmapEditorOperationLabel("none")).toBe("NONE");
+    expect(bitmapEditorOperationLabel("copy")).toBe("C");
+    expect(bitmapEditorOperationLabel("or")).toBe("O");
+    expect(bitmapEditorOperationLabel("and")).toBe("R");
+    expect(bitmapEditorOperationLabel("xor")).toBe("I");
+    expect(bitmapEditorOperationLabel("none")).toBe("N");
     expect(bitmapEditorOperationDescription("copy")).toBe("Copy");
-    expect(bitmapEditorOperationDescription("and")).toBe("AND NOT");
-    expect(bitmapEditorOperationDescription("and", "pixel")).toBe("Reset");
+    expect(bitmapEditorOperationDescription("and")).toBe("Remove");
+    expect(bitmapEditorOperationDescription("and", "pixel")).toBe("Remove");
   });
 
   it("cycles all requested brush sizes", () => {
