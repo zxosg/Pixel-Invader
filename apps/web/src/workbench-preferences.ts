@@ -1,7 +1,7 @@
 export type WorkbenchDock = "bottom" | "left" | "right" | "floating";
 export type WorkbenchWindowDock = WorkbenchDock | "center";
 export type WorkbenchToolsDock = WorkbenchDock;
-export type WorkbenchWindowId = "settings" | "tools" | "geometry" | "adjustments" | "palette" | "dithering" | "tilemap" | "source" | "result";
+export type WorkbenchWindowId = "settings" | "tools" | "geometry" | "adjustments" | "palette" | "paint-colors" | "dithering" | "tilemap" | "source" | "result";
 export type ActiveWorkbenchWindowId = Exclude<WorkbenchWindowId, "settings">;
 export type WorkbenchTileDropPosition = "before" | "after" | "append";
 
@@ -26,13 +26,14 @@ export interface WorkbenchWindowLayout {
   readonly width: number;
   readonly height: number;
   readonly autoHeight: boolean;
+  readonly contentOrientation?: "rows" | "columns";
 }
 
 export type WorkbenchWindowLayouts = Readonly<Record<ActiveWorkbenchWindowId, WorkbenchWindowLayout>>;
 
 const TILED_DOCKS: readonly WorkbenchDock[] = ["bottom", "left", "right"];
 const ACTIVE_WORKBENCH_WINDOWS: readonly ActiveWorkbenchWindowId[] = [
-  "tools", "geometry", "adjustments", "palette", "dithering", "tilemap", "source", "result",
+  "tools", "geometry", "adjustments", "palette", "paint-colors", "dithering", "tilemap", "source", "result",
 ];
 
 function isTiledDock(dock: WorkbenchWindowDock): dock is WorkbenchDock {
@@ -214,7 +215,7 @@ export const DEFAULT_WORKBENCH_PREFERENCES: WorkbenchPreferences = {
   adjustmentsFloatingWidth: 520,
   adjustmentsFloatingHeight: 300,
   adjustmentsFloatingAutoHeight: true,
-  windowOrder: ["settings", "tools", "geometry", "adjustments", "palette", "dithering", "tilemap", "source", "result"],
+  windowOrder: ["settings", "tools", "geometry", "adjustments", "palette", "paint-colors", "dithering", "tilemap", "source", "result"],
   paletteFloating: false,
   paletteFloatingX: 360,
   paletteFloatingY: 96,
@@ -308,6 +309,20 @@ export const DEFAULT_WORKBENCH_PREFERENCES: WorkbenchPreferences = {
       height: 360,
       autoHeight: true,
     },
+    "paint-colors": {
+      dock: "left",
+      visible: true,
+      minimized: false,
+      open: true,
+      dockSize: 260,
+      dockRatio: 0.45,
+      x: 360,
+      y: 420,
+      width: 360,
+      height: 180,
+      autoHeight: false,
+      contentOrientation: "rows",
+    },
     dithering: {
       dock: "bottom",
       visible: true,
@@ -364,7 +379,7 @@ export const DEFAULT_WORKBENCH_PREFERENCES: WorkbenchPreferences = {
 };
 
 const DOCKS = new Set<WorkbenchDock>(["bottom", "left", "right", "floating"]);
-const WINDOWS: readonly WorkbenchWindowId[] = ["settings", "tools", "geometry", "adjustments", "palette", "dithering", "tilemap", "source", "result"];
+const WINDOWS: readonly WorkbenchWindowId[] = ["settings", "tools", "geometry", "adjustments", "palette", "paint-colors", "dithering", "tilemap", "source", "result"];
 const CURRENT_WINDOWS: readonly WorkbenchWindowId[] = ["settings", "tools", "geometry", "adjustments", "palette", "dithering"];
 const PREVIEW_WINDOWS: readonly WorkbenchWindowId[] = [...CURRENT_WINDOWS, "source", "result"];
 const LEGACY_WINDOWS: readonly WorkbenchWindowId[] = ["settings", "tools", "palette", "dithering"];
@@ -375,7 +390,7 @@ const SECTIONS: readonly WorkbenchSettingsSection[] = [
   "dithering",
   "tilemap",
 ];
-const ACTIVE_WINDOWS: readonly ActiveWorkbenchWindowId[] = ["tools", "geometry", "adjustments", "palette", "dithering", "tilemap", "source", "result"];
+const ACTIVE_WINDOWS: readonly ActiveWorkbenchWindowId[] = [...ACTIVE_WORKBENCH_WINDOWS];
 const WINDOW_DOCKS = new Set<WorkbenchWindowDock>(["bottom", "left", "right", "floating", "center"]);
 
 interface PreferenceStorage {
@@ -454,6 +469,7 @@ function loadWindowLayouts(value: unknown, legacy: Record<string, unknown> | nul
       geometry: sectionLayout("geometry", legacy.geometryFloating, legacy.geometryFloatingX, legacy.geometryFloatingY, legacy.geometryFloatingWidth, legacy.geometryFloatingHeight, legacy.geometryFloatingAutoHeight),
       adjustments: sectionLayout("adjustments", legacy.adjustmentsFloating, legacy.adjustmentsFloatingX, legacy.adjustmentsFloatingY, legacy.adjustmentsFloatingWidth, legacy.adjustmentsFloatingHeight, legacy.adjustmentsFloatingAutoHeight),
       palette: sectionLayout("palette", legacy.paletteFloating, legacy.paletteFloatingX, legacy.paletteFloatingY, legacy.paletteFloatingWidth, legacy.paletteFloatingHeight, legacy.paletteFloatingAutoHeight),
+      "paint-colors": DEFAULT_WORKBENCH_PREFERENCES.windowLayouts["paint-colors"],
       dithering: sectionLayout("dithering", legacy.ditheringFloating, legacy.ditheringFloatingX, legacy.ditheringFloatingY, legacy.ditheringFloatingWidth, legacy.ditheringFloatingHeight, legacy.ditheringFloatingAutoHeight),
       tilemap: sectionLayout("tilemap", legacy.tilemapFloating, legacy.tilemapFloatingX, legacy.tilemapFloatingY, legacy.tilemapFloatingWidth, legacy.tilemapFloatingHeight, legacy.tilemapFloatingAutoHeight),
       source: {
@@ -488,6 +504,10 @@ function loadWindowLayouts(value: unknown, legacy: Record<string, unknown> | nul
   const layouts = {} as Record<ActiveWorkbenchWindowId, WorkbenchWindowLayout>;
   for (const window of ACTIVE_WINDOWS) {
     const candidate = value[window];
+    if (window === "paint-colors" && candidate === undefined) {
+      layouts[window] = DEFAULT_WORKBENCH_PREFERENCES.windowLayouts[window];
+      continue;
+    }
     if (!isRecord(candidate) ||
         typeof candidate.dock !== "string" || !WINDOW_DOCKS.has(candidate.dock as WorkbenchWindowDock) ||
         (candidate.visible !== undefined && typeof candidate.visible !== "boolean") ||
@@ -499,6 +519,7 @@ function loadWindowLayouts(value: unknown, legacy: Record<string, unknown> | nul
         !isFiniteNumberInRange(candidate.y, 0, 10000) ||
         !isFiniteNumberInRange(candidate.width, 240, 1600) ||
         !isFiniteNumberInRange(candidate.height, 160, 900) ||
+        (candidate.contentOrientation !== undefined && candidate.contentOrientation !== "rows" && candidate.contentOrientation !== "columns") ||
         typeof candidate.autoHeight !== "boolean") {
       return null;
     }
@@ -517,6 +538,11 @@ function loadWindowLayouts(value: unknown, legacy: Record<string, unknown> | nul
         width: candidate.width,
         height: candidate.height,
         autoHeight: candidate.autoHeight,
+        ...(candidate.contentOrientation === "rows" || candidate.contentOrientation === "columns"
+          ? { contentOrientation: candidate.contentOrientation }
+          : window === "paint-colors"
+            ? { contentOrientation: "rows" as const }
+            : {}),
       };
     } else {
       return null;
@@ -528,12 +554,17 @@ function loadWindowLayouts(value: unknown, legacy: Record<string, unknown> | nul
 function loadWindowOrder(value: unknown): readonly WorkbenchWindowId[] | null {
   if (value === undefined) return DEFAULT_WORKBENCH_PREFERENCES.windowOrder;
   if (!Array.isArray(value)) return null;
+  const withPaintColors = (order: readonly WorkbenchWindowId[]): readonly WorkbenchWindowId[] => {
+    if (order.includes("paint-colors")) return order;
+    const paletteIndex = order.indexOf("palette");
+    return [...order.slice(0, paletteIndex + 1), "paint-colors", ...order.slice(paletteIndex + 1)];
+  };
   if (value.length === LEGACY_WINDOWS.length) {
     const legacyOrder = value.filter((candidate): candidate is WorkbenchWindowId =>
       typeof candidate === "string" && LEGACY_WINDOWS.includes(candidate as WorkbenchWindowId),
     );
     if (legacyOrder.length === LEGACY_WINDOWS.length && new Set(legacyOrder).size === LEGACY_WINDOWS.length) {
-      return ["settings", "tools", "geometry", "adjustments", ...legacyOrder.filter((window) => window === "palette" || window === "dithering"), "tilemap", "source", "result"];
+      return withPaintColors(["settings", "tools", "geometry", "adjustments", ...legacyOrder.filter((window) => window === "palette" || window === "dithering"), "tilemap", "source", "result"]);
     }
   }
   if (value.length === CURRENT_WINDOWS.length) {
@@ -541,7 +572,7 @@ function loadWindowOrder(value: unknown): readonly WorkbenchWindowId[] | null {
       typeof candidate === "string" && CURRENT_WINDOWS.includes(candidate as WorkbenchWindowId),
     );
     if (currentOrder.length === CURRENT_WINDOWS.length && new Set(currentOrder).size === CURRENT_WINDOWS.length) {
-      return [...currentOrder, "tilemap", "source", "result"];
+      return withPaintColors([...currentOrder, "tilemap", "source", "result"]);
     }
   }
   if (value.length === PREVIEW_WINDOWS.length) {
@@ -549,7 +580,16 @@ function loadWindowOrder(value: unknown): readonly WorkbenchWindowId[] | null {
       typeof candidate === "string" && PREVIEW_WINDOWS.includes(candidate as WorkbenchWindowId),
     );
     if (previewOrder.length === PREVIEW_WINDOWS.length && new Set(previewOrder).size === PREVIEW_WINDOWS.length) {
-      return [...previewOrder.slice(0, -2), "tilemap", ...previewOrder.slice(-2)];
+      return withPaintColors([...previewOrder.slice(0, -2), "tilemap", ...previewOrder.slice(-2)]);
+    }
+  }
+  const previousWindowOrder: readonly WorkbenchWindowId[] = WINDOWS.filter((window) => window !== "paint-colors");
+  if (value.length === previousWindowOrder.length) {
+    const previousOrder = value.filter((candidate): candidate is WorkbenchWindowId =>
+      typeof candidate === "string" && previousWindowOrder.includes(candidate as WorkbenchWindowId),
+    );
+    if (previousOrder.length === previousWindowOrder.length && new Set(previousOrder).size === previousWindowOrder.length) {
+      return withPaintColors(previousOrder);
     }
   }
   if (value.length !== WINDOWS.length) return null;

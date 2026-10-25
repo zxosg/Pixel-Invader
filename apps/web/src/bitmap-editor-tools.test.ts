@@ -19,7 +19,7 @@ describe("bitmap editor tools", () => {
     expect(nextBitmapEditorOperation("none")).toBe("copy");
     expect(nextBitmapEditorCellMode("filled")).toBe("picked");
     expect(nextBitmapEditorCellMode("picked")).toBe("filled");
-    expect(bitmapEditorCellModeLabel("filled")).toBe("FILL");
+    expect(bitmapEditorCellModeLabel("filled")).toBe("CELL");
     expect(bitmapEditorCellModeLabel("picked")).toBe("TILE");
     expect(bitmapEditorOperationLabel("copy")).toBe("Copy");
     expect(bitmapEditorOperationLabel("or")).toBe("OR");

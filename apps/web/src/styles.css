@@ -1377,6 +1377,98 @@ input.invalid {
   font-size: 0.74rem;
 }
 
+.workbench-new-empty-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgb(3 8 15 / 72%);
+  backdrop-filter: blur(3px);
+}
+
+.workbench-new-empty-dialog {
+  display: grid;
+  width: min(30rem, 100%);
+  max-height: min(90dvh, 44rem);
+  gap: 0.45rem;
+  overflow: auto;
+  padding: 1rem;
+  border: 1px solid #50627e;
+  border-radius: 0.75rem;
+  background: linear-gradient(180deg, #172337 0%, #101827 100%);
+  box-shadow: 0 24px 70px #000c;
+  color: #e8edf5;
+}
+
+.workbench-new-empty-dialog > header,
+.workbench-new-empty-dialog > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.workbench-new-empty-dialog h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.workbench-new-empty-dialog p {
+  margin: 0.1rem 0 0.35rem;
+  color: #aebbd0;
+  font-size: 0.78rem;
+}
+
+.workbench-new-empty-dialog header button,
+.workbench-new-empty-dialog footer button {
+  min-height: 2rem;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid #394a63;
+  border-radius: 0.4rem;
+  background: #111b2b;
+  color: #e8edf5;
+  font: inherit;
+  cursor: pointer;
+}
+
+.workbench-new-empty-dialog header button {
+  width: 2rem;
+  padding: 0;
+  font-size: 1.2rem;
+}
+
+.workbench-new-empty-dialog footer {
+  justify-content: flex-end;
+  margin-top: 0.35rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid #2a374d;
+}
+
+.workbench-new-empty-dialog footer .workbench-menu-primary {
+  border-color: #6daeff;
+  background: linear-gradient(180deg, #82bdff 0%, #5599ed 100%);
+  color: #091626;
+  font-weight: 800;
+}
+
+.workbench-new-empty-colors {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.1rem 0.5rem;
+}
+
+.workbench-new-empty-check {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.55rem;
+  color: #c5d3e6;
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
 .workbench-menu-context {
   display: flex;
   flex-wrap: wrap;
@@ -3651,6 +3743,30 @@ input[type="range"] {
   overflow: visible;
 }
 
+.bitmap-editor-primitive-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.bitmap-editor-primitive-overlay path {
+  stroke-linecap: square;
+  stroke-linejoin: round;
+  shape-rendering: crispEdges;
+}
+
+.bitmap-editor-primitive-cursor {
+  fill: rgb(255 220 106 / 10%);
+  stroke: #ffdc6a;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  shape-rendering: crispEdges;
+}
+
 .bitmap-editor-selection-overlay rect {
   fill: rgb(50 145 255 / 20%);
   stroke: #ff8a00;
@@ -3827,6 +3943,7 @@ input[type="range"] {
 .bitmap-editor-control-grid > .bitmap-editor-attribute-policy,
 .bitmap-editor-control-grid > .bitmap-editor-region-tools,
 .bitmap-editor-control-grid > .bitmap-editor-stipple-tools,
+.bitmap-editor-control-grid > .bitmap-editor-primitives,
 .bitmap-editor-control-grid > .bitmap-editor-display-tools,
 .bitmap-editor-control-grid > .bitmap-editor-color-operations {
   grid-column: 1 / 3;
@@ -3835,6 +3952,7 @@ input[type="range"] {
 .bitmap-editor-full-toolbar[data-tool-mode="display"] [data-editor-group]:not([data-editor-group="display"]),
 .bitmap-editor-full-toolbar[data-tool-mode="selection"] [data-editor-group]:not([data-editor-group="selection"]),
 .bitmap-editor-full-toolbar[data-tool-mode="draw"] [data-editor-group]:not([data-editor-group="draw"]),
+.bitmap-editor-full-toolbar[data-tool-mode="primitives"] [data-editor-group]:not([data-editor-group="primitives"]),
 .bitmap-editor-full-toolbar[data-tool-mode="colors"] [data-editor-group]:not([data-editor-group="colors"]) {
   display: none !important;
 }
@@ -4210,6 +4328,123 @@ input[type="range"] {
   align-items: center;
 }
 
+.bitmap-editor-primitives {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.28rem;
+  min-width: 0;
+  padding-top: 0.25rem;
+  border-top: 1px solid #31415a;
+}
+
+.bitmap-editor-primitive-kind {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.2rem;
+}
+
+.bitmap-editor-primitive-kind-button {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  min-height: 1.8rem;
+  padding: 0.15rem;
+}
+
+.bitmap-editor-primitive-kind-button.active {
+  border-color: #79b7ff;
+  background: #285b78;
+  color: #f4f8ff;
+}
+
+.bitmap-editor-primitive-kind-button svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.bitmap-editor-primitive-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  color: #c5d3e6;
+  font-size: 0.65rem;
+}
+
+.bitmap-editor-primitive-operation,
+.bitmap-editor-primitive-pattern-source,
+.bitmap-editor-primitives > .bitmap-editor-stipple-picker,
+.bitmap-editor-primitive-custom-pattern,
+.bitmap-editor-primitive-help {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.bitmap-editor-primitive-custom-pattern {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: #9aacc4;
+  font-size: 0.62rem;
+}
+
+.bitmap-editor-primitive-color-sample {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: auto 0.75rem minmax(2.5rem, 3.5rem) auto 0.75rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.22rem;
+  min-width: 0;
+  padding: 0.2rem 0.3rem;
+  border: 1px solid #34445d;
+  border-radius: 0.35rem;
+  background: #0c1421;
+}
+
+.bitmap-editor-primitive-color-sample-label {
+  color: #b8c9df;
+  font-size: 0.55rem;
+  font-weight: 800;
+}
+
+.bitmap-editor-primitive-color-chip {
+  width: 0.72rem;
+  height: 0.72rem;
+  border: 1px solid #8b9bb2;
+  border-radius: 0.15rem;
+}
+
+.bitmap-editor-primitive-pattern-sample {
+  display: grid;
+  width: 3.5rem;
+  aspect-ratio: 1;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid #8293aa;
+  border-radius: 0.12rem;
+}
+
+.bitmap-editor-primitive-pattern-sample > span {
+  min-width: 0;
+  min-height: 0;
+  outline: 1px solid rgb(0 0 0 / 22%);
+  outline-offset: -1px;
+}
+
+.bitmap-editor-primitive-help {
+  margin: 0;
+  color: #9aacc4;
+  font-size: 0.62rem;
+  line-height: 1.3;
+}
+
 .bitmap-editor-tool-array {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -4291,7 +4526,14 @@ input[type="range"] {
   gap: 0.3rem;
 }
 
-.bitmap-editor-stipple-tools > .bitmap-editor-stipple-toggle {
+.bitmap-editor-stipple-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.bitmap-editor-stipple-toggles > .bitmap-editor-stipple-toggle {
   display: flex;
   align-items: center;
   gap: 0.2rem;
@@ -4624,6 +4866,171 @@ input[type="range"] {
   height: 100%;
   border: 1px solid #7d8797;
   background: linear-gradient(135deg, transparent 46%, #7d8797 47%, #7d8797 53%, transparent 54%);
+}
+
+.paint-colors-window {
+  min-width: 220px;
+}
+
+.paint-colors-window.workbench-section-floating {
+  position: absolute;
+  top: var(--paint-colors-floating-y);
+  left: var(--paint-colors-floating-x);
+  width: var(--paint-colors-floating-width);
+  height: var(--paint-colors-floating-height);
+  z-index: 20;
+}
+
+.paint-colors-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0.3rem;
+  padding: 0.35rem;
+  min-width: 0;
+}
+
+.paint-colors-orientation {
+  display: flex;
+  grid-column: 1;
+  gap: 0.15rem;
+}
+
+.paint-colors-orientation button {
+  min-height: 1.2rem;
+  padding: 0.05rem 0.35rem;
+  font-size: 0.68rem;
+}
+
+.paint-colors-role-row {
+  display: grid;
+  grid-column: 1;
+  grid-template-columns: 1rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.paint-colors-role-row > strong,
+.paint-colors-flag > strong {
+  color: #c9d3e3;
+  text-align: center;
+  font-size: 0.75rem;
+  line-height: 1;
+}
+
+.paint-colors-swatches {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.paint-colors-swatches .bitmap-editor-attribute-color,
+.paint-colors-swatches .bitmap-editor-attribute-icon {
+  width: 100%;
+  height: 1.15rem;
+  min-height: 1.15rem;
+  min-width: 0;
+}
+
+.paint-colors-flag {
+  display: grid;
+  grid-template-columns: 0.8rem repeat(3, 1.1rem);
+  align-items: center;
+  gap: 0.08rem;
+}
+
+.paint-colors-policy,
+.paint-colors-picker {
+  display: grid;
+  place-items: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid #52627d;
+  border-radius: 0.2rem;
+  background: #111824;
+  color: #c9d3e3;
+  line-height: 1;
+}
+
+.paint-colors-policy.selected,
+.paint-colors-picker.active {
+  border-color: #79b7ff;
+  box-shadow: 0 0 0 1px #79b7ff inset;
+}
+
+.paint-colors-policy .bitmap-editor-transparent-swatch {
+  width: 0.8rem;
+  height: 0.8rem;
+}
+
+.paint-colors-picker {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+  align-self: center;
+  width: 1.45rem;
+  height: 1.45rem;
+  font-size: 1.1rem;
+}
+
+.paint-colors-content-columns {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: stretch;
+}
+
+.paint-colors-content-columns .paint-colors-orientation {
+  grid-column: 1 / 4;
+  justify-content: space-between;
+}
+
+.paint-colors-content-columns .paint-colors-role-row {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto auto;
+  align-content: start;
+  justify-items: stretch;
+  padding: 0.2rem;
+  border: 1px solid #33425d;
+  border-radius: 0.25rem;
+}
+
+.paint-colors-content-columns .paint-colors-role-row:nth-child(2) {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.paint-colors-content-columns .paint-colors-role-row:nth-child(3) {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.paint-colors-content-columns .paint-colors-role-row > strong {
+  text-align: left;
+}
+
+.paint-colors-content-columns .paint-colors-swatches {
+  grid-template-columns: minmax(1.2rem, 1fr);
+  grid-auto-rows: 1.15rem;
+}
+
+.paint-colors-content-columns .paint-colors-flag {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-self: stretch;
+  margin-top: 0.2rem;
+  border-top: 1px solid #33425d;
+  padding-top: 0.15rem;
+}
+
+.paint-colors-content-columns .paint-colors-picker {
+  grid-column: 3;
+  grid-row: 1 / 3;
+  justify-self: end;
+  align-self: start;
 }
 
 .bitmap-editor-attribute-policy-row {
@@ -8995,11 +9402,13 @@ input[type="range"] {
   .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-full-toolbar[data-tool-mode="display"] [data-editor-group]:not([data-editor-group="display"]),
   .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-full-toolbar[data-tool-mode="selection"] [data-editor-group]:not([data-editor-group="selection"]),
   .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-full-toolbar[data-tool-mode="draw"] [data-editor-group]:not([data-editor-group="draw"]),
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-full-toolbar[data-tool-mode="primitives"] [data-editor-group]:not([data-editor-group="primitives"]),
   .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-full-toolbar[data-tool-mode="colors"] [data-editor-group]:not([data-editor-group="colors"]) {
     display: none !important;
   }
 
   .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-control-grid > .bitmap-editor-display-tools,
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-control-grid > .bitmap-editor-primitives,
   .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-control-grid > .bitmap-editor-color-operations {
     grid-column: 1 / -1;
   }

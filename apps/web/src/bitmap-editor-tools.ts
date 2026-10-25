@@ -33,8 +33,8 @@ export function bitmapEditorOperationDescription(operation: BitmapEditorOperatio
           : "Nothing";
 }
 
-export function bitmapEditorCellModeLabel(mode: BitmapEditorCellMode): "FILL" | "TILE" {
-  return mode === "filled" ? "FILL" : "TILE";
+export function bitmapEditorCellModeLabel(mode: BitmapEditorCellMode): "CELL" | "TILE" {
+  return mode === "filled" ? "CELL" : "TILE";
 }
 
 export function bitmapEditorBrushDimensions(size: BitmapEditorBrushSize): { readonly width: number; readonly height: number } {
@@ -64,6 +64,47 @@ export function bitmapEditorBrushPixels(
     }
   }
   return pixels;
+}
+
+/** Collects the four-connected region sharing the seed pixel's native value. */
+export function bitmapEditorConnectedRegion(
+  pixels: Uint8Array,
+  width: number,
+  height: number,
+  seedX: number,
+  seedY: number,
+): readonly BitmapEditorPoint[] {
+  if (!Number.isInteger(width) || width < 1 || !Number.isInteger(height) || height < 1 ||
+      pixels.length !== width * height || !Number.isInteger(seedX) || seedX < 0 || seedX >= width ||
+      !Number.isInteger(seedY) || seedY < 0 || seedY >= height) {
+    throw new RangeError("Flood-fill bitmap geometry or seed is invalid.");
+  }
+  const seedIndex = seedY * width + seedX;
+  const seedValue = pixels[seedIndex] ?? 0;
+  const visited = new Uint8Array(pixels.length);
+  const queue = new Int32Array(pixels.length);
+  const region: BitmapEditorPoint[] = [];
+  let read = 0;
+  let write = 0;
+  queue[write++] = seedIndex;
+  visited[seedIndex] = 1;
+  while (read < write) {
+    const index = queue[read++]!;
+    const x = index % width;
+    const y = Math.floor(index / width);
+    region.push({ x, y });
+    const add = (next: number) => {
+      if (visited[next] === 0 && pixels[next] === seedValue) {
+        visited[next] = 1;
+        queue[write++] = next;
+      }
+    };
+    if (x > 0) add(index - 1);
+    if (x + 1 < width) add(index + 1);
+    if (y > 0) add(index - width);
+    if (y + 1 < height) add(index + width);
+  }
+  return region;
 }
 
 export function applyBitmapEditorOperation(

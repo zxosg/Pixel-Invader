@@ -11,6 +11,7 @@ const PANEL_LABELS: Readonly<Record<ActiveWorkbenchWindowId, string>> = {
   geometry: "Geometry",
   adjustments: "Image adjustments",
   palette: "ZX palette and attributes",
+  "paint-colors": "Paint colors",
   dithering: "Dithering",
   tilemap: "Tilemap",
   source: "Source preview",
@@ -31,6 +32,16 @@ export interface WorkspaceProfileOption {
   readonly name: string;
   readonly kind: "builtin" | "saved";
   readonly layout?: Exclude<WorkspaceLayoutId, "custom">;
+}
+
+export interface EmptyImageOptions {
+  readonly platformId: ConversionProfile["platform_id"];
+  readonly modeId: string;
+  readonly ink: number;
+  readonly paper: number;
+  readonly bright: boolean;
+  readonly flash: boolean;
+  readonly colorIndex: number;
 }
 
 const HARDWARE_MODE_LABELS: Readonly<Record<string, string>> = {
@@ -82,6 +93,7 @@ export interface WorkbenchMenuBarProps {
   readonly canExportInspection: boolean;
   readonly canExportTilemap: boolean;
   readonly onOpenImage: (file: File | undefined) => void;
+  readonly onCreateEmptyImage: (options: EmptyImageOptions) => void;
   readonly onImportClipboard: () => void;
   readonly onOpenPmd: (file: File | undefined) => void;
   readonly onOpenProject: (file: File | undefined) => void;
@@ -123,6 +135,14 @@ function resetFileInput(event: ChangeEvent<HTMLInputElement>, callback: (file: F
 
 export function WorkbenchMenuBar(props: WorkbenchMenuBarProps) {
   const [openMenu, setOpenMenu] = useState<MenuId | null>(null);
+  const [newEmptyOpen, setNewEmptyOpen] = useState(false);
+  const [newEmptyPlatform, setNewEmptyPlatform] = useState<ConversionProfile["platform_id"]>(props.selectedProfile.platform_id);
+  const [newEmptyMode, setNewEmptyMode] = useState(props.targetModeId);
+  const [newEmptyInk, setNewEmptyInk] = useState(7);
+  const [newEmptyPaper, setNewEmptyPaper] = useState(0);
+  const [newEmptyBright, setNewEmptyBright] = useState(false);
+  const [newEmptyFlash, setNewEmptyFlash] = useState(false);
+  const [newEmptyColor, setNewEmptyColor] = useState(0);
   const [layoutName, setLayoutName] = useState("");
   const [renameName, setRenameName] = useState("");
   const [renamingProfile, setRenamingProfile] = useState(false);
@@ -278,6 +298,13 @@ export function WorkbenchMenuBar(props: WorkbenchMenuBarProps) {
   );
 
   const selectedProfile = props.profiles.find(({ id }) => id === props.selectedProfileId) ?? props.selectedProfile;
+  const emptyImageModeProfiles = props.profiles.filter((profile) => profile.platform_id === newEmptyPlatform);
+  const emptyImageModes = Array.from(new Set(emptyImageModeProfiles.flatMap((profile) => Object.keys(profile.palette.modes))));
+  const emptyImageMode = emptyImageModes.includes(newEmptyMode) ? newEmptyMode : emptyImageModes[0] ?? "";
+  const emptyImageProfile = emptyImageModeProfiles.find((profile) => profile.id === props.selectedProfileId && profile.palette.modes[emptyImageMode] !== undefined)
+    ?? emptyImageModeProfiles.find((profile) => profile.palette.modes[emptyImageMode] !== undefined)
+    ?? emptyImageModeProfiles[0];
+  const emptyImageColors = emptyImageProfile?.palette.modes[emptyImageMode]?.screens[0]?.colors ?? [];
   const modifierLabel = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl";
   const profileChoices = props.workspaceMode === "tilemap"
     ? props.profiles.filter((profile) => profile.platform_id === "zx-spectrum")
@@ -338,6 +365,16 @@ export function WorkbenchMenuBar(props: WorkbenchMenuBarProps) {
       {openMenu === "file" ? (
         <div id="workbench-menu-file" className="workbench-menu-popover" data-workbench-menu="file" role="region" aria-label="File" style={{ "--workbench-menu-popover-left": `${popoverLeft}px` } as CSSProperties}>
           <div className="workbench-menu-group">
+            <button type="button" onClick={() => {
+              const profile = props.profiles.find((candidate) => candidate.id === props.selectedProfileId) ?? props.selectedProfile;
+              const firstMode = Object.keys(profile.palette.modes)[0] ?? "";
+              const selectedMode = profile.palette.modes[props.targetModeId] === undefined ? firstMode : props.targetModeId;
+              setNewEmptyPlatform(profile.platform_id);
+              setNewEmptyMode(selectedMode);
+              setNewEmptyColor(profile.palette.modes[selectedMode]?.screens[0]?.colors[0]?.id ?? 0);
+              setNewEmptyOpen(true);
+              setOpenMenu(null);
+            }}><span>New</span><span className="workbench-menu-submenu-caret" aria-hidden="true">›</span></button>
             <button type="button" onClick={() => { setOpenMenu(null); imageInputRef.current?.click(); }}><span>Open Image…</span><kbd>{modifierLabel} O</kbd></button>
             <button type="button" onClick={run(props.onImportClipboard)}>Import Image from Clipboard</button>
             {props.isPmd ? <button type="button" onClick={() => { setOpenMenu(null); pmdInputRef.current?.click(); }}>Open PMD Binary…</button> : null}
@@ -366,6 +403,40 @@ export function WorkbenchMenuBar(props: WorkbenchMenuBarProps) {
           </div>
         </div>
       ) : null}
+
+      {newEmptyOpen ? <div className="workbench-new-empty-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setNewEmptyOpen(false); }}>
+        <section className="workbench-new-empty-dialog" role="dialog" aria-modal="true" aria-labelledby="workbench-new-empty-title">
+          <header><h2 id="workbench-new-empty-title">New empty image</h2><button type="button" aria-label="Close" onClick={() => setNewEmptyOpen(false)}>×</button></header>
+          <p>Create a blank native screen that can be edited and saved as a project.</p>
+          <label className="workbench-menu-select"><span>Hardware platform</span><select value={newEmptyPlatform} onChange={(event) => {
+            const platform = event.target.value as ConversionProfile["platform_id"];
+            const firstProfile = props.profiles.find((candidate) => candidate.platform_id === platform);
+            setNewEmptyPlatform(platform);
+            setNewEmptyMode(firstProfile === undefined ? "" : Object.keys(firstProfile.palette.modes)[0] ?? "");
+            setNewEmptyColor(firstProfile?.palette.modes[Object.keys(firstProfile.palette.modes)[0] ?? ""]?.screens[0]?.colors[0]?.id ?? 0);
+          }}>
+            <option value="zx-spectrum">ZX Spectrum</option><option value="sinclair-ql">Sinclair QL</option><option value="pmd-85">PMD 85</option>
+          </select></label>
+          <label className="workbench-menu-select"><span>Display / hardware mode</span><select value={emptyImageMode} onChange={(event) => {
+            setNewEmptyMode(event.target.value);
+            setNewEmptyColor(emptyImageColors[0]?.id ?? 0);
+          }}>
+            {emptyImageModes.map((mode) => <option key={mode} value={mode}>{HARDWARE_MODE_LABELS[mode] ?? mode}</option>)}
+          </select></label>
+          {newEmptyPlatform === "zx-spectrum" ? <div className="workbench-new-empty-colors">
+            <label className="workbench-menu-select"><span>INK</span><select value={newEmptyInk} onChange={(event) => setNewEmptyInk(Number(event.target.value))}>{emptyImageColors.map((color) => <option key={color.id} value={color.id}>{color.name}</option>)}</select></label>
+            <label className="workbench-menu-select"><span>PAPER</span><select value={newEmptyPaper} onChange={(event) => setNewEmptyPaper(Number(event.target.value))}>{emptyImageColors.map((color) => <option key={color.id} value={color.id}>{color.name}</option>)}</select></label>
+            <label className="workbench-new-empty-check"><input type="checkbox" checked={newEmptyBright} onChange={(event) => setNewEmptyBright(event.target.checked)} /><span>BRIGHT</span></label>
+            <label className="workbench-new-empty-check"><input type="checkbox" checked={newEmptyFlash} onChange={(event) => setNewEmptyFlash(event.target.checked)} /><span>FLASH</span></label>
+          </div> : <label className="workbench-menu-select"><span>{newEmptyPlatform === "sinclair-ql" ? "Blank screen color" : "Attribute foreground color"}</span><select value={newEmptyColor} onChange={(event) => setNewEmptyColor(Number(event.target.value))}>
+            {emptyImageColors.map((color) => <option key={color.id} value={color.id}>{color.name}</option>)}
+          </select></label>}
+          <footer><button type="button" onClick={() => setNewEmptyOpen(false)}>Cancel</button><button className="workbench-menu-primary" type="button" disabled={emptyImageMode.length === 0 || emptyImageProfile === undefined} onClick={() => {
+            props.onCreateEmptyImage({ platformId: newEmptyPlatform, modeId: emptyImageMode, ink: newEmptyInk, paper: newEmptyPaper, bright: newEmptyBright, flash: newEmptyFlash, colorIndex: newEmptyColor });
+            setNewEmptyOpen(false);
+          }}>Create</button></footer>
+        </section>
+      </div> : null}
 
       {openMenu === "convert" ? (
         <div id="workbench-menu-convert" className="workbench-menu-popover workbench-menu-wide" data-workbench-menu="convert" role="region" aria-label="Convert" style={{ "--workbench-menu-popover-left": `${popoverLeft}px` } as CSSProperties}>
@@ -436,6 +507,7 @@ export function WorkbenchMenuBar(props: WorkbenchMenuBarProps) {
           <div className="workbench-menu-group" role="group" aria-label="Windows">
             {(Object.keys(PANEL_LABELS) as ActiveWorkbenchWindowId[])
               .filter((panel) => panel !== "tilemap" || props.workspaceMode === "tilemap")
+              .filter((panel) => panel !== "paint-colors" || props.workspaceMode === "palette")
               .filter((panel) => panel !== "palette" && panel !== "dithering" || props.workspaceMode === "palette")
               .map((panel) => {
                 const visible = props.windowLayouts[panel].visible;
