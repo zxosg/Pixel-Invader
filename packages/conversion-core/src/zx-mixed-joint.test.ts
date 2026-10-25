@@ -10,6 +10,7 @@ import {
 } from "./index.js";
 import { buildTemporalCrossPalette } from "./ql-convert.js";
 import type { TemporalVirtualColor } from "./ql-convert.js";
+import { mergeTemporalFrames } from "./ql-convert.js";
 import { zxSoftwareScrBytes } from "@retro-converter/zx-spectrum";
 import { ZX_ATTRIBUTE_COLUMNS, ZX_BITMAP_BYTES, ZX_SCREEN_HEIGHT, ZX_SCREEN_WIDTH, zxBitmapOffset } from "@retro-converter/zx-spectrum";
 import { renderAttributeFrameRgba } from "./convert.js";
@@ -199,6 +200,233 @@ describe("ZX Mixed joint-cell optimizer", () => {
     const implicit = convertToZx(source, 256, 192, mixedSettings());
     const explicit = convertToZx(source, 256, 192, mixedSettings({ zxMixedAttributesOnly: false }));
     expect(explicit.frames.map(({ encoded }) => encoded)).toEqual(implicit.frames.map(({ encoded }) => encoded));
+  });
+
+  it.each([1, 2, 4, 8] as const)(
+    "refines legal shared-bitmap output deterministically at 8x%i attributes",
+    (attributeHeight) => {
+      const settings = mixedSettings({
+        attributeOptimizerId: "zx-mixed-shared-bitmap-v1",
+        zxMixedAttributesOnly: true,
+        attributeHeight,
+        dithering: "none",
+        ditheringAmount: 0,
+      });
+      const source = sourceGradient();
+      const high = convertToZx(source, 256, 192, settings, "high");
+      const repeated = convertToZx(source, 256, 192, settings, "high");
+      const draft = convertToZx(source, 256, 192, settings, "draft");
+      expect(high.frames.map(({ encoded }) => encoded)).toEqual(
+        repeated.frames.map(({ encoded }) => encoded),
+      );
+      expect(high.frames[0]!.encoded.subarray(0, ZX_BITMAP_BYTES)).toEqual(
+        high.frames[1]!.encoded.subarray(0, ZX_BITMAP_BYTES),
+      );
+      expect(high.frames[0]!.encoded).toHaveLength(zxSoftwareScrBytes(attributeHeight));
+      expect(high.sharedBitmapDiagnostics).toMatchObject({
+        acceptedPasses: expect.any(Number),
+        baselineRgbError: expect.any(Number),
+        finalRgbError: expect.any(Number),
+      });
+      expect(high.sharedBitmapDiagnostics!.acceptedPasses).toBeLessThanOrEqual(4);
+      expect(draft.sharedBitmapDiagnostics!.acceptedPasses).toBeLessThanOrEqual(1);
+      expect(high.sharedBitmapDiagnostics!.evaluatedPasses).toBeGreaterThan(
+        draft.sharedBitmapDiagnostics!.evaluatedPasses,
+      );
+      expect(high.sharedBitmapDiagnostics!.finalRgbError).toBeLessThanOrEqual(
+        high.sharedBitmapDiagnostics!.baselineRgbError * 1.005,
+      );
+      const first = decodeSoftwareFrame(high.frames[0]!.encoded, attributeHeight);
+      const second = decodeSoftwareFrame(high.frames[1]!.encoded, attributeHeight);
+      expect(mergeTemporalFrames(first, second)).toEqual(high.mergedPreviewRgba);
+      for (const frame of high.frames) {
+        const attrs = frame.encoded.subarray(ZX_BITMAP_BYTES);
+        for (const attribute of attrs) {
+          expect([0, 7]).toContain(attribute & 0x07);
+          expect([0, 7]).toContain((attribute >> 3) & 0x07);
+        }
+      }
+    },
+  );
+
+  it("refines a full-color shared-bitmap palette within the quality budget", () => {
+    const allColors = [0, 1, 2, 3, 4, 5, 6, 7];
+    const result = convertToZx(sourceGradient(), 256, 192, mixedSettings({
+      attributeOptimizerId: "zx-mixed-shared-bitmap-v1",
+      zxMixedAttributesOnly: true,
+      paletteSelections: [
+        { screenIndex: 0, enabledColorIds: allColors, brightMode: "off" },
+        { screenIndex: 1, enabledColorIds: allColors, brightMode: "off" },
+      ],
+    }), "high");
+    const diagnostics = result.sharedBitmapDiagnostics!;
+    expect(diagnostics.finalRgbError).toBeLessThan(diagnostics.baselineRgbError);
+    expect(diagnostics.finalLowPassError).toBeLessThan(diagnostics.baselineLowPassError);
+    expect(diagnostics.finalBoundaryError).toBeLessThan(diagnostics.baselineBoundaryError);
+    expect(diagnostics.finalRgbError).toBeLessThanOrEqual(diagnostics.baselineRgbError * 1.005);
+    expect(diagnostics.acceptedPasses).toBeGreaterThan(0);
+    expect(diagnostics.acceptedPasses).toBeLessThanOrEqual(4);
+  });
+
+  it.each([
+    ["zx-mixed-shared-bitmap-v2-budget-05", 0.5],
+    ["zx-mixed-shared-bitmap-v2-budget-1", 1],
+    ["zx-mixed-shared-bitmap-v2-budget-2", 2],
+    ["zx-mixed-shared-bitmap-v2-budget-5", 5],
+  ] as const)("runs seam-first shared-bitmap v2 within its %i%% RGB budget", (optimizerId, budget) => {
+    const allColors = [0, 1, 2, 3, 4, 5, 6, 7];
+    const settings = mixedSettings({
+      attributeOptimizerId: optimizerId,
+      zxMixedAttributesOnly: true,
+      attributeHeight: 8,
+      paletteSelections: [
+        { screenIndex: 0, enabledColorIds: allColors, brightMode: "off" },
+        { screenIndex: 1, enabledColorIds: allColors, brightMode: "off" },
+      ],
+      dithering: "ordered",
+      ditheringAmount: 55,
+      ditherEngineId: "ordered-strict-matrix-v6",
+    });
+    const source = sourceGradient();
+    const result = convertToZx(source, 256, 192, settings, "high");
+    const repeated = convertToZx(source, 256, 192, settings, "high");
+    const diagnostics = result.sharedBitmapDiagnostics!;
+    expect(result.frames.map(({ encoded }) => encoded)).toEqual(
+      repeated.frames.map(({ encoded }) => encoded),
+    );
+    expect(result.frames[0]!.encoded.subarray(0, ZX_BITMAP_BYTES)).toEqual(
+      result.frames[1]!.encoded.subarray(0, ZX_BITMAP_BYTES),
+    );
+    expect(diagnostics.rgbBudgetPercent).toBe(budget);
+    expect(diagnostics.finalRgbError).toBeLessThanOrEqual(
+      diagnostics.baselineRgbError * (1 + budget / 100) + 1e-6,
+    );
+    expect(diagnostics.acceptedPasses).toBeGreaterThan(0);
+    expect(diagnostics.finalBoundaryError).toBeLessThan(diagnostics.baselineBoundaryError);
+    expect(diagnostics.finalEdgeError).toBeLessThanOrEqual(diagnostics.baselineEdgeError);
+    const first = decodeSoftwareFrame(result.frames[0]!.encoded, 8);
+    const second = decodeSoftwareFrame(result.frames[1]!.encoded, 8);
+    expect(mergeTemporalFrames(first, second)).toEqual(result.mergedPreviewRgba);
+  }, 30_000);
+
+  it.each([1, 2, 4, 8] as const)("keeps seam-first shared-bitmap v2 legal at 8x%i attribute height", (attributeHeight) => {
+    const settings = mixedSettings({
+      attributeOptimizerId: "zx-mixed-shared-bitmap-v2-budget-1",
+      zxMixedAttributesOnly: true,
+      attributeHeight,
+      dithering: "none",
+      ditheringAmount: 0,
+    });
+    const result = convertToZx(sourceGradient(), 256, 192, settings, "draft");
+    expect(result.frames[0]!.encoded).toHaveLength(zxSoftwareScrBytes(attributeHeight));
+    expect(result.frames[0]!.encoded.subarray(0, ZX_BITMAP_BYTES)).toEqual(
+      result.frames[1]!.encoded.subarray(0, ZX_BITMAP_BYTES),
+    );
+    for (const frame of result.frames) {
+      for (const attribute of frame.encoded.subarray(ZX_BITMAP_BYTES)) {
+        expect([0, 7]).toContain(attribute & 0x07);
+        expect([0, 7]).toContain((attribute >> 3) & 0x07);
+      }
+    }
+  }, 20_000);
+
+  it("optimizes shared-bitmap v3 with one deterministic merged-preview objective", () => {
+    const settings = mixedSettings({
+      attributeOptimizerId: "zx-mixed-shared-bitmap-v3",
+      zxMixedAttributesOnly: true,
+      attributeHeight: 8,
+      dithering: "none",
+      ditheringAmount: 0,
+    });
+    const source = sourceGradient();
+    const high = convertToZx(source, 256, 192, settings, "high");
+    const repeated = convertToZx(source, 256, 192, settings, "high");
+    const draft = convertToZx(source, 256, 192, settings, "draft");
+    const diagnostics = high.sharedBitmapDiagnostics!;
+    expect(high.frames.map(({ encoded }) => encoded)).toEqual(
+      repeated.frames.map(({ encoded }) => encoded),
+    );
+    expect(high.frames[0]!.encoded.subarray(0, ZX_BITMAP_BYTES)).toEqual(
+      high.frames[1]!.encoded.subarray(0, ZX_BITMAP_BYTES),
+    );
+    expect(diagnostics.objectiveFinal).toBeLessThan(diagnostics.objectiveBaseline!);
+    expect(diagnostics).toMatchObject({
+      baselineColorError: expect.any(Number),
+      finalColorError: expect.any(Number),
+      baselineAttributeVisibilityError: expect.any(Number),
+      finalAttributeVisibilityError: expect.any(Number),
+      baselineBoundaryTransitionError: expect.any(Number),
+      finalBoundaryTransitionError: expect.any(Number),
+    });
+    expect(draft.sharedBitmapDiagnostics!.evaluatedPasses).toBeLessThanOrEqual(1);
+    for (const frame of high.frames) {
+      expect(frame.encoded).toHaveLength(zxSoftwareScrBytes(8));
+      for (const attribute of frame.encoded.subarray(ZX_BITMAP_BYTES)) {
+        expect([0, 7]).toContain(attribute & 0x07);
+        expect([0, 7]).toContain((attribute >> 3) & 0x07);
+      }
+    }
+    const first = decodeSoftwareFrame(high.frames[0]!.encoded, 8);
+    const second = decodeSoftwareFrame(high.frames[1]!.encoded, 8);
+    expect(mergeTemporalFrames(first, second)).toEqual(high.mergedPreviewRgba);
+  }, 30_000);
+
+  it("optimizes shared-bitmap v4 with deterministic exact-objective local moves", () => {
+    const settings = mixedSettings({
+      attributeOptimizerId: "zx-mixed-shared-bitmap-v4",
+      zxMixedAttributesOnly: true,
+      attributeHeight: 8,
+      dithering: "none",
+      ditheringAmount: 0,
+    });
+    const source = sourceGradient();
+    const result = convertToZx(source, 256, 192, settings, "draft");
+    const repeated = convertToZx(source, 256, 192, settings, "draft");
+    const high = convertToZx(source, 256, 192, settings, "high");
+    expect(result.frames.map(({ encoded }) => encoded)).toEqual(repeated.frames.map(({ encoded }) => encoded));
+    expect(result.frames[0]!.encoded.subarray(0, ZX_BITMAP_BYTES)).toEqual(
+      result.frames[1]!.encoded.subarray(0, ZX_BITMAP_BYTES),
+    );
+    const diagnostics = result.sharedBitmapDiagnostics!;
+    expect(diagnostics.objectiveFinal).toBeLessThan(diagnostics.objectiveBaseline!);
+    expect(high.sharedBitmapDiagnostics!.evaluatedPasses).toBeLessThanOrEqual(4);
+    expect(high.sharedBitmapDiagnostics!.objectiveFinal).toBeLessThanOrEqual(
+      high.sharedBitmapDiagnostics!.objectiveBaseline! + 1e-12,
+    );
+    expect(diagnostics).toMatchObject({
+      baselineCellError: expect.any(Number),
+      finalCellError: expect.any(Number),
+      candidateCount: expect.any(Number),
+      acceptedAttributeMoves: expect.any(Number),
+      acceptedBitmapMoves: expect.any(Number),
+      evaluatedPasses: 1,
+    });
+    for (const frame of result.frames) {
+      expect(frame.encoded).toHaveLength(zxSoftwareScrBytes(8));
+      for (const attribute of frame.encoded.subarray(ZX_BITMAP_BYTES)) {
+        expect([0, 7]).toContain(attribute & 0x07);
+        expect([0, 7]).toContain((attribute >> 3) & 0x07);
+      }
+    }
+    const first = decodeSoftwareFrame(result.frames[0]!.encoded, 8);
+    const second = decodeSoftwareFrame(result.frames[1]!.encoded, 8);
+    expect(mergeTemporalFrames(first, second)).toEqual(result.mergedPreviewRgba);
+  }, 60_000);
+
+  it.each([
+    { ditherEngineId: "none-discrete-v2", dithering: "none", ditheringAmount: 0 },
+    { ditherEngineId: "ordered-strict-matrix-v6", dithering: "ordered", ditheringAmount: 35 },
+    { ditherEngineId: "error-diffusion-unrestricted-v2", dithering: "error-diffusion", ditheringAmount: 35 },
+  ] as const)("keeps the selected dither effective with the shared-bitmap optimizer", (dither) => {
+    const result = convertToZx(sourceGradient(), 256, 192, mixedSettings({
+      attributeOptimizerId: "zx-mixed-shared-bitmap-v1",
+      zxMixedAttributesOnly: true,
+      ...dither,
+    }), "high");
+    expect(result.ditherEngineId).toBe(dither.ditherEngineId);
+    expect(result.frames[0]!.encoded.subarray(0, ZX_BITMAP_BYTES)).toEqual(
+      result.frames[1]!.encoded.subarray(0, ZX_BITMAP_BYTES),
+    );
   });
 
   it.each([0, 60, 100])(
@@ -437,6 +665,25 @@ describe("ZX Mixed joint-cell optimizer", () => {
     expect(quantized.previewRgba).toEqual(quantized.mergedPreviewRgba);
   });
 
+  it("ports Gigaattr's cell-local two-blended-color search with one shared bitmap", () => {
+    const source = sourceGradient(64, 48);
+    const settings = mixedSettings({
+      attributeOptimizerId: "zx-mixed-gigaattr-v1",
+      zxMixedAttributesOnly: true,
+      attributeHeight: 8,
+      ditherEngineId: "none-discrete-v2",
+      dithering: "none",
+    });
+    const first = convertToZx(source, 64, 48, settings, "draft");
+    const second = convertToZx(source, 64, 48, settings, "draft");
+    expect(first.frames.map((frame) => frame.encoded)).toEqual(second.frames.map((frame) => frame.encoded));
+    expect(first.frames[0]?.encoded.subarray(0, ZX_BITMAP_BYTES))
+      .toEqual(first.frames[1]?.encoded.subarray(0, ZX_BITMAP_BYTES));
+    expect(first.frames.map((frame) => frame.encoded.length)).toEqual([zxSoftwareScrBytes(8), zxSoftwareScrBytes(8)]);
+    expect(first.mergedPreviewRgba).toEqual(first.previewRgba);
+    expect(first.attributeOptimizerId).toBe("zx-mixed-gigaattr-v1");
+  });
+
   it("gates dual-frame diffusion at mismatched cell palettes without changing attributes", () => {
     const source = sourceGradient();
     const common = mixedSettings({
@@ -519,7 +766,10 @@ describe("ZX Mixed joint-cell optimizer", () => {
       sourceGradient(4, 4),
       4,
       4,
-      mixedSettings({ modeId: "zx48-standard-256x192" }),
+      mixedSettings({
+        modeId: "zx48-standard-256x192",
+        attributeOptimizerId: "zx-mixed-gigaattr-v1",
+      }),
       "draft",
     )).toThrow("supports only ZX Mixed mode");
   });

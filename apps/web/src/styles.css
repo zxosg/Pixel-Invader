@@ -1883,8 +1883,9 @@ h1 {
 }
 
 .pan-pad {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: repeat(3, 1.45rem);
+  grid-template-rows: repeat(3, var(--workbench-compact-control-height));
   gap: 0.12rem;
 }
 
@@ -1897,11 +1898,11 @@ h1 {
   line-height: 1;
 }
 
-.pan-left { order: 1; }
-.pan-down { order: 2; }
-.pan-up { order: 3; }
-.pan-right { order: 4; }
-.pan-center { order: 5; }
+.pan-up { grid-column: 2; grid-row: 1; }
+.pan-left { grid-column: 1; grid-row: 2; }
+.pan-center { grid-column: 2; grid-row: 2; }
+.pan-right { grid-column: 3; grid-row: 2; }
+.pan-down { grid-column: 2; grid-row: 3; }
 
 .tools-zoom-controls {
   display: flex;
@@ -1980,6 +1981,10 @@ h1 {
   font-weight: 700;
 }
 
+.fit-position-help {
+  grid-column: 1 / -1;
+}
+
 .crop-control {
   position: relative;
   grid-template-columns: minmax(8rem, 1.4fr) repeat(4, minmax(3.2rem, 1fr));
@@ -2024,15 +2029,39 @@ h1 {
 
 .mirror-toggle {
   display: inline-flex;
-  width: 2rem;
+  width: 2.35rem;
   height: var(--ui-control-height);
   align-items: center;
   justify-content: center;
   border: 1px solid #4e6483;
   border-radius: 0.3rem;
   background: #111824;
-  font-size: 0.82rem;
   line-height: 1;
+}
+
+.mirror-toggle svg {
+  width: 1.3rem;
+  height: 1.3rem;
+  overflow: visible;
+}
+
+.mirror-icon-solid {
+  fill: currentColor;
+}
+
+.mirror-icon-hatched {
+  fill: url(#mirror-horizontal-hatch);
+}
+
+.mirror-toggle-vertical .mirror-icon-hatched {
+  fill: url(#mirror-vertical-hatch);
+}
+
+.mirror-icon-axis {
+  fill: none;
+  stroke: #d6deea;
+  stroke-width: 1.25;
+  stroke-dasharray: 1.5 1.5;
 }
 
 .mirror-toggle:has(input:checked) {

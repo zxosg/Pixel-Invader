@@ -173,6 +173,56 @@ export const ATTRIBUTE_OPTIMIZERS: readonly AttributeOptimizerDescriptor[] = [
     targetModeIds: ["zx48-mixed-256x192"],
   },
   {
+    id: "zx-mixed-shared-bitmap-v1",
+    name: "ZX Mixed shared-bitmap quality v1 · experimental",
+    version: 1,
+    platforms: ["zx-spectrum"],
+    lifecycle: "experimental",
+    targetModeIds: ["zx48-mixed-256x192"],
+    effectiveParameterIds: ["attribute-optimizer", "dithering-amount"],
+  },
+  ...([
+    ["zx-mixed-shared-bitmap-v2-budget-05", "0.5%"],
+    ["zx-mixed-shared-bitmap-v2-budget-1", "1%"],
+    ["zx-mixed-shared-bitmap-v2-budget-2", "2%"],
+    ["zx-mixed-shared-bitmap-v2-budget-5", "5%"],
+  ] as const).map(([id, budget]) => ({
+    id,
+    name: `ZX Mixed shared-bitmap quality v2 · +${budget} RGB budget · experimental`,
+    version: 2,
+    platforms: ["zx-spectrum"] as const,
+    lifecycle: "experimental" as const,
+    targetModeIds: ["zx48-mixed-256x192"] as const,
+    effectiveParameterIds: ["attribute-optimizer", "dithering-amount"] as const,
+  })),
+  {
+    id: "zx-mixed-shared-bitmap-v3",
+    name: "ZX Mixed shared-bitmap perceptual objective v3 · experimental",
+    version: 3,
+    platforms: ["zx-spectrum"],
+    lifecycle: "experimental",
+    targetModeIds: ["zx48-mixed-256x192"],
+    effectiveParameterIds: ["attribute-optimizer", "dithering-amount"],
+  },
+  {
+    id: "zx-mixed-shared-bitmap-v4",
+    name: "ZX Mixed shared-bitmap perceptual search v4 · experimental",
+    version: 4,
+    platforms: ["zx-spectrum"],
+    lifecycle: "experimental",
+    targetModeIds: ["zx48-mixed-256x192"],
+    effectiveParameterIds: ["attribute-optimizer", "dithering-amount"],
+  },
+  {
+    id: "zx-mixed-gigaattr-v1",
+    name: "ZX Mixed Gigaattr cell search v1 · experimental",
+    version: 1,
+    platforms: ["zx-spectrum"],
+    lifecycle: "experimental",
+    targetModeIds: ["zx48-mixed-256x192"],
+    effectiveParameterIds: ["attribute-optimizer", "dithering-amount"],
+  },
+  {
     id: "zx-mixed-joint-quantized-v1",
     name: "ZX Mixed quantized joint-cell v1 · experimental",
     version: 1,
@@ -629,7 +679,7 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
     version: 1,
     method: "ordered",
     platforms: ["zx-spectrum", "sinclair-ql", "pmd-85"],
-    compatibleAttributeOptimizerIds: ["zx-source-cell-v1", "zx-guide-local-v1", "zx-adaptive-v1", "zx-mixed-joint-cell-v1", "zx-mixed-joint-cell-v2", "zx-mixed-joint-quantized-v1", "zx-guide-reference-halo-v1", "zx-guide-reference-halo-v2", "zx-guide-reference-rgb-halo-v3", "pmd85-cell-v1"],
+    compatibleAttributeOptimizerIds: ["zx-source-cell-v1", "zx-guide-local-v1", "zx-adaptive-v1", "zx-mixed-joint-cell-v1", "zx-mixed-joint-cell-v2", "zx-mixed-shared-bitmap-v1", "zx-mixed-shared-bitmap-v2-budget-05", "zx-mixed-shared-bitmap-v2-budget-1", "zx-mixed-shared-bitmap-v2-budget-2", "zx-mixed-shared-bitmap-v2-budget-5", "zx-mixed-shared-bitmap-v3", "zx-mixed-shared-bitmap-v4", "zx-mixed-gigaattr-v1", "zx-mixed-joint-quantized-v1", "zx-guide-reference-halo-v1", "zx-guide-reference-halo-v2", "zx-guide-reference-rgb-halo-v3", "pmd85-cell-v1"],
     lifecycle: "experimental",
     targetModeIds: [
       "zx48-standard-256x192",
@@ -654,7 +704,7 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
     version: 2,
     method: "ordered",
     platforms: ["zx-spectrum", "sinclair-ql", "pmd-85"],
-    compatibleAttributeOptimizerIds: ["zx-source-cell-v1", "zx-guide-local-v1", "zx-adaptive-v1", "zx-mixed-joint-cell-v1", "zx-mixed-joint-cell-v2", "zx-mixed-joint-quantized-v1", "zx-guide-reference-halo-v1", "zx-guide-reference-halo-v2", "zx-guide-reference-rgb-halo-v3", "pmd85-cell-v1"],
+    compatibleAttributeOptimizerIds: ["zx-source-cell-v1", "zx-guide-local-v1", "zx-adaptive-v1", "zx-mixed-joint-cell-v1", "zx-mixed-joint-cell-v2", "zx-mixed-shared-bitmap-v1", "zx-mixed-shared-bitmap-v2-budget-05", "zx-mixed-shared-bitmap-v2-budget-1", "zx-mixed-shared-bitmap-v2-budget-2", "zx-mixed-shared-bitmap-v2-budget-5", "zx-mixed-shared-bitmap-v3", "zx-mixed-shared-bitmap-v4", "zx-mixed-gigaattr-v1", "zx-mixed-joint-quantized-v1", "zx-guide-reference-halo-v1", "zx-guide-reference-halo-v2", "zx-guide-reference-rgb-halo-v3", "pmd85-cell-v1"],
     lifecycle: "experimental",
     targetModeIds: [
       "zx48-standard-256x192",
@@ -683,6 +733,14 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
       "zx-source-cell-v1", "zx-guide-local-v1", "zx-adaptive-v1",
       "zx-mixed-joint-cell-v1",
       "zx-mixed-joint-cell-v2",
+      "zx-mixed-shared-bitmap-v1",
+      "zx-mixed-shared-bitmap-v2-budget-05",
+      "zx-mixed-shared-bitmap-v2-budget-1",
+      "zx-mixed-shared-bitmap-v2-budget-2",
+      "zx-mixed-shared-bitmap-v2-budget-5",
+      "zx-mixed-shared-bitmap-v3",
+      "zx-mixed-shared-bitmap-v4",
+      "zx-mixed-gigaattr-v1",
       "zx-mixed-joint-quantized-v1",
       "zx-guide-reference-halo-v1", "zx-guide-reference-halo-v2",
       "zx-guide-reference-rgb-halo-v3",
@@ -723,7 +781,7 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
     version: 1,
     method: "error-diffusion",
     platforms: ["zx-spectrum"],
-    compatibleAttributeOptimizerIds: ["zx-mixed-joint-cell-v1", "zx-mixed-joint-cell-v2", "zx-mixed-joint-quantized-v1"],
+    compatibleAttributeOptimizerIds: ["zx-mixed-joint-cell-v1", "zx-mixed-joint-cell-v2", "zx-mixed-shared-bitmap-v1", "zx-mixed-shared-bitmap-v2-budget-05", "zx-mixed-shared-bitmap-v2-budget-1", "zx-mixed-shared-bitmap-v2-budget-2", "zx-mixed-shared-bitmap-v2-budget-5", "zx-mixed-shared-bitmap-v3", "zx-mixed-shared-bitmap-v4", "zx-mixed-gigaattr-v1", "zx-mixed-joint-quantized-v1"],
     lifecycle: "experimental",
     targetModeIds: ["zx48-mixed-256x192"],
     effectiveParameterIds: ["dithering-amount"],
@@ -734,7 +792,7 @@ export const DITHER_ENGINES: readonly DitherEngineDescriptor[] = [
     version: 1,
     method: "error-diffusion",
     platforms: ["zx-spectrum"],
-    compatibleAttributeOptimizerIds: ["zx-mixed-joint-cell-v1", "zx-mixed-joint-cell-v2", "zx-mixed-joint-quantized-v1"],
+    compatibleAttributeOptimizerIds: ["zx-mixed-joint-cell-v1", "zx-mixed-joint-cell-v2", "zx-mixed-shared-bitmap-v1", "zx-mixed-shared-bitmap-v2-budget-05", "zx-mixed-shared-bitmap-v2-budget-1", "zx-mixed-shared-bitmap-v2-budget-2", "zx-mixed-shared-bitmap-v2-budget-5", "zx-mixed-shared-bitmap-v3", "zx-mixed-shared-bitmap-v4", "zx-mixed-gigaattr-v1", "zx-mixed-joint-quantized-v1"],
     lifecycle: "experimental",
     targetModeIds: ["zx48-mixed-256x192"],
     effectiveParameterIds: ["dithering-amount"],
@@ -1031,6 +1089,9 @@ export function assertCompatibleEngines(
         !optimizer.targetModeIds.includes(targetModeId)) {
       if (attributeOptimizerId.startsWith("zx-mixed-joint-")) {
         throw new RangeError("The joint-cell optimizer supports only ZX Mixed mode.");
+      }
+      if (attributeOptimizerId === "zx-mixed-gigaattr-v1") {
+        throw new RangeError("The Gigaattr cell-search optimizer supports only ZX Mixed mode.");
       }
       throw new RangeError(`Attribute optimizer ${attributeOptimizerId} does not support hardware mode ${targetModeId}.`);
     }

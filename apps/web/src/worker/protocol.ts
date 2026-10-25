@@ -124,6 +124,37 @@ export interface ConvertImageSuccess {
   readonly score: number;
   readonly attributeHeight: 1 | 2 | 4 | 8 | null;
   readonly structuredDiagnostics?: StructuredDiagnostics;
+  readonly sharedBitmapDiagnostics?: {
+    readonly rgbBudgetPercent: number;
+    readonly baselineRgbError: number;
+    readonly finalRgbError: number;
+    readonly baselineLowPassError: number;
+    readonly finalLowPassError: number;
+    readonly baselineLowPass4Error: number;
+    readonly finalLowPass4Error: number;
+    readonly baselineBoundaryError: number;
+    readonly finalBoundaryError: number;
+    readonly baselineEdgeError: number;
+    readonly finalEdgeError: number;
+    readonly acceptedPasses: number;
+    readonly evaluatedPasses: number;
+    readonly runtimeMs: number;
+    readonly objectiveBaseline?: number;
+    readonly objectiveFinal?: number;
+    readonly baselineColorError?: number;
+    readonly finalColorError?: number;
+    readonly baselineAttributeVisibilityError?: number;
+    readonly finalAttributeVisibilityError?: number;
+    readonly baselineBoundaryTransitionError?: number;
+    readonly finalBoundaryTransitionError?: number;
+    readonly candidateCount?: number;
+    readonly acceptedAttributeMoves?: number;
+    readonly acceptedBitmapMoves?: number;
+    readonly baselineCellError?: number;
+    readonly finalCellError?: number;
+    readonly normalSeedObjective?: number;
+    readonly haloSeedObjective?: number;
+  };
   readonly verticalSpatialDiagnostics?: Omit<VerticalSpatialDiagnostics, "analyticPreviewRgba"> & {
     readonly analyticPreviewRgba: ArrayBuffer;
   };

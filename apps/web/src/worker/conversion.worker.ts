@@ -140,6 +140,9 @@ worker.addEventListener(
           ...(result.structuredDiagnostics === undefined
             ? {}
             : { structuredDiagnostics: result.structuredDiagnostics }),
+          ...(!("sharedBitmapDiagnostics" in result) || result.sharedBitmapDiagnostics === undefined
+            ? {}
+            : { sharedBitmapDiagnostics: result.sharedBitmapDiagnostics }),
           ...(result.verticalSpatialDiagnostics === undefined || analyticPreviewRgba === undefined
             ? {}
             : {

@@ -41,6 +41,14 @@ export type AttributeOptimizerId =
   | "zx-adaptive-v1"
   | "zx-mixed-joint-cell-v1"
   | "zx-mixed-joint-cell-v2"
+  | "zx-mixed-shared-bitmap-v1"
+  | "zx-mixed-shared-bitmap-v2-budget-05"
+  | "zx-mixed-shared-bitmap-v2-budget-1"
+  | "zx-mixed-shared-bitmap-v2-budget-2"
+  | "zx-mixed-shared-bitmap-v2-budget-5"
+  | "zx-mixed-shared-bitmap-v3"
+  | "zx-mixed-shared-bitmap-v4"
+  | "zx-mixed-gigaattr-v1"
   | "zx-mixed-joint-quantized-v1"
   | "zx-source-cell-v1"
   | "zx-guide-local-v1"
@@ -460,6 +468,38 @@ export interface ZxConversionResult extends BaseConversionResult {
     readonly edgeRejectedBlocks: number;
     readonly acceptedCheckerBlocks: number;
     readonly phaseReorientedBlocks?: number;
+  };
+  readonly sharedBitmapDiagnostics?: {
+    readonly rgbBudgetPercent: number;
+    readonly baselineRgbError: number;
+    readonly finalRgbError: number;
+    readonly baselineLowPassError: number;
+    readonly finalLowPassError: number;
+    readonly baselineLowPass4Error: number;
+    readonly finalLowPass4Error: number;
+    readonly baselineBoundaryError: number;
+    readonly finalBoundaryError: number;
+    readonly baselineEdgeError: number;
+    readonly finalEdgeError: number;
+    readonly acceptedPasses: number;
+    readonly evaluatedPasses: number;
+    readonly runtimeMs: number;
+    /** v3 fixed-objective diagnostics, normalized mean squared OKLab errors. */
+    readonly objectiveBaseline?: number;
+    readonly objectiveFinal?: number;
+    readonly baselineColorError?: number;
+    readonly finalColorError?: number;
+    readonly baselineAttributeVisibilityError?: number;
+    readonly finalAttributeVisibilityError?: number;
+    readonly baselineBoundaryTransitionError?: number;
+    readonly finalBoundaryTransitionError?: number;
+    readonly candidateCount?: number;
+    readonly acceptedAttributeMoves?: number;
+    readonly acceptedBitmapMoves?: number;
+    readonly baselineCellError?: number;
+    readonly finalCellError?: number;
+    readonly normalSeedObjective?: number;
+    readonly haloSeedObjective?: number;
   };
 }
 

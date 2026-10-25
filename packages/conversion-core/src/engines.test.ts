@@ -47,6 +47,40 @@ describe("versioned conversion engines", () => {
         lifecycle: "experimental",
         targetModeIds: ["zx48-mixed-256x192"],
       });
+    expect(ATTRIBUTE_OPTIMIZERS.find(({ id }) => id === "zx-mixed-shared-bitmap-v1"))
+      .toMatchObject({
+        lifecycle: "experimental",
+        targetModeIds: ["zx48-mixed-256x192"],
+      });
+    for (const id of [
+      "zx-mixed-shared-bitmap-v2-budget-05",
+      "zx-mixed-shared-bitmap-v2-budget-1",
+      "zx-mixed-shared-bitmap-v2-budget-2",
+      "zx-mixed-shared-bitmap-v2-budget-5",
+      "zx-mixed-shared-bitmap-v3",
+      "zx-mixed-shared-bitmap-v4",
+      "zx-mixed-gigaattr-v1",
+    ] as const) {
+      expect(ATTRIBUTE_OPTIMIZERS.find((engine) => engine.id === id)).toMatchObject({
+        lifecycle: "experimental",
+        targetModeIds: ["zx48-mixed-256x192"],
+      });
+      expect(isDitherEngineAvailableForSelection(
+        "zx-spectrum", "zx48-mixed-256x192", id, "ordered-strict-matrix-v6",
+      )).toBe(true);
+    }
+    expect(isDitherEngineAvailableForSelection(
+      "zx-spectrum",
+      "zx48-mixed-256x192",
+      "zx-mixed-shared-bitmap-v1",
+      "error-diffusion-unrestricted-v2",
+    )).toBe(true);
+    expect(isDitherEngineAvailableForSelection(
+      "zx-spectrum",
+      "zx48-mixed-256x192",
+      "zx-mixed-shared-bitmap-v1",
+      "zx-mixed-dual-fs-v1",
+    )).toBe(true);
     expect(isDitherEngineAvailableForSelection(
       "zx-spectrum",
       "zx48-mixed-256x192",

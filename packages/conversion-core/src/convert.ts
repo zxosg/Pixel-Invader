@@ -59,8 +59,13 @@ import {
   planCheckerOnlyPlacementV33,
   planCheckerPlacement,
 } from "./checker-placement.js";
-import { convertStructuredZx } from "./structured-zx.js";
-import { convertJointMixedCells } from "./zx-mixed-joint.js";
+import { convertStructuredZx, quantizedOklab } from "./structured-zx.js";
+import {
+  convertJointMixedCells,
+  refineSharedBitmapAttributes,
+  refineSharedBitmapAttributesSeamFirst,
+  selectGigaattrSharedBitmapAttributes,
+} from "./zx-mixed-joint.js";
 import {
   atkinsonDiffusionKernel,
   checkerPhaseDiffusionKernel,
@@ -78,6 +83,7 @@ import {
   mergeTemporalFrames,
   quantizeTemporalVirtual,
   temporalRgbaError,
+  type TemporalVirtualColor,
 } from "./ql-convert.js";
 
 const CELL_WIDTH = 8;
@@ -296,6 +302,1036 @@ function sharedMixedPixels(
     }
   }
   return pixels;
+}
+
+interface SharedBitmapQualityMetrics {
+  readonly rgbError: number;
+  readonly lowPassError: number;
+  readonly lowPass4Error: number;
+  readonly boundaryError: number;
+  readonly edgeError: number;
+}
+
+function sharedBitmapQualityMetrics(
+  source: Uint8Array,
+  mergedPreview: Uint8Array,
+  attributeHeight: AttributeHeight,
+): SharedBitmapQualityMetrics {
+  let lowPassError = 0;
+  for (let y = 0; y < ZX_SCREEN_HEIGHT; y += 2) {
+    for (let x = 0; x < ZX_SCREEN_WIDTH; x += 2) {
+      for (let channel = 0; channel < 3; channel += 1) {
+        let sourceMean = 0;
+        let outputMean = 0;
+        for (let dy = 0; dy < 2; dy += 1) {
+          for (let dx = 0; dx < 2; dx += 1) {
+            const offset = ((y + dy) * ZX_SCREEN_WIDTH + x + dx) * 4 + channel;
+            sourceMean += source[offset] ?? 0;
+            outputMean += mergedPreview[offset] ?? 0;
+          }
+        }
+        const residual = (sourceMean - outputMean) / 4;
+        lowPassError += residual * residual;
+      }
+    }
+  }
+
+  let lowPass4Error = 0;
+  for (let y = 0; y < ZX_SCREEN_HEIGHT; y += 4) {
+    for (let x = 0; x < ZX_SCREEN_WIDTH; x += 4) {
+      for (let channel = 0; channel < 3; channel += 1) {
+        let sourceMean = 0;
+        let outputMean = 0;
+        for (let dy = 0; dy < 4; dy += 1) {
+          for (let dx = 0; dx < 4; dx += 1) {
+            const offset = ((y + dy) * ZX_SCREEN_WIDTH + x + dx) * 4 + channel;
+            sourceMean += source[offset] ?? 0;
+            outputMean += mergedPreview[offset] ?? 0;
+          }
+        }
+        const residual = (sourceMean - outputMean) / 16;
+        lowPass4Error += residual * residual;
+      }
+    }
+  }
+
+  let boundaryError = 0;
+  let edgeError = 0;
+  const addEdge = (firstPixel: number, secondPixel: number, isAttributeBoundary: boolean): void => {
+    const firstOffset = firstPixel * 4;
+    const secondOffset = secondPixel * 4;
+    let sourceMagnitudeSquared = 0;
+    const residuals: number[] = [];
+    for (let channel = 0; channel < 3; channel += 1) {
+      const sourceDelta = (source[secondOffset + channel] ?? 0) - (source[firstOffset + channel] ?? 0);
+      const outputDelta = (mergedPreview[secondOffset + channel] ?? 0) - (mergedPreview[firstOffset + channel] ?? 0);
+      const residual = outputDelta - sourceDelta;
+      sourceMagnitudeSquared += sourceDelta * sourceDelta;
+      residuals.push(residual);
+    }
+    if (isAttributeBoundary) boundaryError += residuals.reduce((sum, value) => sum + value * value, 0);
+    // Give source edges more influence than smooth-area noise, so a seam
+    // reduction cannot earn credit by simply flattening a real contour.
+    const sourceMagnitude = Math.sqrt(sourceMagnitudeSquared);
+    const edgeWeight = Math.min(1, sourceMagnitude / 96);
+    edgeError += edgeWeight * residuals.reduce((sum, value) => sum + value * value, 0);
+  };
+  for (let x = 1; x < ZX_SCREEN_WIDTH; x += 1) {
+    for (let y = 0; y < ZX_SCREEN_HEIGHT; y += 1) {
+      addEdge(
+        y * ZX_SCREEN_WIDTH + x - 1,
+        y * ZX_SCREEN_WIDTH + x,
+        x % CELL_WIDTH === 0,
+      );
+    }
+  }
+  for (let y = 1; y < ZX_SCREEN_HEIGHT; y += 1) {
+    for (let x = 0; x < ZX_SCREEN_WIDTH; x += 1) {
+      addEdge(
+        (y - 1) * ZX_SCREEN_WIDTH + x,
+        y * ZX_SCREEN_WIDTH + x,
+        y % attributeHeight === 0,
+      );
+    }
+  }
+  return {
+    rgbError: temporalRgbaError(source, mergedPreview),
+    lowPassError,
+    lowPass4Error,
+    boundaryError,
+    edgeError,
+  };
+}
+
+function refineSharedBitmapBoundaryPixels(
+  source: Uint8Array,
+  pixels: Uint8Array,
+  firstAttributes: Uint8Array,
+  secondAttributes: Uint8Array,
+  settings: ConversionSettings,
+  palette: ZxPalette,
+  mergedPreview: Uint8Array,
+  rgbLimit: number,
+  reverse: boolean,
+): { readonly pixels: Uint8Array; readonly mergedPreview: Uint8Array } {
+  const refinedPixels = Uint8Array.from(pixels);
+  const refinedMerged = Uint8Array.from(mergedPreview);
+  if (settings.ditheringAmount <= 0 || settings.dithering === "none") {
+    return { pixels: refinedPixels, mergedPreview: refinedMerged };
+  }
+  const firstColors = Array.from(firstAttributes, (attribute) => decodeAttribute(attribute, palette));
+  const secondColors = Array.from(secondAttributes, (attribute) => decodeAttribute(attribute, palette));
+  const pixelCount = ZX_SCREEN_WIDTH * ZX_SCREEN_HEIGHT;
+  let rgbError = temporalRgbaError(source, refinedMerged);
+  const pairError = (first: number, second: number, replacementPixel: number, replacementColor: RgbColor) => {
+    const firstOffset = first * 4;
+    const secondOffset = second * 4;
+    const firstColor = first === replacementPixel
+      ? replacementColor
+      : { r: refinedMerged[firstOffset] ?? 0, g: refinedMerged[firstOffset + 1] ?? 0, b: refinedMerged[firstOffset + 2] ?? 0 };
+    const secondColor = second === replacementPixel
+      ? replacementColor
+      : { r: refinedMerged[secondOffset] ?? 0, g: refinedMerged[secondOffset + 1] ?? 0, b: refinedMerged[secondOffset + 2] ?? 0 };
+    let edgeError = 0;
+    let boundaryError = 0;
+    let sourceMagnitudeSquared = 0;
+    let residualSquared = 0;
+    for (let channel = 0; channel < 3; channel += 1) {
+      const sourceDelta = (source[secondOffset + channel] ?? 0) - (source[firstOffset + channel] ?? 0);
+      const firstValue = channel === 0 ? firstColor.r : channel === 1 ? firstColor.g : firstColor.b;
+      const secondValue = channel === 0 ? secondColor.r : channel === 1 ? secondColor.g : secondColor.b;
+      const residual = (secondValue - firstValue) - sourceDelta;
+      sourceMagnitudeSquared += sourceDelta * sourceDelta;
+      residualSquared += residual * residual;
+    }
+    const sourceMagnitude = Math.sqrt(sourceMagnitudeSquared);
+    edgeError = residualSquared * Math.min(1, sourceMagnitude / 96);
+    const firstX = first % ZX_SCREEN_WIDTH;
+    const secondX = second % ZX_SCREEN_WIDTH;
+    const firstY = Math.floor(first / ZX_SCREEN_WIDTH);
+    const secondY = Math.floor(second / ZX_SCREEN_WIDTH);
+    const isAttributeBoundary = firstY === secondY
+      ? Math.max(firstX, secondX) % CELL_WIDTH === 0
+      : Math.max(firstY, secondY) % settings.attributeHeight === 0;
+    if (isAttributeBoundary) boundaryError = residualSquared;
+    return { edgeError, boundaryError };
+  };
+  const colorFor = (pixel: number, bit: 0 | 1): RgbColor => {
+    const cellX = Math.floor((pixel % ZX_SCREEN_WIDTH) / CELL_WIDTH);
+    const cellY = Math.floor(Math.floor(pixel / ZX_SCREEN_WIDTH) / settings.attributeHeight);
+    const cell = cellY * ZX_ATTRIBUTE_COLUMNS + cellX;
+    const first = firstColors[cell]!;
+    const second = secondColors[cell]!;
+    const a = bit === 0 ? first.paper : first.ink;
+    const b = bit === 0 ? second.paper : second.ink;
+    return {
+      r: (a.r + b.r) >> 1,
+      g: (a.g + b.g) >> 1,
+      b: (a.b + b.b) >> 1,
+    };
+  };
+
+  for (let step = 0; step < pixelCount; step += 1) {
+    const pixel = reverse ? pixelCount - 1 - step : step;
+    const x = pixel % ZX_SCREEN_WIDTH;
+    const y = Math.floor(pixel / ZX_SCREEN_WIDTH);
+    const seamAdjacent = x % CELL_WIDTH === 0 || x % CELL_WIDTH === CELL_WIDTH - 1 ||
+      y % settings.attributeHeight === 0 || y % settings.attributeHeight === settings.attributeHeight - 1;
+    if (!seamAdjacent) continue;
+    const oldBit = refinedPixels[pixel] === 0 ? 0 : 1;
+    const newBit = (1 - oldBit) as 0 | 1;
+    const oldColor = colorFor(pixel, oldBit);
+    const newColor = colorFor(pixel, newBit);
+    const offset = pixel * 4;
+    let rgbDelta = 0;
+    for (let channel = 0; channel < 3; channel += 1) {
+      const oldValue = channel === 0 ? oldColor.r : channel === 1 ? oldColor.g : oldColor.b;
+      const newValue = channel === 0 ? newColor.r : channel === 1 ? newColor.g : newColor.b;
+      const sourceValue = source[offset + channel] ?? 0;
+      rgbDelta += (newValue - sourceValue) ** 2 - (oldValue - sourceValue) ** 2;
+    }
+    if (rgbError + rgbDelta > rgbLimit) continue;
+
+    let boundaryDelta = 0;
+    let edgeDelta = 0;
+    const compare = (neighbor: number): void => {
+      const oldScores = pairError(pixel, neighbor, pixel, oldColor);
+      const newScores = pairError(pixel, neighbor, pixel, newColor);
+      boundaryDelta += newScores.boundaryError - oldScores.boundaryError;
+      edgeDelta += newScores.edgeError - oldScores.edgeError;
+    };
+    if (x > 0) compare(pixel - 1);
+    if (x + 1 < ZX_SCREEN_WIDTH) compare(pixel + 1);
+    if (y > 0) compare(pixel - ZX_SCREEN_WIDTH);
+    if (y + 1 < ZX_SCREEN_HEIGHT) compare(pixel + ZX_SCREEN_WIDTH);
+    if (boundaryDelta >= 0 || edgeDelta > 0) continue;
+
+    refinedPixels[pixel] = newBit;
+    refinedMerged[offset] = newColor.r;
+    refinedMerged[offset + 1] = newColor.g;
+    refinedMerged[offset + 2] = newColor.b;
+    rgbError += rgbDelta;
+  }
+  return { pixels: refinedPixels, mergedPreview: refinedMerged };
+}
+
+function refineSharedBitmapQuality(
+  source: Uint8Array,
+  settings: ConversionSettings,
+  level: OptimizationLevel,
+  virtualPalette: readonly TemporalVirtualColor[],
+  initialPixels: Uint8Array,
+  initialFirstAttributes: Uint8Array,
+  initialSecondAttributes: Uint8Array,
+  palette: ZxPalette,
+  startedAt: number,
+): {
+  readonly pixels: Uint8Array;
+  readonly firstAttributes: Uint8Array;
+  readonly secondAttributes: Uint8Array;
+  readonly firstPreview: Uint8Array;
+  readonly secondPreview: Uint8Array;
+  readonly mergedPreview: Uint8Array;
+  readonly diagnostics: NonNullable<ZxConversionResult["sharedBitmapDiagnostics"]>;
+} {
+  const firstAttributes = Uint8Array.from(initialFirstAttributes);
+  const secondAttributes = Uint8Array.from(initialSecondAttributes);
+  const makePreviews = (pixels: Uint8Array) => ({
+    first: renderAttributeFrameRgba(pixels, firstAttributes, settings.attributeHeight, palette),
+    second: renderAttributeFrameRgba(pixels, secondAttributes, settings.attributeHeight, palette),
+  });
+  let pixels: Uint8Array = Uint8Array.from(initialPixels);
+  let previews = makePreviews(pixels);
+  let mergedPreview = mergeTemporalFrames(previews.first, previews.second);
+  const baseline = sharedBitmapQualityMetrics(
+    source, mergedPreview, settings.attributeHeight,
+  );
+  let current = baseline;
+  let acceptedPasses = 0;
+  let evaluatedPasses = 0;
+  const maxPasses = level === "draft" ? 1 : 4;
+
+  for (let pass = 0; pass < maxPasses; pass += 1) {
+    evaluatedPasses += 1;
+    const proposalFirst = Uint8Array.from(firstAttributes);
+    const proposalSecond = Uint8Array.from(secondAttributes);
+    const refined = refineSharedBitmapAttributes(
+      source,
+      pixels,
+      mergedPreview,
+      proposalFirst,
+      proposalSecond,
+      settings,
+      virtualPalette,
+      pass % 2 === 1,
+      level === "high"
+        ? Math.max(0, baseline.rgbError * 1.005 - current.rgbError) /
+          (ZX_SCREEN_HEIGHT / settings.attributeHeight * ZX_ATTRIBUTE_COLUMNS)
+        : 0,
+      level === "high",
+    );
+    if (settings.screenFlickerSuppression && paletteSelectionsMatch(
+      paletteSelection(settings, 0), paletteSelection(settings, 1),
+    )) {
+      suppressMixedAttributeFlicker(refined.firstAttributes, refined.secondAttributes, settings.attributeHeight);
+    }
+    const proposalPixels = sharedMixedPixels(
+      source,
+      refined.firstAttributes,
+      refined.secondAttributes,
+      settings,
+      palette,
+    );
+    const proposalFirstPreview = renderAttributeFrameRgba(
+      proposalPixels, refined.firstAttributes, settings.attributeHeight, palette,
+    );
+    const proposalSecondPreview = renderAttributeFrameRgba(
+      proposalPixels, refined.secondAttributes, settings.attributeHeight, palette,
+    );
+    const proposalMerged = mergeTemporalFrames(proposalFirstPreview, proposalSecondPreview);
+    const proposal = sharedBitmapQualityMetrics(
+      source, proposalMerged, settings.attributeHeight,
+    );
+    const rgbImproved = proposal.rgbError < current.rgbError;
+    const withinRgbBudget = proposal.rgbError <= baseline.rgbError * 1.005;
+    const secondaryScore = (metrics: SharedBitmapQualityMetrics): number =>
+      metrics.lowPassError / Math.max(1, baseline.lowPassError) +
+      metrics.boundaryError / Math.max(1, baseline.boundaryError);
+    const secondaryImproved = secondaryScore(proposal) < secondaryScore(current);
+    if (!rgbImproved && !(withinRgbBudget && secondaryImproved)) break;
+    if (
+      proposal.rgbError === current.rgbError &&
+      proposal.lowPassError === current.lowPassError &&
+      proposal.boundaryError === current.boundaryError
+    ) break;
+
+    firstAttributes.set(refined.firstAttributes);
+    secondAttributes.set(refined.secondAttributes);
+    pixels = proposalPixels;
+    previews = { first: proposalFirstPreview, second: proposalSecondPreview };
+    mergedPreview = proposalMerged;
+    current = proposal;
+    acceptedPasses += 1;
+  }
+
+  return {
+    pixels,
+    firstAttributes,
+    secondAttributes,
+    firstPreview: previews.first,
+    secondPreview: previews.second,
+    mergedPreview,
+    diagnostics: {
+      rgbBudgetPercent: 0.5,
+      baselineRgbError: baseline.rgbError,
+      finalRgbError: current.rgbError,
+      baselineLowPassError: baseline.lowPassError,
+      finalLowPassError: current.lowPassError,
+      baselineLowPass4Error: baseline.lowPass4Error,
+      finalLowPass4Error: current.lowPass4Error,
+      baselineBoundaryError: baseline.boundaryError,
+      finalBoundaryError: current.boundaryError,
+      baselineEdgeError: baseline.edgeError,
+      finalEdgeError: current.edgeError,
+      acceptedPasses,
+      evaluatedPasses,
+      runtimeMs: Date.now() - startedAt,
+    },
+  };
+}
+
+function sharedBitmapV2BudgetPercent(id: ConversionSettings["attributeOptimizerId"]): number {
+  switch (id) {
+    case "zx-mixed-shared-bitmap-v2-budget-05": return 0.5;
+    case "zx-mixed-shared-bitmap-v2-budget-1": return 1;
+    case "zx-mixed-shared-bitmap-v2-budget-2": return 2;
+    case "zx-mixed-shared-bitmap-v2-budget-5": return 5;
+    default: return 0;
+  }
+}
+
+/**
+ * V2 intentionally optimizes the merged preview for seam visibility first.
+ * It is separate from v1 so historical v1 projects retain their exact output.
+ */
+function refineSharedBitmapQualityV2(
+  source: Uint8Array,
+  settings: ConversionSettings,
+  level: OptimizationLevel,
+  virtualPalette: readonly TemporalVirtualColor[],
+  initialPixels: Uint8Array,
+  initialFirstAttributes: Uint8Array,
+  initialSecondAttributes: Uint8Array,
+  palette: ZxPalette,
+  startedAt: number,
+): {
+  readonly pixels: Uint8Array;
+  readonly firstAttributes: Uint8Array;
+  readonly secondAttributes: Uint8Array;
+  readonly firstPreview: Uint8Array;
+  readonly secondPreview: Uint8Array;
+  readonly mergedPreview: Uint8Array;
+  readonly diagnostics: NonNullable<ZxConversionResult["sharedBitmapDiagnostics"]>;
+} {
+  const budgetPercent = sharedBitmapV2BudgetPercent(settings.attributeOptimizerId);
+  const rgbBudgetScale = 1 + budgetPercent / 100;
+  const maxRgbFromBaseline = (error: number): number => error * rgbBudgetScale;
+  const makeOutput = (
+    pixels: Uint8Array,
+    firstAttributes: Uint8Array,
+    secondAttributes: Uint8Array,
+  ) => {
+    const firstPreview = renderAttributeFrameRgba(pixels, firstAttributes, settings.attributeHeight, palette);
+    const secondPreview = renderAttributeFrameRgba(pixels, secondAttributes, settings.attributeHeight, palette);
+    const mergedPreview = mergeTemporalFrames(firstPreview, secondPreview);
+    return { pixels, firstAttributes, secondAttributes, firstPreview, secondPreview, mergedPreview };
+  };
+  let output = makeOutput(
+    Uint8Array.from(initialPixels),
+    Uint8Array.from(initialFirstAttributes),
+    Uint8Array.from(initialSecondAttributes),
+  );
+  const baseline = sharedBitmapQualityMetrics(source, output.mergedPreview, settings.attributeHeight);
+  let current = baseline;
+  let acceptedPasses = 0;
+  let evaluatedPasses = 0;
+  const maxPasses = level === "draft" ? 1 : 4;
+  const cellCount = ZX_ATTRIBUTE_COLUMNS * (ZX_SCREEN_HEIGHT / settings.attributeHeight);
+
+  for (let pass = 0; pass < maxPasses; pass += 1) {
+    evaluatedPasses += 1;
+    const passRgbLimit = maxRgbFromBaseline(baseline.rgbError);
+    const remainingRgbBudget = Math.max(0, passRgbLimit - current.rgbError);
+    const refined = refineSharedBitmapAttributesSeamFirst(
+      source,
+      output.pixels,
+      output.mergedPreview,
+      output.firstAttributes,
+      output.secondAttributes,
+      settings,
+      virtualPalette,
+      pass % 2 === 1,
+      remainingRgbBudget / Math.max(1, cellCount),
+    );
+    let nextFirstAttributes = refined.firstAttributes;
+    let nextSecondAttributes = refined.secondAttributes;
+    if (settings.screenFlickerSuppression && paletteSelectionsMatch(
+      paletteSelection(settings, 0), paletteSelection(settings, 1),
+    )) {
+      nextFirstAttributes = Uint8Array.from(nextFirstAttributes);
+      nextSecondAttributes = Uint8Array.from(nextSecondAttributes);
+      suppressMixedAttributeFlicker(nextFirstAttributes, nextSecondAttributes, settings.attributeHeight);
+    }
+    let nextPixels = sharedMixedPixels(
+      source,
+      nextFirstAttributes,
+      nextSecondAttributes,
+      settings,
+      palette,
+    );
+    let proposalOutput = makeOutput(nextPixels, nextFirstAttributes, nextSecondAttributes);
+    const pixelRefinement = refineSharedBitmapBoundaryPixels(
+      source,
+      nextPixels,
+      nextFirstAttributes,
+      nextSecondAttributes,
+      settings,
+      palette,
+      proposalOutput.mergedPreview,
+      passRgbLimit,
+      pass % 2 === 1,
+    );
+    nextPixels = pixelRefinement.pixels;
+    proposalOutput = makeOutput(nextPixels, nextFirstAttributes, nextSecondAttributes);
+    const proposal = sharedBitmapQualityMetrics(source, proposalOutput.mergedPreview, settings.attributeHeight);
+
+    // Seam reduction is the primary objective. Do not buy it by flattening
+    // genuine source contours, and keep the exact merged RGB error within the
+    // explicitly selected experiment budget.
+    const withinRgbBudget = proposal.rgbError <= passRgbLimit;
+    const seamsImproved = proposal.boundaryError < current.boundaryError;
+    const sourceEdgesPreserved = proposal.edgeError <= current.edgeError;
+    const perceptualTieImproved = proposal.boundaryError === current.boundaryError &&
+      proposal.lowPass4Error < current.lowPass4Error && sourceEdgesPreserved;
+    if (!withinRgbBudget || !(seamsImproved || perceptualTieImproved) || !sourceEdgesPreserved) break;
+
+    output = proposalOutput;
+    current = proposal;
+    acceptedPasses += 1;
+  }
+
+  return {
+    ...output,
+    diagnostics: {
+      rgbBudgetPercent: budgetPercent,
+      baselineRgbError: baseline.rgbError,
+      finalRgbError: current.rgbError,
+      baselineLowPassError: baseline.lowPassError,
+      finalLowPassError: current.lowPassError,
+      baselineLowPass4Error: baseline.lowPass4Error,
+      finalLowPass4Error: current.lowPass4Error,
+      baselineBoundaryError: baseline.boundaryError,
+      finalBoundaryError: current.boundaryError,
+      baselineEdgeError: baseline.edgeError,
+      finalEdgeError: current.edgeError,
+      acceptedPasses,
+      evaluatedPasses,
+      runtimeMs: Date.now() - startedAt,
+    },
+  };
+}
+
+interface SharedBitmapObjectiveMetrics {
+  readonly objective: number;
+  readonly color: number;
+  readonly attributeVisibility: number;
+  readonly boundaryTransition: number;
+}
+
+/**
+ * Fixed v3 objective on the actual decoded 50/50 preview. Each component is
+ * mean squared quantized-OKLab distance, normalized to [roughly] 0..1.
+ * Attribute visibility measures source-relative within-cell texture changes;
+ * boundary error measures source-relative gradients exactly at cell borders.
+ */
+function sharedBitmapObjectiveV3(
+  sourceLab: readonly { l: number; a: number; b: number }[],
+  sourceCellMeans: readonly { l: number; a: number; b: number }[],
+  mergedPreview: Uint8Array,
+  attributeHeight: AttributeHeight,
+): SharedBitmapObjectiveMetrics {
+  const width = ZX_SCREEN_WIDTH;
+  const height = ZX_SCREEN_HEIGHT;
+  const rows = height / attributeHeight;
+  const labs = new Array<{ l: number; a: number; b: number }>(width * height);
+  const outputSums = Array.from({ length: rows * ZX_ATTRIBUTE_COLUMNS }, () => ({ l: 0, a: 0, b: 0 }));
+  const cellFor = (x: number, y: number): number =>
+    Math.floor(y / attributeHeight) * ZX_ATTRIBUTE_COLUMNS + Math.floor(x / CELL_WIDTH);
+  for (let pixel = 0; pixel < width * height; pixel += 1) {
+    const offset = pixel * 4;
+    const lab = quantizedOklab(
+      mergedPreview[offset] ?? 0,
+      mergedPreview[offset + 1] ?? 0,
+      mergedPreview[offset + 2] ?? 0,
+    );
+    labs[pixel] = lab;
+    const cell = cellFor(pixel % width, Math.floor(pixel / width));
+    const sum = outputSums[cell]!;
+    sum.l += lab.l;
+    sum.a += lab.a;
+    sum.b += lab.b;
+  }
+  const pixelsPerCell = CELL_WIDTH * attributeHeight;
+  const outputMeans = outputSums.map((sum) => ({
+    l: sum.l / pixelsPerCell,
+    a: sum.a / pixelsPerCell,
+    b: sum.b / pixelsPerCell,
+  }));
+  let colorError = 0;
+  let attributeVisibilityError = 0;
+  for (let pixel = 0; pixel < labs.length; pixel += 1) {
+    const output = labs[pixel]!;
+    const original = sourceLab[pixel]!;
+    const cell = cellFor(pixel % width, Math.floor(pixel / width));
+    const outMean = outputMeans[cell]!;
+    const srcMean = sourceCellMeans[cell]!;
+    const dl = output.l - original.l;
+    const da = output.a - original.a;
+    const db = output.b - original.b;
+    colorError += dl * dl + da * da + db * db;
+    const textureL = (output.l - outMean.l) - (original.l - srcMean.l);
+    const textureA = (output.a - outMean.a) - (original.a - srcMean.a);
+    const textureB = (output.b - outMean.b) - (original.b - srcMean.b);
+    attributeVisibilityError += textureL * textureL + textureA * textureA + textureB * textureB;
+  }
+  let boundaryTransitionError = 0;
+  let boundaryCount = 0;
+  const addBoundary = (first: number, second: number): void => {
+    const outA = labs[first]!;
+    const outB = labs[second]!;
+    const srcA = sourceLab[first]!;
+    const srcB = sourceLab[second]!;
+    const dl = (outB.l - outA.l) - (srcB.l - srcA.l);
+    const da = (outB.a - outA.a) - (srcB.a - srcA.a);
+    const db = (outB.b - outA.b) - (srcB.b - srcA.b);
+    boundaryTransitionError += dl * dl + da * da + db * db;
+    boundaryCount += 1;
+  };
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 1; x < width; x += 1) {
+      if (x % CELL_WIDTH === 0) addBoundary(y * width + x - 1, y * width + x);
+    }
+  }
+  for (let y = 1; y < height; y += 1) {
+    if (y % attributeHeight !== 0) continue;
+    for (let x = 0; x < width; x += 1) addBoundary((y - 1) * width + x, y * width + x);
+  }
+  const scale = 4096 * 4096;
+  const color = colorError / Math.max(1, labs.length) / scale;
+  const attributeVisibility = attributeVisibilityError / Math.max(1, labs.length) / scale;
+  const boundaryTransition = boundaryTransitionError / Math.max(1, boundaryCount) / scale;
+  return {
+    objective: color + 2 * attributeVisibility + 2 * boundaryTransition,
+    color,
+    attributeVisibility,
+    boundaryTransition,
+  };
+}
+
+function refineSharedBitmapQualityV3(
+  source: Uint8Array,
+  settings: ConversionSettings,
+  level: OptimizationLevel,
+  virtualPalette: readonly TemporalVirtualColor[],
+  initialPixels: Uint8Array,
+  initialFirstAttributes: Uint8Array,
+  initialSecondAttributes: Uint8Array,
+  palette: ZxPalette,
+  startedAt: number,
+): {
+  readonly pixels: Uint8Array;
+  readonly firstAttributes: Uint8Array;
+  readonly secondAttributes: Uint8Array;
+  readonly firstPreview: Uint8Array;
+  readonly secondPreview: Uint8Array;
+  readonly mergedPreview: Uint8Array;
+  readonly diagnostics: NonNullable<ZxConversionResult["sharedBitmapDiagnostics"]>;
+} {
+  const cellHeight = settings.attributeHeight;
+  const sourceLab = Array.from({ length: ZX_SCREEN_WIDTH * ZX_SCREEN_HEIGHT }, (_, pixel) => {
+    const offset = pixel * 4;
+    return quantizedOklab(source[offset] ?? 0, source[offset + 1] ?? 0, source[offset + 2] ?? 0);
+  });
+  const cellRows = ZX_SCREEN_HEIGHT / cellHeight;
+  const cellSums = Array.from({ length: cellRows * ZX_ATTRIBUTE_COLUMNS }, () => ({ l: 0, a: 0, b: 0 }));
+  for (let pixel = 0; pixel < sourceLab.length; pixel += 1) {
+    const x = pixel % ZX_SCREEN_WIDTH;
+    const y = Math.floor(pixel / ZX_SCREEN_WIDTH);
+    const cell = Math.floor(y / cellHeight) * ZX_ATTRIBUTE_COLUMNS + Math.floor(x / CELL_WIDTH);
+    const lab = sourceLab[pixel]!;
+    cellSums[cell]!.l += lab.l;
+    cellSums[cell]!.a += lab.a;
+    cellSums[cell]!.b += lab.b;
+  }
+  const pixelsPerCell = CELL_WIDTH * cellHeight;
+  const sourceCellMeans = cellSums.map((sum) => ({
+    l: sum.l / pixelsPerCell,
+    a: sum.a / pixelsPerCell,
+    b: sum.b / pixelsPerCell,
+  }));
+  const makeOutput = (pixels: Uint8Array, firstAttributes: Uint8Array, secondAttributes: Uint8Array) => {
+    const firstPreview = renderAttributeFrameRgba(pixels, firstAttributes, cellHeight, palette);
+    const secondPreview = renderAttributeFrameRgba(pixels, secondAttributes, cellHeight, palette);
+    const mergedPreview = mergeTemporalFrames(firstPreview, secondPreview);
+    return { pixels, firstAttributes, secondAttributes, firstPreview, secondPreview, mergedPreview };
+  };
+  let output = makeOutput(
+    Uint8Array.from(initialPixels),
+    Uint8Array.from(initialFirstAttributes),
+    Uint8Array.from(initialSecondAttributes),
+  );
+  const baseline = sharedBitmapObjectiveV3(sourceLab, sourceCellMeans, output.mergedPreview, cellHeight);
+  let current = baseline;
+  let acceptedPasses = 0;
+  let evaluatedPasses = 0;
+  const maxPasses = level === "draft" ? 1 : 4;
+  const cellCount = Math.max(1, cellRows * ZX_ATTRIBUTE_COLUMNS);
+
+  for (let pass = 0; pass < maxPasses; pass += 1) {
+    evaluatedPasses += 1;
+    let improvedThisPass = false;
+    // Existing deterministic search routines propose legal candidates. Their
+    // old RGB/seam acceptance decisions are not used: v3 scores the whole
+    // decoded merged preview with its single fixed objective.
+    const attrProposal = refineSharedBitmapAttributesSeamFirst(
+      source,
+      output.pixels,
+      output.mergedPreview,
+      output.firstAttributes,
+      output.secondAttributes,
+      settings,
+      virtualPalette,
+      pass % 2 === 1,
+      temporalRgbaError(source, output.mergedPreview) * 0.02 / cellCount,
+    );
+    let proposedFirst = attrProposal.firstAttributes;
+    let proposedSecond = attrProposal.secondAttributes;
+    if (settings.screenFlickerSuppression && paletteSelectionsMatch(
+      paletteSelection(settings, 0), paletteSelection(settings, 1),
+    )) {
+      proposedFirst = Uint8Array.from(proposedFirst);
+      proposedSecond = Uint8Array.from(proposedSecond);
+      suppressMixedAttributeFlicker(proposedFirst, proposedSecond, cellHeight);
+    }
+    const proposedPixels = sharedMixedPixels(source, proposedFirst, proposedSecond, settings, palette);
+    const attrOutput = makeOutput(proposedPixels, proposedFirst, proposedSecond);
+    const attrScore = sharedBitmapObjectiveV3(sourceLab, sourceCellMeans, attrOutput.mergedPreview, cellHeight);
+    if (attrScore.objective < current.objective) {
+      output = attrOutput;
+      current = attrScore;
+      improvedThisPass = true;
+    }
+
+    const pixelProposal = refineSharedBitmapBoundaryPixels(
+      source,
+      output.pixels,
+      output.firstAttributes,
+      output.secondAttributes,
+      settings,
+      palette,
+      output.mergedPreview,
+      Number.POSITIVE_INFINITY,
+      pass % 2 === 1,
+    );
+    const pixelOutput = makeOutput(pixelProposal.pixels, output.firstAttributes, output.secondAttributes);
+    const pixelScore = sharedBitmapObjectiveV3(sourceLab, sourceCellMeans, pixelOutput.mergedPreview, cellHeight);
+    if (pixelScore.objective < current.objective) {
+      output = pixelOutput;
+      current = pixelScore;
+      improvedThisPass = true;
+    }
+    if (improvedThisPass) acceptedPasses += 1;
+    else break;
+  }
+
+  const legacyMetrics = sharedBitmapQualityMetrics(source, output.mergedPreview, cellHeight);
+  const baselineLegacy = sharedBitmapQualityMetrics(
+    source,
+    makeOutput(initialPixels, initialFirstAttributes, initialSecondAttributes).mergedPreview,
+    cellHeight,
+  );
+  return {
+    ...output,
+    diagnostics: {
+      rgbBudgetPercent: 0,
+      baselineRgbError: baselineLegacy.rgbError,
+      finalRgbError: legacyMetrics.rgbError,
+      baselineLowPassError: baselineLegacy.lowPassError,
+      finalLowPassError: legacyMetrics.lowPassError,
+      baselineLowPass4Error: baselineLegacy.lowPass4Error,
+      finalLowPass4Error: legacyMetrics.lowPass4Error,
+      baselineBoundaryError: baselineLegacy.boundaryError,
+      finalBoundaryError: legacyMetrics.boundaryError,
+      baselineEdgeError: baselineLegacy.edgeError,
+      finalEdgeError: legacyMetrics.edgeError,
+      objectiveBaseline: baseline.objective,
+      objectiveFinal: current.objective,
+      baselineColorError: baseline.color,
+      finalColorError: current.color,
+      baselineAttributeVisibilityError: baseline.attributeVisibility,
+      finalAttributeVisibilityError: current.attributeVisibility,
+      baselineBoundaryTransitionError: baseline.boundaryTransition,
+      finalBoundaryTransitionError: current.boundaryTransition,
+      acceptedPasses,
+      evaluatedPasses,
+      runtimeMs: Date.now() - startedAt,
+    },
+  };
+}
+
+interface SharedBitmapObjectiveV4Metrics {
+  readonly objective: number;
+  readonly color: number;
+  readonly cell: number;
+  readonly boundary: number;
+}
+
+/** Fixed merged-preview objective used only by v4: pixel fidelity, cell tone,
+ * and source-relative transitions at native attribute boundaries. */
+function sharedBitmapObjectiveV4(
+  sourceLab: readonly { l: number; a: number; b: number }[],
+  outputLab: readonly { l: number; a: number; b: number }[],
+  attributeHeight: AttributeHeight,
+): SharedBitmapObjectiveV4Metrics {
+  const width = ZX_SCREEN_WIDTH;
+  const height = ZX_SCREEN_HEIGHT;
+  const cellRows = height / attributeHeight;
+  const cellCount = cellRows * ZX_ATTRIBUTE_COLUMNS;
+  const pixelCount = width * height;
+  const pixelsPerCell = CELL_WIDTH * attributeHeight;
+  const sourceSums = Array.from({ length: cellCount }, () => ({ l: 0, a: 0, b: 0 }));
+  const outputSums = Array.from({ length: cellCount }, () => ({ l: 0, a: 0, b: 0 }));
+  let colorSum = 0;
+  for (let pixel = 0; pixel < pixelCount; pixel += 1) {
+    const cell = Math.floor(Math.floor(pixel / width) / attributeHeight) * ZX_ATTRIBUTE_COLUMNS +
+      Math.floor((pixel % width) / CELL_WIDTH);
+    const source = sourceLab[pixel]!;
+    const output = outputLab[pixel]!;
+    sourceSums[cell]!.l += source.l;
+    sourceSums[cell]!.a += source.a;
+    sourceSums[cell]!.b += source.b;
+    outputSums[cell]!.l += output.l;
+    outputSums[cell]!.a += output.a;
+    outputSums[cell]!.b += output.b;
+    colorSum += (output.l - source.l) ** 2 + (output.a - source.a) ** 2 + (output.b - source.b) ** 2;
+  }
+  let cellSum = 0;
+  for (let cell = 0; cell < cellCount; cell += 1) {
+    const src = sourceSums[cell]!;
+    const out = outputSums[cell]!;
+    const dl = (out.l - src.l) / pixelsPerCell;
+    const da = (out.a - src.a) / pixelsPerCell;
+    const db = (out.b - src.b) / pixelsPerCell;
+    cellSum += dl * dl + da * da + db * db;
+  }
+  let boundarySum = 0;
+  let boundaryCount = 0;
+  const addBoundary = (first: number, second: number): void => {
+    const sa = sourceLab[first]!;
+    const sb = sourceLab[second]!;
+    const oa = outputLab[first]!;
+    const ob = outputLab[second]!;
+    const dl = (ob.l - oa.l) - (sb.l - sa.l);
+    const da = (ob.a - oa.a) - (sb.a - sa.a);
+    const db = (ob.b - oa.b) - (sb.b - sa.b);
+    boundarySum += dl * dl + da * da + db * db;
+    boundaryCount += 1;
+  };
+  for (let y = 0; y < height; y += 1) {
+    for (let x = CELL_WIDTH; x < width; x += CELL_WIDTH) {
+      addBoundary(y * width + x - 1, y * width + x);
+    }
+  }
+  for (let y = attributeHeight; y < height; y += attributeHeight) {
+    for (let x = 0; x < width; x += 1) addBoundary((y - 1) * width + x, y * width + x);
+  }
+  const scale = 4096 * 4096;
+  const color = colorSum / pixelCount / scale;
+  const cell = cellSum / Math.max(1, cellCount) / scale;
+  const boundary = boundarySum / Math.max(1, boundaryCount) / scale;
+  return { objective: color + 2 * cell + 2 * boundary, color, cell, boundary };
+}
+
+function refineSharedBitmapQualityV4(
+  source: Uint8Array,
+  settings: ConversionSettings,
+  level: OptimizationLevel,
+  initialPixels: Uint8Array,
+  initialFirstAttributes: Uint8Array,
+  initialSecondAttributes: Uint8Array,
+  palette: ZxPalette,
+  startedAt: number,
+): {
+  readonly pixels: Uint8Array;
+  readonly firstAttributes: Uint8Array;
+  readonly secondAttributes: Uint8Array;
+  readonly firstPreview: Uint8Array;
+  readonly secondPreview: Uint8Array;
+  readonly mergedPreview: Uint8Array;
+  readonly diagnostics: NonNullable<ZxConversionResult["sharedBitmapDiagnostics"]>;
+} {
+  const cellHeight = settings.attributeHeight;
+  const width = ZX_SCREEN_WIDTH;
+  const height = ZX_SCREEN_HEIGHT;
+  const pixelCount = width * height;
+  const cellRows = height / cellHeight;
+  const cellCount = cellRows * ZX_ATTRIBUTE_COLUMNS;
+  const pixelsPerCell = CELL_WIDTH * cellHeight;
+  const boundaryCount = (width / CELL_WIDTH - 1) * height + (cellRows - 1) * width;
+  const sourceLab = Array.from({ length: pixelCount }, (_, pixel) => {
+    const offset = pixel * 4;
+    return quantizedOklab(source[offset] ?? 0, source[offset + 1] ?? 0, source[offset + 2] ?? 0);
+  });
+
+  const outputFor = (pixels: Uint8Array, first: Uint8Array, second: Uint8Array) => {
+    const firstPreview = renderAttributeFrameRgba(pixels, first, cellHeight, palette);
+    const secondPreview = renderAttributeFrameRgba(pixels, second, cellHeight, palette);
+    const mergedPreview = mergeTemporalFrames(firstPreview, secondPreview);
+    const outputLab = Array.from({ length: pixelCount }, (_, pixel) => {
+      const offset = pixel * 4;
+      return quantizedOklab(mergedPreview[offset] ?? 0, mergedPreview[offset + 1] ?? 0, mergedPreview[offset + 2] ?? 0);
+    });
+    return { pixels, first, second, firstPreview, secondPreview, mergedPreview, outputLab };
+  };
+
+  // Compare the normal joint-cell initializer with the Reference Halo guide
+  // seed. Both are evaluated using the same merged output and objective.
+  let output = outputFor(
+    Uint8Array.from(initialPixels),
+    Uint8Array.from(initialFirstAttributes),
+    Uint8Array.from(initialSecondAttributes),
+  );
+  let baseline = sharedBitmapObjectiveV4(sourceLab, output.outputLab, cellHeight);
+  const normalSeedObjective = baseline.objective;
+  const draftBright = calculateDraftBrightCells(source, cellHeight);
+  const haloAttributes = [0, 1].map((screen) => {
+    const perScreenSettings: ConversionSettings = {
+      ...settings,
+      paletteSelections: [{ ...paletteSelection(settings, screen), screenIndex: 0 }],
+    };
+    const enabled = new Set(paletteSelection(settings, screen).enabledColorIds);
+    return selectReferenceAttributesFromGuide(
+      source,
+      nearestGuideKeys(source, perScreenSettings),
+      cellHeight,
+      perScreenSettings,
+      level,
+      enabled,
+      draftBright,
+    );
+  });
+  const haloPixels = sharedMixedPixels(source, haloAttributes[0]!, haloAttributes[1]!, settings, palette);
+  const haloOutput = outputFor(haloPixels, haloAttributes[0]!, haloAttributes[1]!);
+  const haloScore = sharedBitmapObjectiveV4(sourceLab, haloOutput.outputLab, cellHeight);
+  const haloSeedObjective = haloScore.objective;
+  if (haloScore.objective < baseline.objective) {
+    output = haloOutput;
+    baseline = haloScore;
+  }
+  const seedObjective = baseline.objective;
+  const selectedSeedLegacy = sharedBitmapQualityMetrics(source, output.mergedPreview, cellHeight);
+  const sourceSums = Array.from({ length: cellCount }, () => ({ l: 0, a: 0, b: 0 }));
+  const outputSums = Array.from({ length: cellCount }, () => ({ l: 0, a: 0, b: 0 }));
+  for (let pixel = 0; pixel < pixelCount; pixel += 1) {
+    const cell = Math.floor(Math.floor(pixel / width) / cellHeight) * ZX_ATTRIBUTE_COLUMNS + Math.floor((pixel % width) / CELL_WIDTH);
+    const src = sourceLab[pixel]!;
+    const out = output.outputLab[pixel]!;
+    sourceSums[cell]!.l += src.l; sourceSums[cell]!.a += src.a; sourceSums[cell]!.b += src.b;
+    outputSums[cell]!.l += out.l; outputSums[cell]!.a += out.a; outputSums[cell]!.b += out.b;
+  }
+  const edgeScore = (first: number, second: number, labA = output.outputLab[first]!, labB = output.outputLab[second]!): number => {
+    const sa = sourceLab[first]!; const sb = sourceLab[second]!;
+    return ((labB.l - labA.l) - (sb.l - sa.l)) ** 2 + ((labB.a - labA.a) - (sb.a - sa.a)) ** 2 + ((labB.b - labA.b) - (sb.b - sa.b)) ** 2;
+  };
+  const boundaryEdgesFor = (pixel: number): number[][] => {
+    const x = pixel % width; const y = Math.floor(pixel / width); const edges: number[][] = [];
+    if (x > 0 && x % CELL_WIDTH === 0) edges.push([pixel - 1, pixel]);
+    if (x + 1 < width && (x + 1) % CELL_WIDTH === 0) edges.push([pixel, pixel + 1]);
+    if (y > 0 && y % cellHeight === 0) edges.push([pixel - width, pixel]);
+    if (y + 1 < height && (y + 1) % cellHeight === 0) edges.push([pixel, pixel + width]);
+    return edges;
+  };
+  const evaluateChanges = (indices: number[], labs: { l: number; a: number; b: number }[]): { score: number } => {
+    const oldLabs = indices.map((pixel) => output.outputLab[pixel]!);
+    let colorDelta = 0; let sumDelta = { l: 0, a: 0, b: 0 };
+    const override = new Map<number, { l: number; a: number; b: number }>();
+    for (let i = 0; i < indices.length; i += 1) {
+      const pixel = indices[i]!; const old = oldLabs[i]!; const next = labs[i]!; const src = sourceLab[pixel]!;
+      colorDelta += (next.l - src.l) ** 2 + (next.a - src.a) ** 2 + (next.b - src.b) ** 2 - ((old.l - src.l) ** 2 + (old.a - src.a) ** 2 + (old.b - src.b) ** 2);
+      sumDelta.l += next.l - old.l; sumDelta.a += next.a - old.a; sumDelta.b += next.b - old.b; override.set(pixel, next);
+    }
+    const cell = Math.floor(Math.floor(indices[0]! / width) / cellHeight) * ZX_ATTRIBUTE_COLUMNS + Math.floor((indices[0]! % width) / CELL_WIDTH);
+    const srcMean = sourceSums[cell]!; const outMean = outputSums[cell]!;
+    const oldDl = (outMean.l - srcMean.l) / pixelsPerCell; const oldDa = (outMean.a - srcMean.a) / pixelsPerCell; const oldDb = (outMean.b - srcMean.b) / pixelsPerCell;
+    const newDl = (outMean.l + sumDelta.l - srcMean.l) / pixelsPerCell; const newDa = (outMean.a + sumDelta.a - srcMean.a) / pixelsPerCell; const newDb = (outMean.b + sumDelta.b - srcMean.b) / pixelsPerCell;
+    const cellDelta = newDl * newDl + newDa * newDa + newDb * newDb - (oldDl * oldDl + oldDa * oldDa + oldDb * oldDb);
+    const edges = new Set<string>();
+    for (const pixel of indices) for (const [a, b] of boundaryEdgesFor(pixel)) edges.add(`${a},${b}`);
+    let boundaryDelta = 0;
+    for (const edge of edges) {
+      const [a, b] = edge.split(",").map(Number) as [number, number];
+      boundaryDelta += edgeScore(a, b, override.get(a) ?? output.outputLab[a]!, override.get(b) ?? output.outputLab[b]!) - edgeScore(a, b);
+    }
+    const scale = 4096 * 4096;
+    return { score: (colorDelta / pixelCount + 2 * cellDelta / cellCount + 2 * boundaryDelta / boundaryCount) / scale };
+  };
+  const applyChanges = (indices: number[], labs: { l: number; a: number; b: number }[], colors: RgbColor[]): void => {
+    const cell = Math.floor(Math.floor(indices[0]! / width) / cellHeight) * ZX_ATTRIBUTE_COLUMNS + Math.floor((indices[0]! % width) / CELL_WIDTH);
+    let dl = 0; let da = 0; let db = 0;
+    for (let i = 0; i < indices.length; i += 1) {
+      const pixel = indices[i]!; const old = output.outputLab[pixel]!; const next = labs[i]!; const offset = pixel * 4;
+      output.mergedPreview[offset] = colors[i]!.r; output.mergedPreview[offset + 1] = colors[i]!.g; output.mergedPreview[offset + 2] = colors[i]!.b;
+      dl += next.l - old.l; da += next.a - old.a; db += next.b - old.b;
+      output.outputLab[pixel] = next;
+    }
+    outputSums[cell]!.l += dl; outputSums[cell]!.a += da; outputSums[cell]!.b += db;
+  };
+
+  const attributeLists = [0, 1].map((screen) => {
+    const perScreenSettings: ConversionSettings = { ...settings, paletteSelections: [{ ...paletteSelection(settings, screen), screenIndex: 0 }] };
+    const enabled = new Set(paletteSelection(settings, screen).enabledColorIds);
+    return { settings: perScreenSettings, enabled, values: Array.from({ length: 128 }, (_, value) => value).filter((value) =>
+      (value & 7) >= ((value >> 3) & 7) && enabled.has(value & 7) && enabled.has((value >> 3) & 7)) };
+  });
+  let candidateCount = 0; let acceptedAttributeMoves = 0; let acceptedBitmapMoves = 0; let acceptedPasses = 0; let evaluatedPasses = 0;
+  const maxPasses = level === "draft" ? 1 : 4;
+  for (let pass = 0; pass < maxPasses; pass += 1) {
+    evaluatedPasses += 1;
+    let acceptedThisPass = false;
+    for (let step = 0; step < cellCount; step += 1) {
+      const cell = pass % 2 === 0 ? step : cellCount - 1 - step;
+      const cellY = Math.floor(cell / ZX_ATTRIBUTE_COLUMNS); const cellX = cell % ZX_ATTRIBUTE_COLUMNS;
+      const indices = Array.from({ length: pixelsPerCell }, (_, n) => (cellY * cellHeight + Math.floor(n / CELL_WIDTH)) * width + cellX * CELL_WIDTH + n % CELL_WIDTH);
+      for (let screen = 0; screen < 2; screen += 1) {
+        const attrs = screen === 0 ? output.first : output.second;
+        let best: { attribute: number; labs: { l: number; a: number; b: number }[]; colors: RgbColor[]; delta: ReturnType<typeof evaluateChanges> } | null = null;
+        for (const attribute of attributeLists[screen]!.values) {
+          if (!attributeAllowed(attribute, attributeLists[screen]!.settings, level, (draftBright[cell] ?? 0) === 1, attributeLists[screen]!.enabled)) continue;
+          candidateCount += 1;
+          if (attribute === attrs[cell]) continue;
+          const decoded = decodeAttribute(attribute, palette);
+          const labs: { l: number; a: number; b: number }[] = []; const colors: RgbColor[] = [];
+          const otherAttribute = (screen === 0 ? output.second : output.first)[cell]!;
+          const other = decodeAttribute(otherAttribute, palette);
+          for (const pixel of indices) {
+            const color = output.pixels[pixel] === 1 ? decoded.ink : decoded.paper;
+            const otherColor = output.pixels[pixel] === 1 ? other.ink : other.paper;
+            const merged = { r: (color.r + otherColor.r) >> 1, g: (color.g + otherColor.g) >> 1, b: (color.b + otherColor.b) >> 1 };
+            colors.push(merged); labs.push(quantizedOklab(merged.r, merged.g, merged.b));
+          }
+          const delta = evaluateChanges(indices, labs);
+          if (delta.score < -1e-15 && (best === null || delta.score < best.delta.score || (delta.score === best.delta.score && attribute < best.attribute))) best = { attribute, labs, colors, delta };
+        }
+        if (best !== null) {
+          attrs[cell] = best.attribute;
+          applyChanges(indices, best.labs, best.colors); acceptedAttributeMoves += 1; acceptedThisPass = true;
+        }
+      }
+    }
+    for (let step = 0; step < pixelCount; step += 1) {
+      const pixel = pass % 2 === 0 ? step : pixelCount - 1 - step;
+      const cell = Math.floor(Math.floor(pixel / width) / cellHeight) * ZX_ATTRIBUTE_COLUMNS + Math.floor((pixel % width) / CELL_WIDTH);
+      const nextBit = (1 - output.pixels[pixel]!) as 0 | 1;
+      const firstColors = decodeAttribute(output.first[cell]!, palette); const secondColors = decodeAttribute(output.second[cell]!, palette);
+      const a = nextBit === 1 ? firstColors.ink : firstColors.paper; const b = nextBit === 1 ? secondColors.ink : secondColors.paper;
+      const merged = { r: (a.r + b.r) >> 1, g: (a.g + b.g) >> 1, b: (a.b + b.b) >> 1 };
+      const delta = evaluateChanges([pixel], [quantizedOklab(merged.r, merged.g, merged.b)]); candidateCount += 1;
+      if (delta.score < -1e-15) {
+        output.pixels[pixel] = nextBit; applyChanges([pixel], [quantizedOklab(merged.r, merged.g, merged.b)], [merged]); acceptedBitmapMoves += 1; acceptedThisPass = true;
+      }
+    }
+    if (!acceptedThisPass) break;
+    acceptedPasses += 1;
+  }
+  output.firstPreview = renderAttributeFrameRgba(output.pixels, output.first, cellHeight, palette);
+  output.secondPreview = renderAttributeFrameRgba(output.pixels, output.second, cellHeight, palette);
+  output.mergedPreview = mergeTemporalFrames(output.firstPreview, output.secondPreview);
+  const finalLab = Array.from({ length: pixelCount }, (_, pixel) => {
+    const offset = pixel * 4; return quantizedOklab(output.mergedPreview[offset] ?? 0, output.mergedPreview[offset + 1] ?? 0, output.mergedPreview[offset + 2] ?? 0);
+  });
+  const final = sharedBitmapObjectiveV4(sourceLab, finalLab, cellHeight);
+  const baselineLegacy = selectedSeedLegacy;
+  return {
+    pixels: output.pixels, firstAttributes: output.first, secondAttributes: output.second,
+    firstPreview: output.firstPreview, secondPreview: output.secondPreview, mergedPreview: output.mergedPreview,
+    diagnostics: {
+      rgbBudgetPercent: 0,
+      baselineRgbError: baselineLegacy.rgbError,
+      finalRgbError: temporalRgbaError(source, output.mergedPreview),
+      baselineLowPassError: baselineLegacy.lowPassError,
+      finalLowPassError: sharedBitmapQualityMetrics(source, output.mergedPreview, cellHeight).lowPassError,
+      baselineLowPass4Error: baselineLegacy.lowPass4Error,
+      finalLowPass4Error: sharedBitmapQualityMetrics(source, output.mergedPreview, cellHeight).lowPass4Error,
+      baselineBoundaryError: baselineLegacy.boundaryError,
+      finalBoundaryError: sharedBitmapQualityMetrics(source, output.mergedPreview, cellHeight).boundaryError,
+      baselineEdgeError: baselineLegacy.edgeError,
+      finalEdgeError: sharedBitmapQualityMetrics(source, output.mergedPreview, cellHeight).edgeError,
+      objectiveBaseline: seedObjective,
+      objectiveFinal: final.objective,
+      baselineColorError: baseline.color,
+      finalColorError: final.color,
+      baselineAttributeVisibilityError: baseline.cell,
+      finalAttributeVisibilityError: final.cell,
+      baselineBoundaryTransitionError: baseline.boundary,
+      finalBoundaryTransitionError: final.boundary,
+      baselineCellError: baseline.cell,
+      finalCellError: final.cell,
+      normalSeedObjective, haloSeedObjective,
+      candidateCount, acceptedAttributeMoves, acceptedBitmapMoves,
+      acceptedPasses,
+      evaluatedPasses, runtimeMs: Date.now() - startedAt,
+    },
+  };
 }
 
 function suppressMixedAttributeFlicker(
@@ -2984,10 +4020,19 @@ function validateSettings(settings: ConversionSettings): void {
   if (
     (settings.attributeOptimizerId === "zx-mixed-joint-cell-v1" ||
       settings.attributeOptimizerId === "zx-mixed-joint-cell-v2" ||
+      settings.attributeOptimizerId === "zx-mixed-shared-bitmap-v1" ||
+      settings.attributeOptimizerId.startsWith("zx-mixed-shared-bitmap-v2-budget-") ||
+      settings.attributeOptimizerId === "zx-mixed-shared-bitmap-v3" ||
+      settings.attributeOptimizerId === "zx-mixed-shared-bitmap-v4" ||
+      settings.attributeOptimizerId === "zx-mixed-gigaattr-v1" ||
       settings.attributeOptimizerId === "zx-mixed-joint-quantized-v1") &&
     settings.modeId !== "zx48-mixed-256x192"
   ) {
     throw new RangeError("The joint-cell optimizer supports only ZX Mixed mode.");
+  }
+  if ((settings.attributeOptimizerId === "zx-mixed-shared-bitmap-v4" ||
+      settings.attributeOptimizerId === "zx-mixed-gigaattr-v1") && !settings.zxMixedAttributesOnly) {
+    throw new RangeError("This ZX Mixed shared-bitmap optimizer requires Mix attributes only.");
   }
   if ((settings.ditherEngineId === "artistic-ordered-hybrid-v1" ||
       settings.ditherEngineId === "artistic-ordered-tone-safe-v2") &&
@@ -3221,6 +4266,7 @@ export function convertToZx(
   level: OptimizationLevel = "high",
   palette: ZxPalette = resolveZxPalette(settings.zxPalette),
 ): ZxConversionResult {
+  const conversionStartedAt = Date.now();
   validateSettings(settings);
   const destination = destinationGeometryFor(settings.platformId, settings.modeId);
   const engineFallback = engineFallbackFor(settings.ditherEngineId);
@@ -3427,6 +4473,11 @@ export function convertToZx(
     if (
       settings.attributeOptimizerId === "zx-mixed-joint-cell-v1" ||
       settings.attributeOptimizerId === "zx-mixed-joint-cell-v2" ||
+      settings.attributeOptimizerId === "zx-mixed-shared-bitmap-v1" ||
+      settings.attributeOptimizerId.startsWith("zx-mixed-shared-bitmap-v2-budget-") ||
+      settings.attributeOptimizerId === "zx-mixed-shared-bitmap-v3" ||
+      settings.attributeOptimizerId === "zx-mixed-shared-bitmap-v4" ||
+      settings.attributeOptimizerId === "zx-mixed-gigaattr-v1" ||
       settings.attributeOptimizerId === "zx-mixed-joint-quantized-v1"
     ) {
       for (let pixel = 0; pixel < virtualIndices.length; pixel += 1) {
@@ -3445,22 +4496,105 @@ export function convertToZx(
         settings.zxMixedAttributesOnly,
       );
       if (settings.zxMixedAttributesOnly) {
-        const firstAttributes = Uint8Array.from(jointFrames.firstAttributes);
-        const secondAttributes = Uint8Array.from(jointFrames.secondAttributes);
+        let firstAttributes: Uint8Array = Uint8Array.from(jointFrames.firstAttributes);
+        let secondAttributes: Uint8Array = Uint8Array.from(jointFrames.secondAttributes);
+        if (settings.attributeOptimizerId === "zx-mixed-gigaattr-v1") {
+          const selected = selectGigaattrSharedBitmapAttributes(normalized, settings, virtualPalette);
+          firstAttributes = selected.firstAttributes;
+          secondAttributes = selected.secondAttributes;
+        }
         if (settings.screenFlickerSuppression && paletteSelectionsMatch(firstSelection, secondSelection)) {
           suppressMixedAttributeFlicker(firstAttributes, secondAttributes, settings.attributeHeight);
         }
-        const sharedPixels = sharedMixedPixels(
+        let sharedPixels: Uint8Array = sharedMixedPixels(
           normalized,
           firstAttributes,
           secondAttributes,
           settings,
           palette,
         );
+        let firstPreview = renderAttributeFrameRgba(sharedPixels, firstAttributes, settings.attributeHeight, palette);
+        let secondPreview = renderAttributeFrameRgba(sharedPixels, secondAttributes, settings.attributeHeight, palette);
+        let merged = mergeTemporalFrames(firstPreview, secondPreview);
+        let sharedBitmapDiagnostics: ZxConversionResult["sharedBitmapDiagnostics"];
+        if (settings.attributeOptimizerId === "zx-mixed-shared-bitmap-v1") {
+          const refined = refineSharedBitmapQuality(
+            normalized,
+            settings,
+            level,
+            virtualPalette,
+            sharedPixels,
+            firstAttributes,
+            secondAttributes,
+            palette,
+            conversionStartedAt,
+          );
+          sharedPixels = refined.pixels;
+          firstAttributes = refined.firstAttributes;
+          secondAttributes = refined.secondAttributes;
+          firstPreview = refined.firstPreview;
+          secondPreview = refined.secondPreview;
+          merged = refined.mergedPreview;
+          sharedBitmapDiagnostics = refined.diagnostics;
+        } else if (settings.attributeOptimizerId.startsWith("zx-mixed-shared-bitmap-v2-budget-")) {
+          const refined = refineSharedBitmapQualityV2(
+            normalized,
+            settings,
+            level,
+            virtualPalette,
+            sharedPixels,
+            firstAttributes,
+            secondAttributes,
+            palette,
+            conversionStartedAt,
+          );
+          sharedPixels = refined.pixels;
+          firstAttributes = refined.firstAttributes;
+          secondAttributes = refined.secondAttributes;
+          firstPreview = refined.firstPreview;
+          secondPreview = refined.secondPreview;
+          merged = refined.mergedPreview;
+          sharedBitmapDiagnostics = refined.diagnostics;
+        } else if (settings.attributeOptimizerId === "zx-mixed-shared-bitmap-v3") {
+          const refined = refineSharedBitmapQualityV3(
+            normalized,
+            settings,
+            level,
+            virtualPalette,
+            sharedPixels,
+            firstAttributes,
+            secondAttributes,
+            palette,
+            conversionStartedAt,
+          );
+          sharedPixels = refined.pixels;
+          firstAttributes = refined.firstAttributes;
+          secondAttributes = refined.secondAttributes;
+          firstPreview = refined.firstPreview;
+          secondPreview = refined.secondPreview;
+          merged = refined.mergedPreview;
+          sharedBitmapDiagnostics = refined.diagnostics;
+        } else if (settings.attributeOptimizerId === "zx-mixed-shared-bitmap-v4") {
+          const refined = refineSharedBitmapQualityV4(
+            normalized,
+            settings,
+            level,
+            sharedPixels,
+            firstAttributes,
+            secondAttributes,
+            palette,
+            conversionStartedAt,
+          );
+          sharedPixels = refined.pixels;
+          firstAttributes = refined.firstAttributes;
+          secondAttributes = refined.secondAttributes;
+          firstPreview = refined.firstPreview;
+          secondPreview = refined.secondPreview;
+          merged = refined.mergedPreview;
+          sharedBitmapDiagnostics = refined.diagnostics;
+        }
         const firstEncoded = serializeSoftwareScr(sharedPixels, firstAttributes, settings.attributeHeight);
         const secondEncoded = serializeSoftwareScr(sharedPixels, secondAttributes, settings.attributeHeight);
-        const firstPreview = renderEncodedSoftwareScrRgba(firstEncoded, settings.attributeHeight, palette);
-        const secondPreview = renderEncodedSoftwareScrRgba(secondEncoded, settings.attributeHeight, palette);
         const firstFrame = {
           hardwareModeId: "zx48-standard-256x192",
           nativeWidth: ZX_SCREEN_WIDTH,
@@ -3479,7 +4613,6 @@ export function convertToZx(
           paletteIndices: Uint8Array.from(sharedPixels),
           previewRgba: secondPreview,
         };
-        const merged = mergeTemporalFrames(firstPreview, secondPreview);
         return {
           platformId: "zx-spectrum",
           modeId: "zx48-mixed-256x192",
@@ -3499,6 +4632,7 @@ export function convertToZx(
           sourcePreviewRgba: normalized,
           previewRgba: merged,
           score: temporalRgbaError(normalized, merged),
+          ...(sharedBitmapDiagnostics === undefined ? {} : { sharedBitmapDiagnostics }),
           ...(engineFallback === undefined ? {} : { engineFallback }),
         };
       }

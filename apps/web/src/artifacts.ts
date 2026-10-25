@@ -112,6 +112,7 @@ export interface MetadataInput {
   readonly width?: number;
   readonly height?: number;
   readonly score: number;
+  readonly resultQuality?: "Draft" | "High";
   readonly structuredDiagnostics?: StructuredDiagnostics;
   readonly verticalSpatialDiagnostics?: VerticalSpatialDiagnostics;
   readonly completedAtUtc: string;
@@ -131,6 +132,26 @@ export interface MetadataInput {
       };
     };
   };
+}
+
+/** Returns whether the requested flicker-suppression behavior is effective for this target. */
+export function effectiveScreenFlickerSuppression(
+  settings: ConversionSettings,
+): boolean | null {
+  if (settings.platformId === "zx-spectrum") {
+    if (settings.modeId !== "zx48-mixed-256x192") return null;
+    return settings.screenFlickerSuppression &&
+      settings.paletteSelections.length === 2 &&
+      paletteSelectionsMatch(settings.paletteSelections[0]!, settings.paletteSelections[1]!);
+  }
+  if (settings.platformId !== "sinclair-ql" ||
+      !qlTargetUsesMixing(settings.modeId as QlTargetModeId)) return null;
+  if (settings.modeId === "mode8-mode4-mixed-512x256") {
+    return settings.screenFlickerSuppression;
+  }
+  return settings.screenFlickerSuppression &&
+    settings.paletteSelections.length === 2 &&
+    paletteSelectionsMatch(settings.paletteSelections[0]!, settings.paletteSelections[1]!);
 }
 
 export async function buildConversionMetadata(input: MetadataInput) {
@@ -214,7 +235,7 @@ export async function buildConversionMetadata(input: MetadataInput) {
       sha256: profileSha256,
     },
     conversion: {
-      quality_level: "High",
+      quality_level: input.resultQuality ?? "High",
       seed: (input.settings.ditherEngineId === "artistic-ordered-hybrid-v1" ||
           input.settings.ditherEngineId === "artistic-ordered-tone-safe-v2")
         ? "artistic-void-cluster-v1:seed-1729"
@@ -281,12 +302,10 @@ export async function buildConversionMetadata(input: MetadataInput) {
           : "two-frame-rgb-average-50-50-floor"
         : "none",
       screen_flicker_suppression:
+        effectiveScreenFlickerSuppression(input.settings),
+      screen_flicker_suppression_requested:
         input.settings.modeId === "zx48-mixed-256x192"
-          ? input.settings.screenFlickerSuppression &&
-            paletteSelectionsMatch(
-              input.settings.paletteSelections[0]!,
-              input.settings.paletteSelections[1]!,
-            )
+          ? input.settings.screenFlickerSuppression
           : null,
       frame_attributes_hex: frames.map((frame) =>
         bytesToHex(frame.subarray(ZX_BITMAP_BYTES))
@@ -306,14 +325,10 @@ export async function buildConversionMetadata(input: MetadataInput) {
           : "two-frame-rgb-average-50-50-floor"
         : "none",
       screen_flicker_suppression:
+        effectiveScreenFlickerSuppression(input.settings),
+      screen_flicker_suppression_requested:
         qlTargetUsesMixing(input.settings.modeId as QlTargetModeId)
-          ? input.settings.modeId === "mode8-mode4-mixed-512x256"
-            ? input.settings.screenFlickerSuppression
-            : input.settings.screenFlickerSuppression &&
-              paletteSelectionsMatch(
-                input.settings.paletteSelections[0]!,
-                input.settings.paletteSelections[1]!,
-              )
+          ? input.settings.screenFlickerSuppression
           : null,
       screen_palette_selections: input.settings.paletteSelections.map((selection) => ({
         screen_index: selection.screenIndex,

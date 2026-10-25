@@ -83,6 +83,7 @@ describe("artifact helpers", () => {
     expect(metadata.conversion.algorithm_versions.dithering)
       .toBe("none-discrete-v2");
     expect(metadata.conversion.seed).toBe("none");
+    expect(metadata.conversion.quality_level).toBe("High");
     expect(metadata.zx_spectrum?.attributes_hex).toHaveLength(768 * 2);
     expect(metadata.zx_spectrum?.flash_enabled).toBe(false);
     expect(metadata.outputs.scr_sha256).toHaveLength(64);
@@ -103,6 +104,24 @@ describe("artifact helpers", () => {
       completedAtUtc: "2026-07-23T00:00:00.000Z",
     });
     expect(randomizedMetadata.conversion.seed).toBe("rc-error-randomizer-1:seed-1");
+  });
+
+  it("records Draft quality instead of labeling an accepted Draft as High", async () => {
+    const scr = serializeScr(createBlankScreen(0));
+    const metadata = await buildConversionMetadata({
+      sourceSha256: "12".repeat(32),
+      sourceFormat: "png",
+      sourceWidth: 1,
+      sourceHeight: 1,
+      settings: DEFAULT_CONVERSION_SETTINGS,
+      scr,
+      previewRgba: new Uint8Array(256 * 192 * 4),
+      score: 0,
+      resultQuality: "Draft",
+      completedAtUtc: "2026-07-23T00:00:00.000Z",
+    });
+
+    expect(metadata.conversion.quality_level).toBe("Draft");
   });
 
   it("reports editor-set ZX FLASH bits from the exported frame", async () => {
@@ -237,6 +256,7 @@ describe("artifact helpers", () => {
     expect(metadata.sinclair_ql?.mixing)
       .toBe("low-high-spatiotemporal-average-50-50");
     expect(metadata.sinclair_ql?.screen_flicker_suppression).toBe(true);
+    expect(metadata.sinclair_ql?.screen_flicker_suppression_requested).toBe(true);
   });
 
   it("records two-screen ZX mixing and validates both frames", async () => {
@@ -267,8 +287,38 @@ describe("artifact helpers", () => {
     expect(metadata.zx_spectrum?.mixing)
       .toBe("two-frame-shared-pixels-attribute-mix-rgb-average-50-50-v1");
     expect(metadata.zx_spectrum?.screen_flicker_suppression).toBe(true);
+    expect(metadata.zx_spectrum?.screen_flicker_suppression_requested).toBe(true);
     expect(metadata.zx_spectrum?.frame_attributes_hex).toHaveLength(2);
     expect(metadata.preview.calibration).toBe("zx-two-frame-average-preview");
+  });
+
+  it("distinguishes requested from effective ZX flicker suppression when BRIGHT policies differ", async () => {
+    const first = serializeScr(createBlankScreen(0));
+    const second = serializeScr(createBlankScreen(0));
+    const baseSelection = DEFAULT_CONVERSION_SETTINGS.paletteSelections[0]!;
+    const metadata = await buildConversionMetadata({
+      sourceSha256: "44".repeat(32),
+      sourceFormat: "png",
+      sourceWidth: 1,
+      sourceHeight: 1,
+      settings: {
+        ...DEFAULT_CONVERSION_SETTINGS,
+        modeId: "zx48-mixed-256x192",
+        screenFlickerSuppression: true,
+        paletteSelections: [
+          { ...baseSelection, screenIndex: 0, brightMode: "on" },
+          { ...baseSelection, screenIndex: 1, brightMode: "off" },
+        ],
+      },
+      scr: first,
+      frames: [first, second],
+      previewRgba: new Uint8Array(256 * 192 * 4),
+      score: 0,
+      completedAtUtc: "2026-07-26T00:00:00.000Z",
+    });
+
+    expect(metadata.zx_spectrum?.screen_flicker_suppression_requested).toBe(true);
+    expect(metadata.zx_spectrum?.screen_flicker_suppression).toBe(false);
   });
 
   it("records static PMD 85 TV/CV interpretation without blink animation", async () => {

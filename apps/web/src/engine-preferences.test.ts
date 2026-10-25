@@ -67,6 +67,14 @@ describe("engine preferences", () => {
     for (const attributeOptimizerId of [
       "zx-mixed-joint-cell-v1",
       "zx-mixed-joint-cell-v2",
+      "zx-mixed-shared-bitmap-v1",
+      "zx-mixed-shared-bitmap-v2-budget-05",
+      "zx-mixed-shared-bitmap-v2-budget-1",
+      "zx-mixed-shared-bitmap-v2-budget-2",
+      "zx-mixed-shared-bitmap-v2-budget-5",
+      "zx-mixed-shared-bitmap-v3",
+      "zx-mixed-shared-bitmap-v4",
+      "zx-mixed-gigaattr-v1",
       "zx-mixed-joint-quantized-v1",
     ] as const) {
       const resolved = resolveEnginePreferencesForTarget(

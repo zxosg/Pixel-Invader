@@ -45,6 +45,7 @@ import {
   APPLICATION_VERSION,
   buildConversionMetadata,
   canonicalJsonStringify,
+  effectiveScreenFlickerSuppression,
   sanitizeArtifactBaseName,
   sha256Hex,
 } from "./artifacts.js";
@@ -10267,6 +10268,7 @@ export function App() {
       width: result.width,
       height: result.height,
       score: result.score,
+      resultQuality,
       ...(result.structuredDiagnostics === undefined
         ? {}
         : { structuredDiagnostics: result.structuredDiagnostics }),
@@ -10746,6 +10748,7 @@ export function App() {
         width: recomputed.width,
         height: recomputed.height,
         score: recomputed.score,
+        resultQuality: validated.resultQuality,
         ...(recomputed.verticalSpatialDiagnostics === undefined
           ? {}
           : { verticalSpatialDiagnostics: recomputed.verticalSpatialDiagnostics }),
@@ -12397,20 +12400,60 @@ export function App() {
     targetModeId === "mode8-mode4-mixed-512x256";
   const hasVerticalSpatialTarget = targetModeId.includes("vertical-spatial");
   const hasQlMixedResolutionTarget = targetModeId === "mode8-mode4-mixed-512x256";
+  const sharedBitmapDiagnosticsText = (result: WorkerConversionResult): string => {
+    const diagnostics = result.sharedBitmapDiagnostics;
+    if (diagnostics === undefined) return "";
+    const percentChange = (before: number, after: number): string => before === 0
+      ? "0.00%"
+      : `${((after - before) / before * 100).toFixed(2)}%`;
+    if (result.attributeOptimizerId === "zx-mixed-shared-bitmap-v3") {
+      const change = (before: number | undefined, after: number | undefined): string =>
+        before === undefined || after === undefined || before === 0
+          ? "n/a"
+          : `${((after - before) / before * 100).toFixed(2)}%`;
+      return ` Shared bitmap v3 fixed objective — J ${change(diagnostics.objectiveBaseline, diagnostics.objectiveFinal)}; ` +
+        `color ${change(diagnostics.baselineColorError, diagnostics.finalColorError)}; ` +
+        `attribute visibility ${change(diagnostics.baselineAttributeVisibilityError, diagnostics.finalAttributeVisibilityError)}; ` +
+        `boundary transitions ${change(diagnostics.baselineBoundaryTransitionError, diagnostics.finalBoundaryTransitionError)}; ` +
+        `${diagnostics.acceptedPasses}/${diagnostics.evaluatedPasses} passes accepted/evaluated, ${diagnostics.runtimeMs} ms.`;
+    }
+    if (result.attributeOptimizerId === "zx-mixed-shared-bitmap-v4") {
+      const change = (before: number | undefined, after: number | undefined): string =>
+        before === undefined || after === undefined || before === 0
+          ? "n/a"
+          : `${((after - before) / before * 100).toFixed(2)}%`;
+      return ` Shared bitmap v4 fixed objective — J ${change(diagnostics.objectiveBaseline, diagnostics.objectiveFinal)}; ` +
+        `seeds normal ${diagnostics.normalSeedObjective?.toFixed(4) ?? "n/a"}, halo ${diagnostics.haloSeedObjective?.toFixed(4) ?? "n/a"}; ` +
+        `pixel ${change(diagnostics.baselineColorError, diagnostics.finalColorError)}; ` +
+        `cell tone ${change(diagnostics.baselineCellError, diagnostics.finalCellError)}; ` +
+        `attribute boundaries ${change(diagnostics.baselineBoundaryTransitionError, diagnostics.finalBoundaryTransitionError)}; ` +
+        `${diagnostics.acceptedAttributeMoves ?? 0} attribute / ${diagnostics.acceptedBitmapMoves ?? 0} bitmap moves, ` +
+        `${diagnostics.candidateCount ?? 0} candidates, ${diagnostics.evaluatedPasses} passes, ${diagnostics.runtimeMs} ms.`;
+    }
+    const version = result.attributeOptimizerId.startsWith("zx-mixed-shared-bitmap-v2-budget-")
+      ? `v2 · +${diagnostics.rgbBudgetPercent}% RGB budget`
+      : "v1 legacy objective";
+    return ` Shared bitmap ${version} — RGB ${percentChange(diagnostics.baselineRgbError, diagnostics.finalRgbError)}; ` +
+      `2×2 ${percentChange(diagnostics.baselineLowPassError, diagnostics.finalLowPassError)}; ` +
+      `4×4 ${percentChange(diagnostics.baselineLowPass4Error, diagnostics.finalLowPass4Error)}; ` +
+      `attribute seams ${percentChange(diagnostics.baselineBoundaryError, diagnostics.finalBoundaryError)}; ` +
+      `source edges ${percentChange(diagnostics.baselineEdgeError, diagnostics.finalEdgeError)}; ` +
+      `${diagnostics.acceptedPasses}/${diagnostics.evaluatedPasses} refinement passes accepted/evaluated, ${diagnostics.runtimeMs} ms.`;
+  };
   const paletteConversionStatusText = state.kind === "idle" ? image === null
     ? "Import an image to begin."
     : draftState.kind === "scheduled" ? "Draft preview scheduled…"
     : draftState.kind === "running" ? "Running Draft preview…"
-    : draftState.kind === "ready" ? `Draft preview current · score ${draftState.result.score.toLocaleString()}.`
+    : draftState.kind === "ready" ? `Draft preview current · score ${draftState.result.score.toLocaleString()}.${sharedBitmapDiagnosticsText(draftState.result)}`
     : draftState.kind === "error" ? `Draft failed: ${draftState.message}`
     : "Ready for High conversion."
     : state.kind === "running"
       ? "Running High conversion… The current preview remains visible."
       : state.kind === "ready"
         ? state.result.frames.length > 1
-          ? `Completed final · ${state.result.frames.length} × ${state.result.scr.length.toLocaleString()} bytes · ${state.result.width}×${state.result.height} · score ${state.result.score.toLocaleString()}${bitmapEditorResultEdited ? " · metrics pre-edit" : ""}.`
+          ? `Completed final · ${state.result.frames.length} × ${state.result.scr.length.toLocaleString()} bytes · ${state.result.width}×${state.result.height} · score ${state.result.score.toLocaleString()}${bitmapEditorResultEdited ? " · metrics pre-edit" : ""}.${sharedBitmapDiagnosticsText(state.result)}`
           : state.result.platformId === "zx-spectrum"
-            ? `Completed final · ${state.result.artifact.length.toLocaleString()} / ${zxSoftwareScrBytes(attributeHeight).toLocaleString()} bytes · 8×${attributeHeight} attributes · score ${state.result.score.toLocaleString()}${bitmapEditorResultEdited ? " · metrics pre-edit" : ""}.`
+            ? `Completed final · ${state.result.artifact.length.toLocaleString()} / ${zxSoftwareScrBytes(attributeHeight).toLocaleString()} bytes · 8×${attributeHeight} attributes · score ${state.result.score.toLocaleString()}${bitmapEditorResultEdited ? " · metrics pre-edit" : ""}.${sharedBitmapDiagnosticsText(state.result)}`
             : `Completed final · ${state.result.artifact.length.toLocaleString()} bytes · ${state.result.width}×${state.result.height} · score ${state.result.score.toLocaleString()}${bitmapEditorResultEdited ? " · metrics pre-edit" : ""}.`
         : state.kind === "stale"
           ? draftState.kind === "scheduled"
@@ -12478,6 +12521,12 @@ export function App() {
     if (fallback?.kind === "builtin" && fallback.layout !== undefined) applyWorkspaceLayout(fallback.layout);
     else if (fallback !== undefined) selectWorkspaceProfile(fallback.id);
   }, [activeWorkspaceProfileId, hiddenBuiltinWorkspaceProfileIds, savedWorkbenchLayouts]);
+
+  const flickerSuppressionEffective = effectiveScreenFlickerSuppression(conversionSettings);
+  const flickerSuppressionPolicyMismatch =
+    targetModeId !== "mode8-mode4-mixed-512x256" &&
+    paletteSelections.length === 2 &&
+    !paletteSelectionsMatch(paletteSelections[0]!, paletteSelections[1]!);
 
   return (
     <>
@@ -12961,6 +13010,42 @@ export function App() {
               />
             </fieldset>
           ) : null}
+          {framing === "fit" ? (
+            <fieldset className="geometry-row framing-detail fit-position-control control-row control-row-2">
+              <legend>Fit position adjustment (output pixels)</legend>
+              <RangeNumberControl
+                id="fit-position-x"
+                label="Horizontal position"
+                value={panOffsetX}
+                min={-panMaximumX}
+                max={panMaximumX}
+                unit=" px"
+                resetValue={0}
+                onChange={(value) => {
+                  setPanOffsetX(value);
+                  setState({ kind: "idle" });
+                }}
+                onValidityChange={setSliderValidity}
+              />
+              <RangeNumberControl
+                id="fit-position-y"
+                label="Vertical position"
+                value={panOffsetY}
+                min={-panMaximumY}
+                max={panMaximumY}
+                unit=" px"
+                resetValue={0}
+                onChange={(value) => {
+                  setPanOffsetY(value);
+                  setState({ kind: "idle" });
+                }}
+                onValidityChange={setSliderValidity}
+              />
+              <span className="control-help fit-position-help">
+                Positive values move the fitted image right or down; negative values move it left or up. Use the arrow pad below for one-pixel steps.
+              </span>
+            </fieldset>
+          ) : null}
           {framing === "crop" ? (
             <fieldset className="geometry-row framing-detail crop-control control-row control-row-5" aria-describedby={cropValid ? "crop-help" : "crop-error"}>
               <legend>Crop rectangle (source pixels)</legend>
@@ -13006,17 +13091,35 @@ export function App() {
               <div className="mirror-actions">
                 <label className="check-control mirror-toggle" title="Mirror horizontally">
                   <input aria-label="Mirror horizontally" type="checkbox" checked={mirrorHorizontal} onChange={(event) => { setMirrorHorizontal(event.target.checked); setState({ kind: "idle" }); }} />
-                  <span aria-hidden="true">↔</span>
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <defs>
+                      <pattern id="mirror-horizontal-hatch" width="3" height="3" patternTransform="rotate(35)" patternUnits="userSpaceOnUse">
+                        <path d="M0 0V3" stroke="currentColor" strokeWidth="1.2" />
+                      </pattern>
+                    </defs>
+                    <path className="mirror-icon-solid" d="M2 20 10.4 4v16Z" />
+                    <path className="mirror-icon-hatched" d="M13.6 4 22 20h-8.4Z" />
+                    <path className="mirror-icon-axis" d="M12 3v18" />
+                  </svg>
                 </label>
-                <label className="check-control mirror-toggle" title="Mirror vertically">
+                <label className="check-control mirror-toggle mirror-toggle-vertical" title="Mirror vertically">
                   <input aria-label="Mirror vertically" type="checkbox" checked={mirrorVertical} onChange={(event) => { setMirrorVertical(event.target.checked); setState({ kind: "idle" }); }} />
-                  <span aria-hidden="true">↕</span>
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <defs>
+                      <pattern id="mirror-vertical-hatch" width="3" height="3" patternTransform="rotate(35)" patternUnits="userSpaceOnUse">
+                        <path d="M0 0V3" stroke="currentColor" strokeWidth="1.2" />
+                      </pattern>
+                    </defs>
+                    <path className="mirror-icon-solid" d="M3 10.4 12 3l9 7.4Z" />
+                    <path className="mirror-icon-hatched" d="m3 13.6 9 7.4 9-7.4Z" />
+                    <path className="mirror-icon-axis" d="M2 12h20" />
+                  </svg>
                 </label>
               </div>
             </fieldset>
             <fieldset className="pan-control">
-              <legend>Pixel pan</legend>
-              <div className="pan-pad" aria-label="Move rescaled source bitmap by one pixel">
+              <legend>Position</legend>
+              <div className="pan-pad" aria-label="Adjust image position by one output pixel">
                 <button className="pan-up" type="button" aria-label="Move bitmap up one pixel" title="Move bitmap up one pixel" disabled={panOffsetY <= -panMaximumY} onClick={() => { setPanOffsetY(Math.max(-panMaximumY, panOffsetY - 1)); setState({ kind: "idle" }); }}>▲</button>
                 <button className="pan-left" type="button" aria-label="Move bitmap left one pixel" title="Move bitmap left one pixel" disabled={panOffsetX <= -panMaximumX} onClick={() => { setPanOffsetX(Math.max(-panMaximumX, panOffsetX - 1)); setState({ kind: "idle" }); }}>◀</button>
                 <button className="pan-center" type="button" aria-label="Center bitmap" title="Center bitmap" disabled={panOffsetX === 0 && panOffsetY === 0} onClick={() => { setPanOffsetX(0); setPanOffsetY(0); setState({ kind: "idle" }); }}>●</button>
@@ -13445,11 +13548,7 @@ export function App() {
               <span>
                 <input
                   type="checkbox"
-                  checked={screenFlickerSuppression && (
-                    targetModeId === "mode8-mode4-mixed-512x256" ||
-                    paletteSelections.length === 2 &&
-                    paletteSelectionsMatch(paletteSelections[0]!, paletteSelections[1]!)
-                  )}
+                  checked={flickerSuppressionEffective === true}
                   disabled={paletteSelections.length !== 2 ||
                     (
                       targetModeId !== "mode8-mode4-mixed-512x256" &&
@@ -13461,7 +13560,9 @@ export function App() {
                   }}
                 />
                 <span className="control-help">
-                  {targetModeId === "mode8-mode4-mixed-512x256"
+                  {flickerSuppressionPolicyMismatch
+                    ? `${screenFlickerSuppression ? "Requested suppression is inactive. " : ""}Different screen palette/BRIGHT policies affect the 50/50 Merged preview and prevent flicker suppression.`
+                    : targetModeId === "mode8-mode4-mixed-512x256"
                     ? "Adapt the left/right Mode 4 pair order across stable regions."
                     : paletteSelections.length === 2 &&
                     paletteSelectionsMatch(paletteSelections[0]!, paletteSelections[1]!)
@@ -13486,7 +13587,7 @@ export function App() {
                   }}
                 />
                 <span className="control-help">
-                  Keep identical pixels on both screens; only screen attributes vary.
+                  Shares bitmap pixels while optimizing INK, PAPER, and BRIGHT attributes independently. Merged shows their 50/50 RGB average, which may include colors neither screen displays alone.
                 </span>
               </span>
             </label>
