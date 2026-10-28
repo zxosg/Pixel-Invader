@@ -1011,6 +1011,18 @@ function drawOrientedCropSource(
   const pixels = new Uint8ClampedArray(Uint8Array.from(image.rgba).buffer);
   sourceContext.putImageData(new ImageData(pixels, image.width, image.height), 0, 0);
 
+  const mirroredCanvas = document.createElement("canvas");
+  mirroredCanvas.width = image.width;
+  mirroredCanvas.height = image.height;
+  const mirroredContext = mirroredCanvas.getContext("2d");
+  if (mirroredContext === null) return;
+  mirroredContext.translate(
+    mirrorHorizontal ? image.width : 0,
+    mirrorVertical ? image.height : 0,
+  );
+  mirroredContext.scale(mirrorHorizontal ? -1 : 1, mirrorVertical ? -1 : 1);
+  mirroredContext.drawImage(sourceCanvas, 0, 0);
+
   const oriented = orientedSourceSize(image.width, image.height, rotation);
   const rotatedCanvas = document.createElement("canvas");
   rotatedCanvas.width = oriented.width;
@@ -1027,16 +1039,8 @@ function drawOrientedCropSource(
     rotatedContext.translate(0, oriented.height);
     rotatedContext.rotate(-Math.PI / 2);
   }
-  rotatedContext.drawImage(sourceCanvas, 0, 0);
-
-  context.save();
-  context.translate(
-    mirrorHorizontal ? oriented.width : 0,
-    mirrorVertical ? oriented.height : 0,
-  );
-  context.scale(mirrorHorizontal ? -1 : 1, mirrorVertical ? -1 : 1);
+  rotatedContext.drawImage(mirroredCanvas, 0, 0);
   context.drawImage(rotatedCanvas, 0, 0);
-  context.restore();
 }
 
 interface RangeNumberControlProps {
@@ -2000,6 +2004,11 @@ export function App() {
         minimized: false,
       }));
     }
+    for (const window of ["palette", "paint-colors"] as const) {
+      updateWorkbenchWindowLayout(window, (layout) => layout.visible
+        ? { ...layout, open: true, minimized: false }
+        : layout);
+    }
     if (bitmapEditorActiveSide === "source") {
       setResultPreviewContent("result-image");
       setResultPreviewZoom("fit");
@@ -2023,11 +2032,10 @@ export function App() {
   function workbenchDockWindowIsRendered(window: ActiveWorkbenchWindowId): boolean {
     const layout = workbenchWindowLayout(window);
     if (!layout.visible) return false;
-    return window === "tilemap"
-      ? workspaceMode === "tilemap"
-      : window === "palette" || window === "dithering" || window === "paint-colors"
-        ? workspaceMode === "palette"
-        : true;
+    if (window === "tilemap") return workspaceMode === "tilemap";
+    if (window === "paint-colors") return bitmapEditorActiveSide !== null;
+    if (window === "dithering") return workspaceMode === "palette";
+    return true;
   }
 
   function workbenchDockWindows(dock: "bottom" | "left" | "right"): readonly ActiveWorkbenchWindowId[] {
@@ -2172,13 +2180,15 @@ export function App() {
     destinationMinimized = workbenchWindowLayout(window).minimized,
   ): void {
     if (!workbenchWindowCanDock(window, dock)) return;
+    if (dock === "bottom" && workbenchBottomHeight <= 0) setWorkbenchBottomHeight(240);
+    const nextMinimized = window === "paint-colors" ? false : destinationMinimized;
     setWorkbenchWindowLayouts((current) => {
-      const next = moveWorkbenchWindowDock(current, window, dock, destinationMinimized);
+      const next = moveWorkbenchWindowDock(current, window, dock, nextMinimized);
       return {
         ...next,
         [window]: {
           ...next[window],
-          open: destinationMinimized ? next[window].open : true,
+          open: nextMinimized ? next[window].open : true,
         },
       };
     });
@@ -2410,8 +2420,8 @@ export function App() {
   const workbenchHasFloatingSections =
     (workbenchWindowLayout("geometry").visible && workbenchGeometryFloating) ||
     (workbenchWindowLayout("adjustments").visible && workbenchAdjustmentsFloating) ||
-    (workbenchWindowLayout("palette").visible && workspaceMode === "palette" && workbenchPaletteFloating) ||
-    (workbenchWindowLayout("paint-colors").visible && workspaceMode === "palette" && workbenchPaintColorsFloating) ||
+    (workbenchWindowLayout("palette").visible && workbenchPaletteFloating) ||
+    (workbenchWindowLayout("paint-colors").visible && bitmapEditorActiveSide !== null && workbenchPaintColorsFloating) ||
     (workbenchWindowLayout("dithering").visible && workspaceMode === "palette" && workbenchDitheringFloating) ||
     (workbenchWindowLayout("tilemap").visible && workspaceMode === "tilemap" && workbenchTilemapFloating);
   const workbenchToolsFloating = workbenchToolsDock === "floating";
@@ -2426,8 +2436,8 @@ export function App() {
   const workbenchHasDockedSettingsSections =
     (workbenchWindowLayout("geometry").visible && !workbenchGeometryFloating) ||
     (workbenchWindowLayout("adjustments").visible && !workbenchAdjustmentsFloating) ||
-    (workbenchWindowLayout("palette").visible && workspaceMode === "palette" && !workbenchPaletteFloating) ||
-    (workbenchWindowLayout("paint-colors").visible && workspaceMode === "palette" && !workbenchPaintColorsFloating) ||
+    (workbenchWindowLayout("palette").visible && !workbenchPaletteFloating) ||
+    (workbenchWindowLayout("paint-colors").visible && bitmapEditorActiveSide !== null && !workbenchPaintColorsFloating) ||
     (workbenchWindowLayout("dithering").visible && workspaceMode === "palette" && !workbenchDitheringFloating) ||
     (workbenchWindowLayout("tilemap").visible && workspaceMode === "tilemap" && !workbenchTilemapFloating);
   const workbenchSettingsDockEmpty = workbenchHasFloatingSections && !workbenchHasDockedSettingsSections;
@@ -2582,12 +2592,15 @@ export function App() {
 
   function startWorkbenchResize(dock: WorkbenchDock, event: ReactPointerEvent<HTMLDivElement>): void {
     event.preventDefault();
+    const bottomDockMinimum = dock === "bottom" && bitmapEditorActiveSide !== null && workbenchHasBottomDockWindows
+      ? 120
+      : 0;
     workbenchResizeRef.current = {
       kind: "dock",
       dock,
       startPointer: dock === "bottom" ? event.clientY : event.clientX,
       startDockWidth: dock === "left" ? workbenchLeftWidth : dock === "right" ? workbenchRightWidth : 0,
-      startBottomHeight: workbenchBottomHeight,
+      startBottomHeight: dock === "bottom" ? Math.max(bottomDockMinimum, workbenchBottomHeight) : workbenchBottomHeight,
     };
     document.body.style.userSelect = "none";
     document.body.style.cursor = dock === "bottom" ? "ns-resize" : "ew-resize";
@@ -2790,7 +2803,8 @@ export function App() {
 
   function adjustWorkbenchSize(dock: WorkbenchDock, delta: number): void {
     if (dock === "bottom") {
-      setWorkbenchBottomHeight((height) => Math.min(480, Math.max(0, height + delta)));
+      const minimumHeight = bitmapEditorActiveSide !== null && workbenchHasBottomDockWindows ? 120 : 0;
+      setWorkbenchBottomHeight((height) => Math.min(480, Math.max(minimumHeight, height + delta)));
       return;
     }
     if (dock === "left") {
@@ -3148,9 +3162,10 @@ export function App() {
     const handlePointerMove = (event: PointerEvent): void => {
       const resize = workbenchResizeRef.current;
       if (resize !== null && resize.kind === "dock" && resize.dock === "bottom") {
+        const minimumHeight = bitmapEditorActiveSide !== null && workbenchHasBottomDockWindows ? 120 : 0;
         const nextSize = snapWorkbenchSize(
           resize.startBottomHeight + resize.startPointer - event.clientY,
-          0,
+          minimumHeight,
           480,
         );
         setWorkbenchBottomHeight(nextSize);
@@ -13382,16 +13397,18 @@ export function App() {
 
       <section
         ref={workbenchRootRef}
-        className={`proof workspace workbench-workspace workbench-settings-${workbenchSettingsDock} workbench-settings-${workbenchSettingsMinimized ? "minimized" : "expanded"}${bitmapEditorActiveSide !== null ? " workbench-bitmap-editor-active" : ""}`}
+        className={`proof workspace workbench-workspace workbench-settings-${workbenchSettingsDock} workbench-settings-${workbenchSettingsMinimized ? "minimized" : "expanded"}${bitmapEditorActiveSide !== null ? " workbench-bitmap-editor-active" : ""}${bitmapEditorActiveSide !== null && workbenchHasBottomDockWindows ? " workbench-bitmap-editor-bottom-dock" : ""}`}
         data-preview-layout={previewLayout}
         data-left-dock-collapsed={bitmapEditorActiveSide !== null ? "false" : !workbenchHasLeftDock || workbenchLeftWidth <= 0 ? "true" : "false"}
-        data-right-dock-collapsed={bitmapEditorActiveSide !== null ? "true" : !workbenchHasRightDock || workbenchRightWidth <= 0 ? "true" : "false"}
-        data-bottom-dock-collapsed={bitmapEditorActiveSide !== null ? "true" : !workbenchHasBottomDockWindows || workbenchBottomHeight <= 0 ? "true" : "false"}
+        data-right-dock-collapsed={!workbenchHasRightDock || workbenchRightWidth <= 0 ? "true" : "false"}
+        data-bottom-dock-collapsed={bitmapEditorActiveSide !== null
+          ? workbenchHasBottomDockWindows ? "false" : "true"
+          : !workbenchHasBottomDockWindows || workbenchBottomHeight <= 0 ? "true" : "false"}
         style={{
           "--workbench-side-width": `${workbenchSettingsSideWidth}px`,
           "--workbench-left-dock-width": `${bitmapEditorActiveSide !== null ? Math.max(280, Math.min(360, workbenchLeftWidth || 300)) : workbenchHasLeftDock ? workbenchLeftWidth : 0}px`,
-          "--workbench-right-dock-width": `${bitmapEditorActiveSide !== null ? 0 : workbenchHasRightDock ? workbenchRightWidth : 0}px`,
-          "--workbench-bottom-height": `${bitmapEditorActiveSide !== null ? 0 : workbenchHasBottomDockWindows ? workbenchBottomHeight : 0}px`,
+          "--workbench-right-dock-width": `${workbenchHasRightDock ? workbenchRightWidth : 0}px`,
+          "--workbench-bottom-height": `${bitmapEditorActiveSide !== null ? workbenchHasBottomDockWindows ? Math.max(120, workbenchBottomHeight) : 0 : workbenchHasBottomDockWindows ? workbenchBottomHeight : 0}px`,
           "--workbench-floating-x": `${workbenchFloatingX}px`,
           "--workbench-floating-y": `${workbenchFloatingY}px`,
           "--workbench-settings-floating-width": `${workbenchSettingsFloatingWidth}px`,
@@ -13867,8 +13884,14 @@ export function App() {
             <fieldset className="orientation-control">
               <legend>Mirror</legend>
               <div className="mirror-actions">
-                <label className="check-control mirror-toggle" title="Mirror horizontally">
-                  <input aria-label="Mirror horizontally" type="checkbox" checked={mirrorHorizontal} onChange={(event) => { setMirrorHorizontal(event.target.checked); setState({ kind: "idle" }); }} />
+                <button
+                  className="mirror-toggle"
+                  type="button"
+                  aria-label="Mirror horizontally"
+                  aria-pressed={mirrorHorizontal}
+                  title="Mirror horizontally (left to right)"
+                  onClick={() => { setMirrorHorizontal((current) => !current); setState({ kind: "idle" }); }}
+                >
                   <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                     <defs>
                       <pattern id="mirror-horizontal-hatch" width="3" height="3" patternTransform="rotate(35)" patternUnits="userSpaceOnUse">
@@ -13879,9 +13902,15 @@ export function App() {
                     <path className="mirror-icon-hatched" d="M13.6 4 22 20h-8.4Z" />
                     <path className="mirror-icon-axis" d="M12 3v18" />
                   </svg>
-                </label>
-                <label className="check-control mirror-toggle mirror-toggle-vertical" title="Mirror vertically">
-                  <input aria-label="Mirror vertically" type="checkbox" checked={mirrorVertical} onChange={(event) => { setMirrorVertical(event.target.checked); setState({ kind: "idle" }); }} />
+                </button>
+                <button
+                  className="mirror-toggle mirror-toggle-vertical"
+                  type="button"
+                  aria-label="Mirror vertically"
+                  aria-pressed={mirrorVertical}
+                  title="Mirror vertically (top to bottom)"
+                  onClick={() => { setMirrorVertical((current) => !current); setState({ kind: "idle" }); }}
+                >
                   <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                     <defs>
                       <pattern id="mirror-vertical-hatch" width="3" height="3" patternTransform="rotate(35)" patternUnits="userSpaceOnUse">
@@ -13892,17 +13921,17 @@ export function App() {
                     <path className="mirror-icon-hatched" d="m3 13.6 9 7.4 9-7.4Z" />
                     <path className="mirror-icon-axis" d="M2 12h20" />
                   </svg>
-                </label>
+                </button>
               </div>
             </fieldset>
             <fieldset className="pan-control">
               <legend>Position</legend>
               <div className="pan-pad" aria-label="Adjust image position by one output pixel">
-                <button className="pan-up" type="button" aria-label="Move bitmap up one pixel" title="Move bitmap up one pixel" disabled={panOffsetY <= -panMaximumY} onClick={() => { setPanOffsetY(Math.max(-panMaximumY, panOffsetY - 1)); setState({ kind: "idle" }); }}>▲</button>
-                <button className="pan-left" type="button" aria-label="Move bitmap left one pixel" title="Move bitmap left one pixel" disabled={panOffsetX <= -panMaximumX} onClick={() => { setPanOffsetX(Math.max(-panMaximumX, panOffsetX - 1)); setState({ kind: "idle" }); }}>◀</button>
+                <button className="pan-up" type="button" aria-label="Move bitmap up one pixel" title="Move bitmap up one pixel" disabled={panOffsetY <= -panMaximumY} onClick={() => { setPanOffsetY((current) => Math.max(-panMaximumY, current - 1)); setState({ kind: "idle" }); }}>▲</button>
+                <button className="pan-left" type="button" aria-label="Move bitmap left one pixel" title="Move bitmap left one pixel" disabled={panOffsetX <= -panMaximumX} onClick={() => { setPanOffsetX((current) => Math.max(-panMaximumX, current - 1)); setState({ kind: "idle" }); }}>◀</button>
                 <button className="pan-center" type="button" aria-label="Center bitmap" title="Center bitmap" disabled={panOffsetX === 0 && panOffsetY === 0} onClick={() => { setPanOffsetX(0); setPanOffsetY(0); setState({ kind: "idle" }); }}>●</button>
-                <button className="pan-right" type="button" aria-label="Move bitmap right one pixel" title="Move bitmap right one pixel" disabled={panOffsetX >= panMaximumX} onClick={() => { setPanOffsetX(Math.min(panMaximumX, panOffsetX + 1)); setState({ kind: "idle" }); }}>▶</button>
-                <button className="pan-down" type="button" aria-label="Move bitmap down one pixel" title="Move bitmap down one pixel" disabled={panOffsetY >= panMaximumY} onClick={() => { setPanOffsetY(Math.min(panMaximumY, panOffsetY + 1)); setState({ kind: "idle" }); }}>▼</button>
+                <button className="pan-right" type="button" aria-label="Move bitmap right one pixel" title="Move bitmap right one pixel" disabled={panOffsetX >= panMaximumX} onClick={() => { setPanOffsetX((current) => Math.min(panMaximumX, current + 1)); setState({ kind: "idle" }); }}>▶</button>
+                <button className="pan-down" type="button" aria-label="Move bitmap down one pixel" title="Move bitmap down one pixel" disabled={panOffsetY >= panMaximumY} onClick={() => { setPanOffsetY((current) => Math.min(panMaximumY, current + 1)); setState({ kind: "idle" }); }}>▼</button>
               </div>
             </fieldset>
             <fieldset className="pan-edge-control edge-control">
@@ -14430,7 +14459,7 @@ export function App() {
                 data-dock={paintLayout.dock}
                 data-minimized={paintLayout.minimized ? "true" : "false"}
                 data-orientation={paintOrientation}
-                hidden={!paintLayout.visible}
+                hidden={!paintLayout.visible || bitmapEditorActiveSide === null}
                 open={paintLayout.open && !paintLayout.minimized}
                 style={workbenchDockWindowStyle("paint-colors", workbenchPaintColorsFloating ? {
                   position: "absolute",
@@ -14446,6 +14475,28 @@ export function App() {
               >
                 <summary onPointerDown={(event) => startWorkbenchTitlebarDrag("paint-colors", event)} onKeyDown={(event) => handleWorkbenchTitlebarKeyDown("paint-colors", event)} onClick={(event) => handleWorkbenchTitlebarClick("paint-colors", event)}>
                   <span>Paint colors</span>
+                  {displayedResult?.platformId === "zx-spectrum" ? (
+                    <button
+                      className="paint-colors-orientation-switch"
+                      type="button"
+                      role="switch"
+                      aria-label="Use grid arrangement for paint colors"
+                      aria-checked={paintOrientation === "columns"}
+                      title={`Color arrangement: ${paintOrientation === "columns" ? "GRID" : "ROWS"}`}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        updateWorkbenchWindowLayout("paint-colors", (layout) => ({
+                          ...layout,
+                          contentOrientation: layout.contentOrientation === "columns" ? "rows" : "columns",
+                        }));
+                      }}
+                    >
+                      <span>{paintOrientation === "columns" ? "GRID" : "ROWS"}</span>
+                      <span className="paint-colors-orientation-knob" aria-hidden="true" />
+                    </button>
+                  ) : null}
                   {workbenchWindowActions("paint-colors")}
                   {workbenchPaintColorsFloating ? <span className="workbench-window-drag-handle" role="button" tabIndex={0} aria-label="Move Paint colors window" title="Drag to move Paint colors" onPointerDown={(event) => startWorkbenchSectionDrag("paint-colors", event)} onClick={(event) => { event.preventDefault(); event.stopPropagation(); }} onKeyDown={(event) => {
                     const step = event.shiftKey ? 32 : 8;
@@ -14463,10 +14514,6 @@ export function App() {
                 }} /> : null}
                 <div className={`paint-colors-content paint-colors-content-${paintOrientation}`}>
                   {displayedResult?.platformId === "zx-spectrum" ? <>
-                    <div className="paint-colors-orientation" role="group" aria-label="Paint color arrangement">
-                      <button type="button" aria-pressed={paintOrientation === "rows"} onClick={() => updateWorkbenchWindowLayout("paint-colors", (layout) => ({ ...layout, contentOrientation: "rows" }))}>Rows</button>
-                      <button type="button" aria-pressed={paintOrientation === "columns"} onClick={() => updateWorkbenchWindowLayout("paint-colors", (layout) => ({ ...layout, contentOrientation: "columns" }))}>Columns</button>
-                    </div>
                     {(["ink", "paper"] as const).map((kind) => {
                       const active = kind === "ink" ? bitmapEditorInkColor : bitmapEditorPaperColor;
                       const update = kind === "ink" ? setBitmapEditorInkColor : setBitmapEditorPaperColor;

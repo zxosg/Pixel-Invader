@@ -428,26 +428,26 @@ export function frameRgbaToDimensions(
   }
 
   function composited(sampleX: number, sampleY: number, channel: number): number {
-    // Mirror in the oriented image coordinate system. This keeps horizontal
-    // and vertical mirror controls aligned with the visible image after rotation.
-    const orientedX = mirrorHorizontal ? sourceWidth - 1 - sampleX : sampleX;
-    const orientedY = mirrorVertical ? sourceHeight - 1 - sampleY : sampleY;
-    let mirroredX: number;
-    let mirroredY: number;
+    // Convert the oriented sample back to source coordinates first, then
+    // apply horizontal/vertical mirroring in the imported image's axes.
+    let sourceX: number;
+    let sourceY: number;
     if (rotation === 90) {
-      mirroredX = orientedY;
-      mirroredY = inputHeight - 1 - orientedX;
+      sourceX = sampleY;
+      sourceY = inputHeight - 1 - sampleX;
     } else if (rotation === 180) {
-      mirroredX = inputWidth - 1 - orientedX;
-      mirroredY = inputHeight - 1 - orientedY;
+      sourceX = inputWidth - 1 - sampleX;
+      sourceY = inputHeight - 1 - sampleY;
     } else if (rotation === 270) {
-      mirroredX = inputWidth - 1 - orientedY;
-      mirroredY = orientedX;
+      sourceX = inputWidth - 1 - sampleY;
+      sourceY = sampleX;
     } else {
-      mirroredX = orientedX;
-      mirroredY = orientedY;
+      sourceX = sampleX;
+      sourceY = sampleY;
     }
-    const sourceOffset = (mirroredY * inputWidth + mirroredX) * 4;
+    if (mirrorHorizontal) sourceX = inputWidth - 1 - sourceX;
+    if (mirrorVertical) sourceY = inputHeight - 1 - sourceY;
+    const sourceOffset = (sourceY * inputWidth + sourceX) * 4;
     const alpha = source[sourceOffset + 3] ?? 255;
     const background = channel === 0
       ? settings.background.r
