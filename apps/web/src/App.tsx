@@ -1254,7 +1254,6 @@ export function App() {
     readonly scrollTop: number;
   } | null>(null);
   const bitmapEditorSelectionPointerRef = useRef<BitmapEditorSelectionPointer | null>(null);
-  const bitmapEditorSpaceRef = useRef(false);
   const existingCharsetSelectionRef =
     useRef<readonly number[] | null>(null);
   const [state, setState] = useState<ConversionState>({ kind: "idle" });
@@ -2592,15 +2591,12 @@ export function App() {
 
   function startWorkbenchResize(dock: WorkbenchDock, event: ReactPointerEvent<HTMLDivElement>): void {
     event.preventDefault();
-    const bottomDockMinimum = dock === "bottom" && bitmapEditorActiveSide !== null && workbenchHasBottomDockWindows
-      ? 120
-      : 0;
     workbenchResizeRef.current = {
       kind: "dock",
       dock,
       startPointer: dock === "bottom" ? event.clientY : event.clientX,
       startDockWidth: dock === "left" ? workbenchLeftWidth : dock === "right" ? workbenchRightWidth : 0,
-      startBottomHeight: dock === "bottom" ? Math.max(bottomDockMinimum, workbenchBottomHeight) : workbenchBottomHeight,
+      startBottomHeight: dock === "bottom" ? Math.max(0, workbenchBottomHeight) : workbenchBottomHeight,
     };
     document.body.style.userSelect = "none";
     document.body.style.cursor = dock === "bottom" ? "ns-resize" : "ew-resize";
@@ -2803,7 +2799,7 @@ export function App() {
 
   function adjustWorkbenchSize(dock: WorkbenchDock, delta: number): void {
     if (dock === "bottom") {
-      const minimumHeight = bitmapEditorActiveSide !== null && workbenchHasBottomDockWindows ? 120 : 0;
+      const minimumHeight = 0;
       setWorkbenchBottomHeight((height) => Math.min(480, Math.max(minimumHeight, height + delta)));
       return;
     }
@@ -3162,7 +3158,7 @@ export function App() {
     const handlePointerMove = (event: PointerEvent): void => {
       const resize = workbenchResizeRef.current;
       if (resize !== null && resize.kind === "dock" && resize.dock === "bottom") {
-        const minimumHeight = bitmapEditorActiveSide !== null && workbenchHasBottomDockWindows ? 120 : 0;
+        const minimumHeight = 0;
         const nextSize = snapWorkbenchSize(
           resize.startBottomHeight + resize.startPointer - event.clientY,
           minimumHeight,
@@ -9455,8 +9451,26 @@ export function App() {
     event.stopPropagation();
     const viewport = side === "source" ? sourceViewportRef.current : resultViewportRef.current;
     if (viewport === null) return;
-    const pan = event.button === 1 || event.button === 2 || bitmapEditorSpaceRef.current;
+    const pan = event.button === 1 || (event.button === 0 && (event.altKey || event.metaKey));
     if (event.button === 2) {
+      bitmapEditorFullPointerRef.current = {
+        side,
+        pointerId: event.pointerId,
+        visited: new Set(),
+        pan: false,
+        nativeCells: false,
+        button: event.button,
+        moved: false,
+        historyCaptured: false,
+        startX: event.clientX,
+        startY: event.clientY,
+        scrollLeft: viewport.scrollLeft,
+        scrollTop: viewport.scrollTop,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      return;
+    }
+    if (pan) {
       bitmapEditorFullPointerRef.current = {
         side,
         pointerId: event.pointerId,
@@ -9624,6 +9638,10 @@ export function App() {
     }
     event.preventDefault();
     event.stopPropagation();
+    if (pointer.button === 2) {
+      pointer.moved ||= Math.abs(event.clientX - pointer.startX) > 2 || Math.abs(event.clientY - pointer.startY) > 2;
+      return;
+    }
     if (pointer.nativeCells) {
       const cell = fullBitmapAttributeCellFromEvent(event);
       if (cell === null) return;
@@ -9933,10 +9951,6 @@ export function App() {
       const direction = event.code === "ArrowLeft" ? "left" : event.code === "ArrowRight" ? "right" : event.code === "ArrowUp" ? "up" : "down";
       event.preventDefault();
       moveBitmapEditorSelectionByArrow(direction);
-    }
-    if (event.code === "Space") {
-      event.preventDefault();
-      bitmapEditorSpaceRef.current = true;
     }
   }
 
@@ -12232,47 +12246,6 @@ export function App() {
         />
         {bitmapEditorColorOperation !== "replace" ? <span className="bitmap-editor-color-help">Each click previews from the saved colors. Repeated changes remain reversible until Apply.</span> : null}
       </div> : null}
-      {bitmapEditorTarget === "result" && displayedResult?.platformId !== "zx-spectrum" && nativePalette.length > 0 ? <div className="bitmap-editor-native-palette" data-editor-group="draw" aria-label="Native result paint palette">{nativePalette.map((color) => <button className={`bitmap-editor-attribute-color${bitmapEditorResultPaletteIndex === color.index ? " selected" : ""}`} type="button" key={color.index} title={`Use palette color ${color.index}`} aria-label={`Use palette color ${color.index}`} aria-pressed={bitmapEditorResultPaletteIndex === color.index} onClick={() => setBitmapEditorResultPaletteIndex(color.index)}><span style={{ background: `rgb(${color.r} ${color.g} ${color.b})` }} /></button>)}</div> : null}
-      {bitmapEditorTarget === "result" && displayedResult?.platformId === "zx-spectrum" ? <div className="bitmap-editor-attribute-policy" data-editor-group="draw" aria-label="Attribute paint policy">
-        <div className="bitmap-editor-attribute-color-row" role="group" aria-label="INK color">
-          <span className="bitmap-editor-attribute-row-label">INK</span>
-          <div className="bitmap-editor-attribute-color-grid" role="group" aria-label="INK palette">
-            {zxPaletteOptions.map((color) => <button className={`bitmap-editor-attribute-color${bitmapEditorInkColor === color.code ? " selected" : ""}`} type="button" key={color.code} title={`Set INK to ${color.name}`} aria-label={`Set INK to ${color.name}`} aria-pressed={bitmapEditorInkColor === color.code} onClick={() => setBitmapEditorInkColor(color.code)}><span style={{ background: color.normal }} /></button>)}
-            <button className={`bitmap-editor-attribute-icon${bitmapEditorInkColor === null ? " selected" : ""}`} type="button" title="Keep current INK" aria-label="Keep current INK" aria-pressed={bitmapEditorInkColor === null} onClick={() => setBitmapEditorInkColor(null)}><span className="bitmap-editor-transparent-swatch" aria-hidden="true" /></button>
-          </div>
-        </div>
-        <div className="bitmap-editor-attribute-color-row" role="group" aria-label="PAPER color">
-          <span className="bitmap-editor-attribute-row-label">PAPER</span>
-          <div className="bitmap-editor-attribute-color-grid" role="group" aria-label="PAPER palette">
-            {zxPaletteOptions.map((color) => <button className={`bitmap-editor-attribute-color${bitmapEditorPaperColor === color.code ? " selected" : ""}`} type="button" key={color.code} title={`Set PAPER to ${color.name}`} aria-label={`Set PAPER to ${color.name}`} aria-pressed={bitmapEditorPaperColor === color.code} onClick={() => setBitmapEditorPaperColor(color.code)}><span style={{ background: color.normal }} /></button>)}
-            <button className={`bitmap-editor-attribute-icon${bitmapEditorPaperColor === null ? " selected" : ""}`} type="button" title="Keep current PAPER" aria-label="Keep current PAPER" aria-pressed={bitmapEditorPaperColor === null} onClick={() => setBitmapEditorPaperColor(null)}><span className="bitmap-editor-transparent-swatch" aria-hidden="true" /></button>
-          </div>
-        </div>
-        <div className="bitmap-editor-attribute-policy-row">
-          <span className="bitmap-editor-policy-symbol" aria-hidden="true">☀</span>
-          <SegmentedControl
-            className="bitmap-editor-segmented"
-            classNames={BITMAP_EDITOR_SEGMENTED_CLASSES}
-            fullWidth
-            aria-label="BRIGHT policy"
-            value={bitmapEditorBrightPolicy === true ? "on" : bitmapEditorBrightPolicy === false ? "off" : "preserve"}
-            data={[{ value: "on", label: "On" }, { value: "off", label: "Off" }, { value: "preserve", label: "Keep" }]}
-            onChange={(value) => setBitmapEditorBrightPolicy(value === "on" ? true : value === "off" ? false : null)}
-          />
-        </div>
-        <div className="bitmap-editor-attribute-policy-row">
-          <span className="bitmap-editor-policy-symbol" aria-hidden="true">ϟ</span>
-          <SegmentedControl
-            className="bitmap-editor-segmented"
-            classNames={BITMAP_EDITOR_SEGMENTED_CLASSES}
-            fullWidth
-            aria-label="FLASH policy"
-            value={bitmapEditorFlashPolicy === true ? "on" : bitmapEditorFlashPolicy === false ? "off" : "preserve"}
-            data={[{ value: "on", label: "On" }, { value: "off", label: "Off" }, { value: "preserve", label: "Keep" }]}
-            onChange={(value) => setBitmapEditorFlashPolicy(value === "on" ? true : value === "off" ? false : null)}
-          />
-        </div>
-      </div> : null}
       <div className="bitmap-editor-region-tools" data-editor-group="selection" aria-label="Region selection tools">
         <div className="bitmap-editor-region-buttons">
           <SegmentedControl
@@ -12651,7 +12624,7 @@ export function App() {
               {bitmapEditorPrimitiveCursor !== null ? <rect className="bitmap-editor-primitive-cursor" x={bitmapEditorPrimitiveCursor.x + 0.1} y={bitmapEditorPrimitiveCursor.y + 0.1} width="0.8" height="0.8" /> : null}
             </svg> : null}
             {(bitmapEditorSelectionDraft ?? bitmapEditorRegionSelection) !== null ? <svg className="bitmap-editor-selection-overlay" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-hidden="true"><path d={bitmapSelectionOutlinePath((bitmapEditorSelectionDraft ?? bitmapEditorRegionSelection)!)} />{bitmapEditorSelectionResizeHandles(bitmapEditorSelectionDraft ?? bitmapEditorRegionSelection!).map((handle, index) => <rect className="bitmap-editor-selection-handle" key={index} {...handle} />)}</svg> : null}
-            <div className={`bitmap-editor-interaction-layer${bitmapEditorToolMode === "selection" ? " selection-mode" : ""}${bitmapEditorToolMode === "selection" && bitmapEditorSelectionTool !== "none" ? " selecting" : ""}${bitmapEditorPasteMode !== null ? " pasting" : ""}${bitmapEditorRegionSelection !== null ? " has-selection" : ""}`} role="grid" tabIndex={0} aria-label={`Bitmap editor ${width} by ${height} pixels`} onContextMenu={(event) => event.preventDefault()} onDoubleClick={clearBitmapEditorSelectionOnDoubleClick} onKeyDown={handleFullBitmapCanvasKeyDown} onKeyUp={(event) => { if (event.code === "Space") bitmapEditorSpaceRef.current = false; }} onPointerDown={(event) => beginFullBitmapPointer(side, event)} onPointerMove={moveFullBitmapPointer} onPointerUp={endFullBitmapPointer} onPointerCancel={endFullBitmapPointer} />
+            <div className={`bitmap-editor-interaction-layer${bitmapEditorToolMode === "selection" ? " selection-mode" : ""}${bitmapEditorToolMode === "selection" && bitmapEditorSelectionTool !== "none" ? " selecting" : ""}${bitmapEditorPasteMode !== null ? " pasting" : ""}${bitmapEditorRegionSelection !== null ? " has-selection" : ""}`} role="grid" tabIndex={0} aria-label={`Bitmap editor ${width} by ${height} pixels`} onContextMenu={(event) => event.preventDefault()} onDoubleClick={clearBitmapEditorSelectionOnDoubleClick} onKeyDown={handleFullBitmapCanvasKeyDown} onPointerDown={(event) => beginFullBitmapPointer(side, event)} onPointerMove={moveFullBitmapPointer} onPointerUp={endFullBitmapPointer} onPointerCancel={endFullBitmapPointer} />
           </div>
         </div>}
       </div>
@@ -13401,14 +13374,12 @@ export function App() {
         data-preview-layout={previewLayout}
         data-left-dock-collapsed={bitmapEditorActiveSide !== null ? "false" : !workbenchHasLeftDock || workbenchLeftWidth <= 0 ? "true" : "false"}
         data-right-dock-collapsed={!workbenchHasRightDock || workbenchRightWidth <= 0 ? "true" : "false"}
-        data-bottom-dock-collapsed={bitmapEditorActiveSide !== null
-          ? workbenchHasBottomDockWindows ? "false" : "true"
-          : !workbenchHasBottomDockWindows || workbenchBottomHeight <= 0 ? "true" : "false"}
+        data-bottom-dock-collapsed={!workbenchHasBottomDockWindows || workbenchBottomHeight <= 0 ? "true" : "false"}
         style={{
           "--workbench-side-width": `${workbenchSettingsSideWidth}px`,
           "--workbench-left-dock-width": `${bitmapEditorActiveSide !== null ? Math.max(280, Math.min(360, workbenchLeftWidth || 300)) : workbenchHasLeftDock ? workbenchLeftWidth : 0}px`,
           "--workbench-right-dock-width": `${workbenchHasRightDock ? workbenchRightWidth : 0}px`,
-          "--workbench-bottom-height": `${bitmapEditorActiveSide !== null ? workbenchHasBottomDockWindows ? Math.max(120, workbenchBottomHeight) : 0 : workbenchHasBottomDockWindows ? workbenchBottomHeight : 0}px`,
+          "--workbench-bottom-height": `${workbenchHasBottomDockWindows ? workbenchBottomHeight : 0}px`,
           "--workbench-floating-x": `${workbenchFloatingX}px`,
           "--workbench-floating-y": `${workbenchFloatingY}px`,
           "--workbench-settings-floating-width": `${workbenchSettingsFloatingWidth}px`,
@@ -14477,12 +14448,12 @@ export function App() {
                   <span>Paint colors</span>
                   {displayedResult?.platformId === "zx-spectrum" ? (
                     <button
-                      className="paint-colors-orientation-switch"
+                      className="paint-colors-orientation-control"
                       type="button"
                       role="switch"
-                      aria-label="Use grid arrangement for paint colors"
+                      aria-label="Paint colors orientation"
                       aria-checked={paintOrientation === "columns"}
-                      title={`Color arrangement: ${paintOrientation === "columns" ? "GRID" : "ROWS"}`}
+                      title={`Color layout: ${paintOrientation === "columns" ? "Vertical" : "Horizontal"}`}
                       onPointerDown={(event) => event.stopPropagation()}
                       onClick={(event) => {
                         event.preventDefault();
@@ -14493,8 +14464,10 @@ export function App() {
                         }));
                       }}
                     >
-                      <span>{paintOrientation === "columns" ? "GRID" : "ROWS"}</span>
-                      <span className="paint-colors-orientation-knob" aria-hidden="true" />
+                      <span className="paint-colors-orientation-switch" aria-hidden="true">
+                        <span className="paint-colors-orientation-knob" aria-hidden="true" />
+                      </span>
+                      <span className="paint-colors-orientation-label">{paintOrientation === "columns" ? "Vertical" : "Horizontal"}</span>
                     </button>
                   ) : null}
                   {workbenchWindowActions("paint-colors")}
@@ -14520,14 +14493,14 @@ export function App() {
                       return <div className="paint-colors-role-row" data-color-role={kind} key={kind}>
                         <strong aria-hidden="true">{kind === "ink" ? "I" : "P"}</strong>
                         <div className="paint-colors-swatches" role="group" aria-label={`${kind.toUpperCase()} paint color`}>
-                          {ZX_BASE_COLORS.map((color) => <button className={`bitmap-editor-attribute-color${active === color.code ? " selected" : ""}`} type="button" key={color.code} title={`Set ${kind.toUpperCase()} to ${color.name}`} aria-label={`Set ${kind.toUpperCase()} to ${color.name}`} aria-pressed={active === color.code} onClick={() => update(color.code)}><span style={{ background: paintColor(color.code) }} /></button>)}
                           <button className={`bitmap-editor-attribute-icon${active === null ? " selected" : ""}`} type="button" title={`Keep current ${kind.toUpperCase()}`} aria-label={`Keep current ${kind.toUpperCase()}`} aria-pressed={active === null} onClick={() => update(null)}><span className="bitmap-editor-transparent-swatch" aria-hidden="true" /></button>
+                          {ZX_BASE_COLORS.map((color) => <button className={`bitmap-editor-attribute-color${active === color.code ? " selected" : ""}`} type="button" key={color.code} title={`Set ${kind.toUpperCase()} to ${color.name}`} aria-label={`Set ${kind.toUpperCase()} to ${color.name}`} aria-pressed={active === color.code} onClick={() => update(color.code)}><span style={{ background: paintColor(color.code) }} /></button>)}
                         </div>
                         <div className="paint-colors-flag" aria-label={kind === "ink" ? "BRIGHT" : "FLASH"}>
                           <strong aria-hidden="true">{kind === "ink" ? "☀" : "ϟ"}</strong>
                           {kind === "ink"
-                            ? <>{policyButton("BRIGHT", true, bitmapEditorBrightPolicy, setBitmapEditorBrightPolicy)}{policyButton("BRIGHT", false, bitmapEditorBrightPolicy, setBitmapEditorBrightPolicy)}{policyButton("BRIGHT", null, bitmapEditorBrightPolicy, setBitmapEditorBrightPolicy)}</>
-                            : <>{policyButton("FLASH", true, bitmapEditorFlashPolicy, setBitmapEditorFlashPolicy)}{policyButton("FLASH", false, bitmapEditorFlashPolicy, setBitmapEditorFlashPolicy)}{policyButton("FLASH", null, bitmapEditorFlashPolicy, setBitmapEditorFlashPolicy)}</>}
+                            ? <>{policyButton("BRIGHT", null, bitmapEditorBrightPolicy, setBitmapEditorBrightPolicy)}{policyButton("BRIGHT", true, bitmapEditorBrightPolicy, setBitmapEditorBrightPolicy)}{policyButton("BRIGHT", false, bitmapEditorBrightPolicy, setBitmapEditorBrightPolicy)}</>
+                            : <>{policyButton("FLASH", null, bitmapEditorFlashPolicy, setBitmapEditorFlashPolicy)}{policyButton("FLASH", true, bitmapEditorFlashPolicy, setBitmapEditorFlashPolicy)}{policyButton("FLASH", false, bitmapEditorFlashPolicy, setBitmapEditorFlashPolicy)}</>}
                         </div>
                       </div>;
                     })}

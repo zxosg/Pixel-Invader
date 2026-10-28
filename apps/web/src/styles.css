@@ -4339,6 +4339,7 @@ input[type="range"] {
 .bitmap-editor-stipple-toggle {
   grid-template-columns: auto 1fr !important;
   align-items: center;
+  color: #d6deea;
 }
 
 .bitmap-editor-primitives {
@@ -4551,6 +4552,7 @@ input[type="range"] {
   align-items: center;
   gap: 0.2rem;
   white-space: nowrap;
+  color: #d6deea;
 }
 
 .bitmap-editor-stipple-picker {
@@ -4906,43 +4908,41 @@ input[type="range"] {
 .paint-colors-orientation-switch {
   position: relative;
   display: flex;
-  flex: 0 0 3.2rem;
+  flex: 0 0 2.4rem;
   box-sizing: border-box;
   align-items: center;
   justify-content: flex-start;
-  width: 3.2rem;
-  height: 1.3rem;
-  min-width: 3.2rem;
-  min-height: 1.3rem;
-  padding: 0 1.15rem 0 0.4rem;
+  width: 2.4rem;
+  height: 0.975rem;
+  min-width: 2.4rem;
+  min-height: 0.975rem;
+  padding: 0;
   border: 1px solid #54708f;
   border-radius: 999px;
   background: #28364a;
   color: #e8edf5;
-  font-size: 0.62rem;
+  font-size: 0.46rem;
   font-weight: 700;
   line-height: 1;
   cursor: pointer;
 }
 
-.paint-colors-orientation-switch[aria-checked="true"] {
+.paint-colors-orientation-control[aria-checked="true"] .paint-colors-orientation-switch {
   justify-content: flex-start;
   border-color: #38a9d2;
   background: #168ab5;
 }
 
-.paint-colors-orientation-switch[aria-checked="false"] {
+.paint-colors-orientation-control[aria-checked="false"] .paint-colors-orientation-switch {
   justify-content: flex-end;
-  padding-right: 0.4rem;
-  padding-left: 1.15rem;
 }
 
 .paint-colors-orientation-knob {
   position: absolute;
-  top: 0.1rem;
-  left: 0.1rem;
-  width: 1rem;
-  height: 1rem;
+  top: 0.075rem;
+  left: 0.075rem;
+  width: 0.75rem;
+  height: 0.75rem;
   border: 1px solid #dbe4ef;
   border-radius: 50%;
   background: #f4f7fb;
@@ -4950,8 +4950,28 @@ input[type="range"] {
   transition: left 120ms ease;
 }
 
-.paint-colors-orientation-switch[aria-checked="true"] .paint-colors-orientation-knob {
-  left: calc(100% - 1.1rem);
+.paint-colors-orientation-control[aria-checked="true"] .paint-colors-orientation-knob {
+  left: calc(100% - 0.825rem);
+}
+
+.paint-colors-orientation-control {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.paint-colors-orientation-label {
+  color: #e8edf5;
+  font-size: 0.62rem;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .paint-colors-role-row {
