@@ -31,7 +31,11 @@ const page = await browser.newPage({ viewport: { width: 1600, height: 1000 }, ac
 page.on("console", (m) => { if (m.type() === "error") problems.push(`console: ${m.text()}`); });
 page.on("pageerror", (e) => problems.push(`pageerror: ${e.message}`));
 
-const shot = async (name) => { await page.screenshot({ path: join(outDir, `${name}.png`) }); report.steps.push(name); };
+const shot = async (name) => {
+  await page.screenshot({ path: join(outDir, `${name}.png`), animations: "disabled" });
+  writeFileSync(join(outDir, `${name}.html`), await page.evaluate(() => document.body.innerHTML));
+  report.steps.push(name);
+};
 const settle = (ms = 400) => page.waitForTimeout(ms);
 const expect = (cond, message) => { if (!cond) problems.push(`assert: ${message}`); };
 const menu = async (label) => { await page.getByRole("button", { name: label, exact: true }).click(); await settle(250); };
