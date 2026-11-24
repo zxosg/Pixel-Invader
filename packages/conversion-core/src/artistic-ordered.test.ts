@@ -327,7 +327,7 @@ describe("Artistic ordered hybrid v1", () => {
     expect(()=>assertCompatibleEngines("pmd-85","pmd85-cell-v1",base.ditherEngineId)).not.toThrow();
     expect(()=>assertCompatibleEngines("sinclair-ql",base.attributeOptimizerId,base.ditherEngineId)).not.toThrow();
     expect(() => convertToZx(source,256,192,{...base,modeId:"zx48-mixed-256x192",paletteSelections:[{screenIndex:0,enabledColorIds:[0,7],brightMode:"off"},{screenIndex:1,enabledColorIds:[0,7],brightMode:"off"}]})).not.toThrow();
-    expect(()=>convertToZx(source,256,192,{...base,modeId:"zx48-vertical-spatial-256x192"})).toThrow(/standard or mixed/);
+    expect(()=>convertToZx(source,256,192,{...base,modeId:"zx48-vertical-spatial-256x192"})).toThrow(/does not support hardware mode/);
     expect(DITHER_ENGINES.find(e=>e.id===base.ditherEngineId)?.lifecycle).toBe("experimental");
     expect(DEFAULT_CONVERSION_SETTINGS.ditherEngineId).not.toBe(base.ditherEngineId);
   });

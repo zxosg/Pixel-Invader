@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { CHARSET_ARTIFACT_HEADER_BYTES } from "./encoding.js";
 import {
   createBlankScreen,
   serializeScr,
@@ -112,7 +113,7 @@ describe("ZX charset raw encoding", () => {
     expect(converted.diagnostics.exactMatches).toBe(768);
     expect(converted.artifact.characterCount).toBeLessThanOrEqual(4);
     expect(converted.artifact.bytes.length).toBe(
-      768 + 768 + converted.artifact.characterCount * 8,
+      CHARSET_ARTIFACT_HEADER_BYTES + 768 + 768 + converted.artifact.characterCount * 8,
     );
   });
 
@@ -283,7 +284,7 @@ describe("ZX charset raw encoding", () => {
     );
     expect(converted.artifact.characterCount).toBe(256);
     expect(converted.artifact.transforms).toHaveLength(288);
-    expect(converted.artifact.bytes).toHaveLength(768 + 768 + 288 + 2048);
+    expect(converted.artifact.bytes).toHaveLength(CHARSET_ARTIFACT_HEADER_BYTES + 768 + 768 + 288 + 2048);
     const decoded = decodeCharsetArtifact(converted.artifact.bytes, {
       encoding: "extended",
       characterCount: 256,

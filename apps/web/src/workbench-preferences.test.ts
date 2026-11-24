@@ -40,6 +40,8 @@ describe("workbench preferences", () => {
       geometry: { ...DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.geometry, dock: "left" as const, dockRatio: 1, minimized: false },
       adjustments: { ...DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.adjustments, dock: "right" as const, dockRatio: 3, minimized: false },
       palette: { ...DEFAULT_WORKBENCH_PREFERENCES.windowLayouts.palette, dock: "right" as const, dockRatio: 1, minimized: false },
+      // Minimized windows are excluded from dock normalization, keeping the ratios below exact.
+      "paint-colors": { ...DEFAULT_WORKBENCH_PREFERENCES.windowLayouts["paint-colors"], minimized: true },
     };
     const moved = moveWorkbenchWindowDock(layouts, "tools", "right", false);
     expect(moved.tools.dock).toBe("right");
@@ -99,7 +101,7 @@ describe("workbench preferences", () => {
       toolsFloatingY: 128,
       toolsFloatingWidth: 520,
       toolsFloatingHeight: 360,
-      windowOrder: ["tools", "dithering", "palette", "geometry", "adjustments", "settings", "tilemap", "result", "source"] as const,
+      windowOrder: ["tools", "dithering", "palette", "paint-colors", "geometry", "adjustments", "settings", "tilemap", "result", "source"] as const,
       paletteFloating: true,
       paletteFloatingX: 220,
       paletteFloatingY: 80,
@@ -218,7 +220,7 @@ describe("workbench preferences", () => {
     delete legacy.sourceDockedWidth;
     delete legacy.resultDockedWidth;
     expect(loadWorkbenchPreferences(memoryStorage(JSON.stringify(legacy))).windowOrder)
-      .toEqual(["dithering", "palette", "tools", "settings", "geometry", "adjustments", "tilemap", "source", "result"]);
+      .toEqual(["dithering", "palette", "paint-colors", "tools", "settings", "geometry", "adjustments", "tilemap", "source", "result"]);
   });
 
   it("migrates the legacy four-window order when geometry and adjustments were not floatable", () => {
@@ -227,7 +229,7 @@ describe("workbench preferences", () => {
       windowOrder: ["dithering", "palette", "tools", "settings"],
     };
     expect(loadWorkbenchPreferences(memoryStorage(JSON.stringify(legacy))).windowOrder)
-      .toEqual(["settings", "tools", "geometry", "adjustments", "dithering", "palette", "tilemap", "source", "result"]);
+      .toEqual(["settings", "tools", "geometry", "adjustments", "dithering", "palette", "paint-colors", "tilemap", "source", "result"]);
   });
 
   it("rejects duplicate floating window order entries", () => {
@@ -291,7 +293,7 @@ describe("workbench preferences", () => {
     delete legacy.tilemapFloatingHeight;
     delete legacy.tilemapFloatingAutoHeight;
     expect(loadWorkbenchPreferences(memoryStorage(JSON.stringify(legacy))).windowOrder)
-      .toEqual(["settings", "tools", "geometry", "adjustments", "palette", "dithering", "tilemap", "source", "result"]);
+      .toEqual(["settings", "tools", "geometry", "adjustments", "palette", "paint-colors", "dithering", "tilemap", "source", "result"]);
     expect(loadWorkbenchPreferences(memoryStorage(JSON.stringify(legacy))).tilemapFloating).toBe(false);
   });
 

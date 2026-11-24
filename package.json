@@ -16,7 +16,7 @@
     "dev": "pnpm --filter @retro-converter/zx-spectrum build && pnpm --filter @retro-converter/sinclair-ql build && pnpm --filter @retro-converter/zx-charset build && pnpm --filter @retro-converter/web dev",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm --filter \"./packages/*\" build && pnpm -r typecheck"
   },
   "devDependencies": {
     "typescript": "7.0.2",
