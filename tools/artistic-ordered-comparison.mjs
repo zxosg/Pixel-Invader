@@ -33,7 +33,7 @@ function synthetic(kind) {
   return rgba;
 }
 
-const photo = decodeImage(new Uint8Array(await readFile(new URL("../_comparative%20solutions/ImageJ_dev/Images/selfie.png", import.meta.url))));
+const photo = decodeImage(new Uint8Array(await readFile(new URL("../test-fixtures/selfie.png", import.meta.url))));
 const fixtures = [
   { id: "gradient", rgba: synthetic("gradient"), sourceWidth: width, sourceHeight: height },
   { id: "diagonal-and-features", rgba: synthetic("diagonal-and-features"), sourceWidth: width, sourceHeight: height },

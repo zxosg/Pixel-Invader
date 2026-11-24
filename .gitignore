@@ -6,3 +6,9 @@ test-results/
 .DS_Store
 *.log
 
+
+# Vendored reference material, backups and local stores
+_comparative solutions/
+_backup/
+.pnpm-store/
+*.zip

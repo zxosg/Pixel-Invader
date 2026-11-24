@@ -1,6 +1,6 @@
 # Pixel Invader
 
-Pixel Invader is an Image Convertor powered by Void Engine and OSG^Invaders. It is
+Pixel Invader is an Image Convertor powered by Void Engine and OSG^Invaders (the internal workspace packages keep the historical `@retro-converter/*` scope). It is
 a local-only browser application for deterministic conversion
 of static images into ZX Spectrum 48K, Sinclair QL, and Tesla PMD 85
 screen-memory files.
@@ -11,10 +11,9 @@ The authoritative product baseline is [RC-SRS-001 draft.3](./Retro_Converter_SRS
 
 ### Easiest way on this Mac
 
-Open Terminal, paste the following command, and press Return:
+Open Terminal in the repository root (the folder containing this README), paste the following command, and press Return:
 
 ```sh
-cd /Users/jan/GitHub/OsgConvert
 ./tools/run-dev.sh
 ```
 
@@ -54,7 +53,6 @@ Press **Control-C** in Terminal to stop the application.
 ### Run automated tests
 
 ```sh
-cd /Users/jan/GitHub/OsgConvert
 ./tools/run-tests.sh
 ```
 
@@ -63,7 +61,6 @@ A successful run reports the current test-file and test totals.
 ### Build the production application
 
 ```sh
-cd /Users/jan/GitHub/OsgConvert
 ./tools/run-build.sh
 ```
 
