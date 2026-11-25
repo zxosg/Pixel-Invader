@@ -26,7 +26,7 @@
   grid-template-columns: minmax(0, 1fr);
   align-items: end;
   gap: 0.5rem;
-  border-bottom: 1px solid #33425d;
+  border-bottom: 1px solid var(--color-border-subtle);
   padding-bottom: 0.35rem;
 }
 
@@ -114,7 +114,7 @@
   margin: 0;
   border: 0;
   padding: 0;
-  color: #d6deea;
+  color: var(--color-text-muted);
 }
 
 .profile-control > label {
@@ -218,7 +218,7 @@
   width: 1rem;
   height: 1rem;
   margin: 0;
-  accent-color: #79b7ff;
+  accent-color: var(--color-accent-blue);
 }
 
 .amount-control legend {
@@ -237,7 +237,7 @@
 
 input[type="range"] {
   width: 100%;
-  accent-color: #79b7ff;
+  accent-color: var(--color-accent-blue);
 }
 
 .percentage-entry {
@@ -268,7 +268,7 @@ input[type="range"] {
 
 .status {
   min-height: 1.5rem;
-  color: #d6deea;
+  color: var(--color-text-muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 

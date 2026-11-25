@@ -101,7 +101,7 @@
 .workbench-workspace .workbench-dock-bottom > .workbench-dock-minimized-stack > .workbench-window > summary::before {
   flex: 0 0 auto;
   content: "▸";
-  color: #79b7ff;
+  color: var(--color-accent-blue);
 }
 
 .workbench-workspace .workbench-dock-bottom > .workbench-dock-minimized-stack > .workbench-window[open] > summary::before {
@@ -243,9 +243,9 @@
   min-width: 9.5rem;
   padding: 0.2rem;
   gap: 0.12rem;
-  border: 1px solid #52627d;
+  border: 1px solid var(--color-border-strong);
   border-radius: 0.35rem;
-  background: #111824;
+  background: var(--color-surface-deep);
   box-shadow: 0 0.7rem 1.5rem rgb(0 0 0 / 42%);
 }
 
@@ -271,7 +271,7 @@
 .workbench-workspace .workbench-window-location-popover button:hover,
 .workbench-workspace .workbench-window-location-popover button:focus-visible,
 .workbench-workspace .workbench-window-location-popover button.active {
-  border-color: #79b7ff;
+  border-color: var(--color-accent-blue);
   background: #245b7b;
 }
 
@@ -298,10 +298,10 @@
   min-width: 10rem;
   padding: 0.25rem;
   gap: 0.12rem;
-  border: 1px solid #52627d;
+  border: 1px solid var(--color-border-strong);
   border-radius: 0.4rem;
   color: #d9e4f4;
-  background: #111824;
+  background: var(--color-surface-deep);
   box-shadow: 0 0.7rem 1.5rem rgb(0 0 0 / 65%);
 }
 
@@ -332,6 +332,6 @@
 .workbench-window-location-popover button:hover,
 .workbench-window-location-popover button:focus-visible,
 .workbench-window-location-popover button.active {
-  border-color: #79b7ff;
+  border-color: var(--color-accent-blue);
   background: #245b7b;
 }

@@ -75,10 +75,10 @@
   gap: 0.45rem;
   margin: 0.5rem 1.25rem;
   padding: 0.55rem 0.75rem;
-  border: 1px solid #52627d;
+  border: 1px solid var(--color-border-strong);
   border-radius: 0.45rem;
-  background: #111824;
-  color: #e8edf5;
+  background: var(--color-surface-deep);
+  color: var(--color-text-primary);
   font-family: var(--ui-font-family);
 }
 
@@ -177,7 +177,7 @@
     max-width: calc(100% - 1rem);
     max-height: calc(100% - 1rem);
     overflow: hidden;
-    border: 1px solid #52627d;
+    border: 1px solid var(--color-border-strong);
     border-radius: 0.45rem;
     background: #0b111b;
     box-shadow: 0 0.8rem 2.4rem rgb(0 0 0 / 48%);
@@ -192,7 +192,7 @@
 
   .workbench-workspace .preview-panel-floating .preview-panel-heading {
     min-height: 1.7rem;
-    border-bottom: 1px solid #33425d;
+    border-bottom: 1px solid var(--color-border-subtle);
     background: #172b43;
     cursor: move;
     user-select: none;
@@ -224,8 +224,8 @@
     z-index: 2;
     width: 0.8rem;
     height: 0.8rem;
-    border-right: 2px solid #79b7ff;
-    border-bottom: 2px solid #79b7ff;
+    border-right: 2px solid var(--color-accent-blue);
+    border-bottom: 2px solid var(--color-accent-blue);
     cursor: nwse-resize;
   }
 
@@ -233,7 +233,7 @@
     flex: 0 0 auto;
     width: 1.45rem;
     min-height: 1.35rem;
-    border: 1px solid #52627d;
+    border: 1px solid var(--color-border-strong);
     border-radius: 0.2rem;
     color: #e9f4ff;
     background: transparent;
@@ -245,7 +245,7 @@
   .preview-window-float-action:focus-visible,
   .workbench-floating-resize-handle:focus-visible,
   .preview-docked-resize-handle:focus-visible {
-    outline: 2px solid #ffdc6a;
+    outline: 2px solid var(--color-highlight-yellow);
     outline-offset: 1px;
   }
 

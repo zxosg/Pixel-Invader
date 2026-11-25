@@ -97,10 +97,10 @@
     z-index: auto;
     max-height: 15rem;
     overflow: auto;
-    border: 1px solid #52627d;
+    border: 1px solid var(--color-border-strong);
     border-radius: 0.55rem;
     padding: 0.5rem;
-    background: #111824;
+    background: var(--color-surface-deep);
     box-shadow: 0 1rem 3rem rgb(0 0 0 / 55%);
   }
 
@@ -153,10 +153,10 @@
     align-content: start;
     gap: 0.28rem;
     margin: 0;
-    border: 1px solid #33425d;
+    border: 1px solid var(--color-border-subtle);
     border-radius: 0.45rem;
     padding: 0.32rem;
-    color: #d6deea;
+    color: var(--color-text-muted);
     background: rgb(17 24 36 / 70%);
   }
 
@@ -324,7 +324,7 @@
       7.5rem
       7.5rem;
     align-items: end;
-    border-bottom: 1px solid #33425d;
+    border-bottom: 1px solid var(--color-border-subtle);
     padding-bottom: 0.3rem;
   }
 
@@ -441,10 +441,10 @@
     gap: 0.35rem;
     min-width: 0;
     min-height: 0;
-    border: 1px solid #33425d;
+    border: 1px solid var(--color-border-subtle);
     border-radius: 0.45rem;
     padding: 0.4rem;
-    background: #111824;
+    background: var(--color-surface-deep);
   }
 
   .preview-palette-panel {
@@ -575,8 +575,8 @@
     height: auto;
     max-height: 15.75rem;
     overflow: auto;
-    border: 1px solid #33425d;
-    background: #111824;
+    border: 1px solid var(--color-border-subtle);
+    background: var(--color-surface-deep);
   }
 
   .inspection-drawer > summary {
@@ -656,9 +656,9 @@
     left: 0.5rem;
     max-height: 55vh;
     overflow: auto;
-    border: 1px solid #52627d;
+    border: 1px solid var(--color-border-strong);
     border-radius: 0.55rem;
-    background: #111824;
+    background: var(--color-surface-deep);
     box-shadow: 0 1rem 3rem rgb(0 0 0 / 55%);
   }
 
@@ -703,7 +703,7 @@
     grid-row: 5;
     order: -2;
     min-width: 0;
-    border-top: 1px solid #33425d;
+    border-top: 1px solid var(--color-border-subtle);
     padding-top: 0.3rem;
   }
 

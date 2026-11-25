@@ -10,7 +10,7 @@
   border-radius: 0.55rem;
   background: linear-gradient(180deg, #152135 0%, #101827 100%);
   box-shadow: 0 2px 8px #0003, inset 0 1px #ffffff08;
-  color: #e8edf5;
+  color: var(--color-text-primary);
 }
 
 .workbench-menu-triggers {
@@ -185,7 +185,7 @@
   border: 1px solid transparent;
   border-radius: 0.35rem;
   background: transparent;
-  color: #e8edf5;
+  color: var(--color-text-primary);
   font: inherit;
   font-size: 0.76rem;
   text-align: left;
@@ -340,7 +340,7 @@
   border: 1px solid #34425a;
   border-radius: 0.35rem;
   background: #0b1220;
-  color: #e8edf5;
+  color: var(--color-text-primary);
   font: inherit;
   font-size: 0.74rem;
 }
@@ -367,7 +367,7 @@
   border-radius: 0.75rem;
   background: linear-gradient(180deg, #172337 0%, #101827 100%);
   box-shadow: 0 24px 70px #000c;
-  color: #e8edf5;
+  color: var(--color-text-primary);
 }
 
 .workbench-new-empty-dialog > header,
@@ -396,7 +396,7 @@
   border: 1px solid #394a63;
   border-radius: 0.4rem;
   background: #111b2b;
-  color: #e8edf5;
+  color: var(--color-text-primary);
   font: inherit;
   cursor: pointer;
 }
@@ -510,7 +510,7 @@
   border-radius: 0.85rem;
   background: linear-gradient(155deg, #1a2940 0%, #101827 70%);
   box-shadow: 0 1.5rem 5rem rgb(0 0 0 / 58%), inset 0 1px #ffffff0b;
-  color: #e8edf5;
+  color: var(--color-text-primary);
   text-align: center;
 }
 
@@ -569,7 +569,7 @@
 
 .about-dialog-details dd {
   margin: 0;
-  color: #e8edf5;
+  color: var(--color-text-primary);
   font-variant-numeric: tabular-nums;
 }
 
@@ -735,7 +735,7 @@
 }
 
 .file-picker.secondary-picker {
-  color: #e8edf5;
+  color: var(--color-text-primary);
   background: transparent;
 }
 

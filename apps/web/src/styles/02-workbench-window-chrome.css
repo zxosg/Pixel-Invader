@@ -180,7 +180,7 @@
 
   .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-tools-section-heading {
     margin-bottom: 0.25rem;
-    color: #b8c9df;
+    color: var(--color-text-soft);
     font-size: 0.68rem;
     font-weight: 800;
   }
@@ -296,7 +296,7 @@
 
   .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-navigator-overlay rect {
     fill: rgb(121 183 255 / 20%);
-    stroke: #ffdc6a;
+    stroke: var(--color-highlight-yellow);
     stroke-width: 3;
     vector-effect: non-scaling-stroke;
   }
@@ -438,7 +438,7 @@
 
 .workbench-workspace .dithering-composer-grid .control-row-heading h3 {
   margin: 0;
-  color: #d6deea;
+  color: var(--color-text-muted);
   font-size: var(--ui-label-font-size);
   font-weight: 750;
 }
@@ -589,7 +589,7 @@
   z-index: 32;
   height: 3px;
   content: "";
-  background: #79b7ff;
+  background: var(--color-accent-blue);
   pointer-events: none;
 }
 
@@ -613,7 +613,7 @@
   z-index: 32;
   width: 3px;
   content: "";
-  background: #79b7ff;
+  background: var(--color-accent-blue);
   pointer-events: none;
 }
 
@@ -628,6 +628,6 @@
 }
 
 .workbench-workspace [data-workbench-drop-append="true"] {
-  outline: 2px dashed #79b7ff;
+  outline: 2px dashed var(--color-accent-blue);
   outline-offset: -3px;
 }

@@ -82,7 +82,7 @@
 .bitmap-editor-pending-color-draft {
   flex: 0 0 auto;
   padding: 0.25rem 0.35rem;
-  border: 1px solid #79b7ff;
+  border: 1px solid var(--color-accent-blue);
   border-radius: 0.25rem;
   color: #dbeeff;
   background: #1b2b40;
@@ -142,7 +142,7 @@
   padding: 0;
   border: 1px solid #31415a;
   border-radius: 0.35rem;
-  background: #111824;
+  background: var(--color-surface-deep);
   color: #c5d3e6;
   cursor: pointer;
 }
@@ -200,7 +200,7 @@
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  color: #b8c9df;
+  color: var(--color-text-soft);
   font-size: 0.68rem;
 }
 
@@ -221,7 +221,7 @@
   display: grid;
   gap: 0.15rem;
   min-width: 0;
-  color: #b8c9df;
+  color: var(--color-text-soft);
   font-size: 0.68rem;
 }
 
@@ -239,13 +239,13 @@
   --sc-radius: 0.2rem;
   --sc-font-size: 0.58rem;
   --sc-padding: 0 0.1rem;
-  --separator-color: #52627d;
+  --separator-color: var(--color-border-strong);
   width: 100%;
   min-width: 0;
   overflow: hidden;
-  border: 1px solid #52627d;
+  border: 1px solid var(--color-border-strong);
   border-radius: 0.2rem;
-  background: #52627d;
+  background: var(--color-border-strong);
   padding: 0;
 }
 
@@ -267,7 +267,7 @@
   padding: 0 0.1rem;
   border: 0;
   border-radius: 0;
-  color: #e8edf5;
+  color: var(--color-text-primary);
   background: transparent;
   line-height: 1.2;
   white-space: nowrap;
@@ -283,19 +283,19 @@
 .bitmap-editor-command-segments .bitmap-editor-segment-label[data-active]::before,
 .bitmap-editor-segmented .bitmap-editor-segment-label[data-active]::before {
   background: var(--sc-color);
-  box-shadow: inset 0 0 0 1px #79b7ff;
+  box-shadow: inset 0 0 0 1px var(--color-accent-blue);
 }
 
 .bitmap-editor-command-segments .bitmap-editor-segment-indicator,
 .bitmap-editor-segmented .bitmap-editor-segment-indicator {
-  border: 1px solid #79b7ff;
+  border: 1px solid var(--color-accent-blue);
   border-radius: 0.15rem;
-  box-shadow: inset 0 0 0 1px #79b7ff;
+  box-shadow: inset 0 0 0 1px var(--color-accent-blue);
 }
 
 .bitmap-editor-command-segments[data-with-items-borders] .bitmap-editor-segment-control::before,
 .bitmap-editor-segmented[data-with-items-borders] .bitmap-editor-segment-control::before {
-  background: #52627d;
+  background: var(--color-border-strong);
 }
 
 .bitmap-editor-display-row {
@@ -311,7 +311,7 @@
   align-content: start;
   gap: 0.18rem;
   min-width: 0;
-  color: #b8c9df;
+  color: var(--color-text-soft);
   font-size: 0.66rem;
   font-weight: 750;
 }
@@ -346,7 +346,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  color: #b8c9df;
+  color: var(--color-text-soft);
   font-size: 0.68rem;
 }
 
@@ -354,13 +354,13 @@
   width: 0.9rem;
   height: 0.9rem;
   margin: 0;
-  accent-color: #79b7ff;
+  accent-color: var(--color-accent-blue);
 }
 
 .bitmap-editor-display-tools .bitmap-editor-zoom-tools > span,
 .bitmap-editor-display-tools .bitmap-editor-flash-tools > span {
   min-width: 2.4rem;
-  color: #b8c9df;
+  color: var(--color-text-soft);
   font-size: 0.68rem;
   font-weight: 800;
 }
@@ -375,7 +375,7 @@
   display: grid;
   gap: 0.16rem;
   min-width: 0;
-  color: #b8c9df;
+  color: var(--color-text-soft);
   font-size: 0.66rem;
   font-weight: 750;
 }
@@ -391,7 +391,7 @@
   min-width: 0;
   min-height: 1.35rem;
   padding: 0;
-  border: 1px solid #52627d;
+  border: 1px solid var(--color-border-strong);
   border-radius: 0.18rem;
   background: var(--swatch-color);
   cursor: pointer;
@@ -405,7 +405,7 @@
 
 .bitmap-editor-color-swatches button.selected {
   border: 2px solid #f4f8ff;
-  box-shadow: 0 0 0 1px #79b7ff;
+  box-shadow: 0 0 0 1px var(--color-accent-blue);
 }
 
 .bitmap-editor-color-help {
@@ -429,7 +429,7 @@
   display: grid;
   gap: 0.08rem;
   min-width: 0;
-  color: #b8c9df;
+  color: var(--color-text-soft);
   font-size: 0.65rem;
 }
 
@@ -452,7 +452,7 @@
 }
 
 .bitmap-editor-selection-tool-label {
-  color: #b8c9df;
+  color: var(--color-text-soft);
   font-size: 0.65rem;
   font-weight: 600;
   line-height: 1.2;
@@ -482,7 +482,7 @@
 
 .bitmap-editor-selection-status {
   grid-column: 1 / 3;
-  color: #b8c9df;
+  color: var(--color-text-soft);
   font-size: 0.62rem;
   overflow-wrap: anywhere;
 }
@@ -490,7 +490,7 @@
 .bitmap-editor-stipple-toggle {
   grid-template-columns: auto 1fr !important;
   align-items: center;
-  color: #d6deea;
+  color: var(--color-text-muted);
 }
 
 .bitmap-editor-primitives {
@@ -518,7 +518,7 @@
 }
 
 .bitmap-editor-primitive-kind-button.active {
-  border-color: #79b7ff;
+  border-color: var(--color-accent-blue);
   background: #285b78;
   color: #f4f8ff;
 }
@@ -574,7 +574,7 @@
 }
 
 .bitmap-editor-primitive-color-sample-label {
-  color: #b8c9df;
+  color: var(--color-text-soft);
   font-size: 0.55rem;
   font-weight: 800;
 }
@@ -617,9 +617,9 @@
   width: 100%;
   min-width: 0;
   overflow: hidden;
-  border: 1px solid #52627d;
+  border: 1px solid var(--color-border-strong);
   border-radius: 0.2rem;
-  background: #52627d;
+  background: var(--color-border-strong);
 }
 
 .bitmap-editor-picker-mode-segments {
@@ -628,9 +628,9 @@
   width: 100%;
   min-width: 0;
   overflow: hidden;
-  border: 1px solid #52627d;
+  border: 1px solid var(--color-border-strong);
   border-radius: 0.2rem;
-  background: #52627d;
+  background: var(--color-border-strong);
 }
 
 .bitmap-editor-picker-mode-segments {
@@ -644,10 +644,10 @@
   min-width: 0;
   min-height: 1.25rem;
   padding: 0 0.1rem;
-  border: 1px solid #52627d;
+  border: 1px solid var(--color-border-strong);
   border-radius: 0;
-  background: #52627d;
-  color: #e8edf5;
+  background: var(--color-border-strong);
+  color: var(--color-text-primary);
   font-size: 0.58rem;
   font-weight: 750;
   line-height: 1;
@@ -655,10 +655,10 @@
 }
 
 .bitmap-editor-picker-mode-segments > button.active {
-  border-color: #79b7ff;
+  border-color: var(--color-accent-blue);
   background: #7189aa;
   color: #f4fbff;
-  box-shadow: inset 0 0 0 1px #79b7ff;
+  box-shadow: inset 0 0 0 1px var(--color-accent-blue);
 }
 
 .bitmap-editor-picker-mode-segments > button:disabled {
@@ -668,7 +668,7 @@
 }
 
 .bitmap-editor-tool-array > button {
-  border: 1px solid #52627d;
+  border: 1px solid var(--color-border-strong);
   border-radius: 0;
 }
 
@@ -703,7 +703,7 @@
   align-items: center;
   gap: 0.2rem;
   white-space: nowrap;
-  color: #d6deea;
+  color: var(--color-text-muted);
 }
 
 .bitmap-editor-stipple-picker {
@@ -717,7 +717,7 @@
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 0.3rem;
-  color: #b8c9df;
+  color: var(--color-text-soft);
   font-size: 0.62rem;
 }
 
@@ -739,7 +739,7 @@
   align-content: start;
   gap: 0.15rem;
   min-width: 0;
-  color: #b8c9df;
+  color: var(--color-text-soft);
   font-size: 0.58rem;
   text-align: center;
 }
@@ -770,7 +770,7 @@
   align-items: center;
   gap: 0.35rem;
   min-width: 0;
-  color: #b8c9df;
+  color: var(--color-text-soft);
   font-size: 0.62rem;
 }
 
@@ -819,12 +819,12 @@
   width: 100%;
   border-radius: 0.2rem;
   overflow: hidden;
-  background: #52627d;
+  background: var(--color-border-strong);
 }
 
 .bitmap-editor-operation-split .bitmap-editor-operation-action {
   border-radius: 0;
-  border-color: #52627d;
+  border-color: var(--color-border-strong);
 }
 
 .bitmap-editor-operation-split .bitmap-editor-operation-action:first-child {
@@ -842,12 +842,12 @@
   width: 100%;
   border-radius: 0.2rem;
   overflow: hidden;
-  background: #52627d;
+  background: var(--color-border-strong);
 }
 
 .bitmap-editor-split-action {
   border-radius: 0;
-  border-color: #52627d;
+  border-color: var(--color-border-strong);
 }
 
 .bitmap-editor-split-action:first-child {
@@ -915,7 +915,7 @@
   display: grid;
   gap: 0.12rem;
   margin-top: 0.12rem;
-  border-top: 1px solid #33425d;
+  border-top: 1px solid var(--color-border-subtle);
   padding-top: 0.2rem;
 }
 
@@ -953,10 +953,10 @@
   height: 0.75rem;
   min-height: 0.75rem;
   margin: 0;
-  border: 1px solid #52627d;
+  border: 1px solid var(--color-border-strong);
   border-radius: 0.2rem;
   padding: 0;
-  background: #111824;
+  background: var(--color-surface-deep);
   color: #b9c3d2;
   font-size: 0.65rem;
   line-height: 1;
@@ -965,14 +965,14 @@
 .bitmap-editor-attribute-color.selected,
 .bitmap-editor-attribute-icon.selected,
 .bitmap-editor-full-action.active {
-  border-color: #79b7ff;
-  box-shadow: 0 0 0 1px #79b7ff inset;
+  border-color: var(--color-accent-blue);
+  box-shadow: 0 0 0 1px var(--color-accent-blue) inset;
 }
 
 .bitmap-editor-attribute-policy .bitmap-editor-attribute-color.selected,
 .bitmap-editor-native-palette .bitmap-editor-attribute-color.selected {
   border: 2px solid #f5f8ff;
-  box-shadow: 0 0 0 1px #111824 inset, 0 0 0 1px #79b7ff;
+  box-shadow: 0 0 0 1px var(--color-surface-deep) inset, 0 0 0 1px var(--color-accent-blue);
   z-index: 1;
 }
 
@@ -984,7 +984,7 @@
 
 .bitmap-editor-attribute-color-grid .bitmap-editor-attribute-icon.selected {
   border: 2px solid #f5f8ff;
-  box-shadow: 0 0 0 1px #111824 inset, 0 0 0 1px #79b7ff;
+  box-shadow: 0 0 0 1px var(--color-surface-deep) inset, 0 0 0 1px var(--color-accent-blue);
   z-index: 1;
 }
 
@@ -997,7 +997,7 @@
   left: 50%;
   width: 0.32rem;
   height: 0.32rem;
-  border: 1px solid #111824;
+  border: 1px solid var(--color-surface-deep);
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 0 0 1px rgb(255 255 255 / 75%);
@@ -1017,7 +1017,7 @@
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.12rem;
   margin-top: 0.12rem;
-  border-top: 1px solid #33425d;
+  border-top: 1px solid var(--color-border-subtle);
   padding-top: 0.2rem;
 }
 
@@ -1071,7 +1071,7 @@
   border: 1px solid #54708f;
   border-radius: 999px;
   background: #28364a;
-  color: #e8edf5;
+  color: var(--color-text-primary);
   font-size: 0.46rem;
   font-weight: 700;
   line-height: 1;
@@ -1119,7 +1119,7 @@
 }
 
 .paint-colors-orientation-label {
-  color: #e8edf5;
+  color: var(--color-text-primary);
   font-size: 0.62rem;
   font-weight: 700;
   white-space: nowrap;
@@ -1173,17 +1173,17 @@
   min-width: 0;
   min-height: 0;
   padding: 0;
-  border: 1px solid #52627d;
+  border: 1px solid var(--color-border-strong);
   border-radius: 0.2rem;
-  background: #111824;
+  background: var(--color-surface-deep);
   color: #c9d3e3;
   line-height: 1;
 }
 
 .paint-colors-policy.selected,
 .paint-colors-picker.active {
-  border-color: #79b7ff;
-  box-shadow: 0 0 0 1px #79b7ff inset;
+  border-color: var(--color-accent-blue);
+  box-shadow: 0 0 0 1px var(--color-accent-blue) inset;
 }
 
 .paint-colors-policy .bitmap-editor-transparent-swatch {
@@ -1211,7 +1211,7 @@
   align-content: start;
   justify-items: stretch;
   padding: 0.2rem;
-  border: 1px solid #33425d;
+  border: 1px solid var(--color-border-subtle);
   border-radius: 0.25rem;
 }
 
@@ -1240,7 +1240,7 @@
   align-items: center;
   justify-self: stretch;
   margin-top: 0.2rem;
-  border-top: 1px solid #33425d;
+  border-top: 1px solid var(--color-border-subtle);
   padding-top: 0.15rem;
 }
 
@@ -1267,7 +1267,7 @@
   gap: 0.3rem;
   min-width: 0;
   margin-top: 0.12rem;
-  border-top: 1px solid #33425d;
+  border-top: 1px solid var(--color-border-subtle);
   padding: 0.25rem 0.1rem 0;
   color: #b9c3d2;
   font-size: 0.68rem;
@@ -1291,11 +1291,11 @@
   width: 0.9rem;
   height: 0.9rem;
   margin: 0;
-  accent-color: #79b7ff;
+  accent-color: var(--color-accent-blue);
 }
 
 .tools-flash-radio input:focus-visible + span {
-  outline: 2px solid #79b7ff;
+  outline: 2px solid var(--color-accent-blue);
   outline-offset: 2px;
   border-radius: 0.1rem;
 }
@@ -1331,7 +1331,7 @@
   height: auto;
   aspect-ratio: 4 / 3;
   image-rendering: pixelated;
-  border: 1px solid #33425d;
+  border: 1px solid var(--color-border-subtle);
   border-radius: 0.2rem;
 }
 
@@ -1343,7 +1343,7 @@
   align-self: start;
   min-width: 0;
   margin: 0;
-  border-top: 1px solid #33425d;
+  border-top: 1px solid var(--color-border-subtle);
   padding-top: 0.2rem;
   color: #b9c3d2;
   font-size: 0.5rem;
@@ -1355,10 +1355,10 @@
   place-items: center;
   width: 100%;
   min-height: 2.4rem;
-  border: 1px solid #52627d;
+  border: 1px solid var(--color-border-strong);
   border-radius: 0.2rem;
   overflow: hidden;
-  background: #111824;
+  background: var(--color-surface-deep);
 }
 
 .bitmap-editor-picked-cell-color-preview.empty {
@@ -1377,7 +1377,7 @@
 }
 
 .bitmap-editor-control-heading {
-  color: #b8c9df;
+  color: var(--color-text-soft);
   font-size: 0.68rem;
   font-weight: 750;
   line-height: 1.2;
@@ -1402,7 +1402,7 @@
   width: min(100%, 10rem);
   max-width: 10rem;
   aspect-ratio: 8 / 8;
-  border: 1px solid #52627d;
+  border: 1px solid var(--color-border-strong);
   background: #0a101b;
 }
 

@@ -113,7 +113,7 @@
   .workbench-workspace.workbench-bitmap-editor-active .workbench-window-location-popover {
     z-index: 200;
     padding: 0.3rem;
-    background: #111824;
+    background: var(--color-surface-deep);
     opacity: 1;
   }
 
@@ -162,7 +162,7 @@
   .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-tool-select {
     display: grid;
     gap: 0.15rem;
-    color: #b8c9df;
+    color: var(--color-text-soft);
     font-size: 0.68rem;
   }
 
@@ -185,7 +185,7 @@
     align-items: center;
     gap: 0.25rem;
     min-width: 0;
-    color: #b8c9df;
+    color: var(--color-text-soft);
     font-size: 0.68rem;
     font-weight: 700;
   }
@@ -194,13 +194,13 @@
     width: 0.9rem;
     height: 0.9rem;
     margin: 0;
-    accent-color: #79b7ff;
+    accent-color: var(--color-accent-blue);
   }
 
   .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-zoom-tools > span,
   .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-flash-tools > span {
     min-width: 2.4rem;
-    color: #b8c9df;
+    color: var(--color-text-soft);
     font-size: 0.68rem;
     font-weight: 800;
   }

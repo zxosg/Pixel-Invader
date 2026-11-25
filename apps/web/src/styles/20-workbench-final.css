@@ -111,7 +111,7 @@
   min-width: 0;
   flex: 1 1 auto;
   overflow: hidden;
-  color: #d6deea;
+  color: var(--color-text-muted);
   text-overflow: ellipsis;
   writing-mode: horizontal-tb;
   transform: none;

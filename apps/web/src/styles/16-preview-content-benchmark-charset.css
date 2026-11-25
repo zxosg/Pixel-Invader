@@ -14,11 +14,11 @@
 .preview-content-selector select {
   width: 100%;
   min-height: 1.45rem;
-  border: 1px solid #52627d;
+  border: 1px solid var(--color-border-strong);
   border-radius: 0.3rem;
   padding: 0.12rem 0.3rem;
   color: #cbd5e4;
-  background: #111824;
+  background: var(--color-surface-deep);
   font-size: 0.65rem;
   font-weight: 700;
 }
@@ -29,7 +29,7 @@
   flex-direction: column;
   justify-content: flex-start;
   gap: 0.55rem;
-  color: #d6deea;
+  color: var(--color-text-muted);
   background: #0b111b;
 }
 
@@ -48,11 +48,11 @@
 
 .preview-filter-control select {
   min-height: 1.45rem;
-  border: 1px solid #52627d;
+  border: 1px solid var(--color-border-strong);
   border-radius: 0.3rem;
   padding: 0.12rem 0.3rem;
   color: #cbd5e4;
-  background: #111824;
+  background: var(--color-surface-deep);
   font-size: 0.65rem;
 }
 
@@ -62,7 +62,7 @@
   height: auto;
   margin: auto;
   image-rendering: pixelated;
-  border: 1px solid #52627d;
+  border: 1px solid var(--color-border-strong);
   background: #000;
 }
 
@@ -80,7 +80,7 @@
 
 .usage-color-button:hover,
 .usage-color-button.selected {
-  border-color: #79b7ff;
+  border-color: var(--color-accent-blue);
   background: #1b2b42;
 }
 
@@ -102,7 +102,7 @@
 
 .preview-usage-row {
   width: 100%;
-  color: #d6deea;
+  color: var(--color-text-muted);
   background: transparent;
   text-align: left;
   cursor: pointer;
@@ -111,12 +111,12 @@
 .preview-usage-row:hover,
 .preview-usage-row.selected {
   border-radius: 0.25rem;
-  border-bottom-color: #79b7ff;
+  border-bottom-color: var(--color-accent-blue);
   background: #1b2b42;
 }
 
 .preview-usage-list strong {
-  color: #79b7ff;
+  color: var(--color-accent-blue);
 }
 
 .sr-only {
@@ -129,7 +129,7 @@
 }
 
 .engine-controls {
-  border: 1px solid #33425d;
+  border: 1px solid var(--color-border-subtle);
   border-radius: 0.35rem;
   padding: 0.25rem;
 }
@@ -233,7 +233,7 @@
   grid-column: 1 / -1;
   width: 100%;
   min-width: 0;
-  border: 1px solid #33425d;
+  border: 1px solid var(--color-border-subtle);
   border-radius: 0.45rem;
   background: #111a29;
 }
@@ -270,7 +270,7 @@
 }
 
 .benchmark-panel[open] > summary {
-  border-bottom: 1px solid #33425d;
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .benchmark-summary {
@@ -339,7 +339,7 @@
   min-width: 0;
   max-height: 16rem;
   overflow: auto;
-  border: 1px solid #33425d;
+  border: 1px solid var(--color-border-subtle);
   border-radius: 0.35rem;
   padding: 0.25rem;
   font-size: 0.65rem;
@@ -377,10 +377,10 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  border: 1px solid #33425d;
+  border: 1px solid var(--color-border-subtle);
   border-radius: 0.45rem;
   padding: 0.38rem 0.5rem;
-  color: #e8edf5;
+  color: var(--color-text-primary);
   background: #111a29;
   font-size: 0.72rem;
   font-weight: 750;
@@ -388,7 +388,7 @@
 }
 
 .charset-launcher-button:hover:not(:disabled) {
-  border-color: #79b7ff;
+  border-color: var(--color-accent-blue);
   color: #fff;
   background: #182338;
 }
@@ -418,10 +418,10 @@
   height: min(46rem, calc(100dvh - 2rem));
   max-height: calc(100dvh - 2rem);
   margin: auto;
-  border: 1px solid #52627d;
+  border: 1px solid var(--color-border-strong);
   border-radius: 0.65rem;
   padding: 0;
-  color: #e8edf5;
+  color: var(--color-text-primary);
   background: #111a29;
   box-shadow: 0 1.5rem 5rem rgb(0 0 0 / 65%);
   overflow: hidden;
@@ -445,7 +445,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  border-bottom: 1px solid #33425d;
+  border-bottom: 1px solid var(--color-border-subtle);
   padding: 0.55rem 0.65rem;
   background: #111a29;
 }
@@ -482,7 +482,7 @@
 .charset-controls > label:not(.check-control) {
   display: grid;
   gap: 0.18rem;
-  color: #d6deea;
+  color: var(--color-text-muted);
   font-size: 0.66rem;
   font-weight: 700;
 }
@@ -491,7 +491,7 @@
   display: flex;
   align-items: center;
   gap: 0.3rem;
-  color: #d6deea;
+  color: var(--color-text-muted);
   font-size: 0.65rem;
   font-weight: 650;
 }
@@ -513,7 +513,7 @@
   width: 100%;
   max-height: 38vh;
   object-fit: contain;
-  border: 1px solid #52627d;
+  border: 1px solid var(--color-border-strong);
   border-radius: 0.3rem;
   background: #000;
   image-rendering: pixelated;
@@ -554,7 +554,7 @@
 
 .charset-dialog-footer {
   z-index: 1;
-  border-top: 1px solid #33425d;
+  border-top: 1px solid var(--color-border-subtle);
   padding: 0.45rem 0.65rem;
   background: #111a29;
 }

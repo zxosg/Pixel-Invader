@@ -13,11 +13,11 @@ body {
 
 button {
   min-height: var(--ui-control-height);
-  border: 1px solid #79b7ff;
+  border: 1px solid var(--color-accent-blue);
   border-radius: 0.5rem;
   padding: 0.2rem 0.48rem;
   color: #07101f;
-  background: #79b7ff;
+  background: var(--color-accent-blue);
   font: inherit;
   font-size: var(--ui-control-font-size);
   font-weight: 700;
@@ -29,7 +29,7 @@ button:hover:not(:disabled) {
 }
 
 button:focus-visible {
-  outline: 3px solid #ffdc6a;
+  outline: 3px solid var(--color-highlight-yellow);
   outline-offset: 3px;
 }
 
@@ -47,7 +47,7 @@ button:disabled {
   border-radius: 0.4rem;
   padding: 0.5rem 0.75rem;
   color: #07101f;
-  background: #ffdc6a;
+  background: var(--color-highlight-yellow);
   font-weight: 800;
 }
 
@@ -56,7 +56,7 @@ button:disabled {
 }
 
 button.secondary {
-  color: #e8edf5;
+  color: var(--color-text-primary);
   background: transparent;
 }
 
@@ -66,15 +66,15 @@ input[type="number"] {
   border: 1px solid #53647e;
   border-radius: 0.5rem;
   padding: 0.18rem 0.38rem;
-  color: #e8edf5;
-  background: #111824;
+  color: var(--color-text-primary);
+  background: var(--color-surface-deep);
   font: inherit;
   font-size: var(--ui-control-font-size);
 }
 
 select:focus-visible,
 input:focus-visible {
-  outline: 3px solid #ffdc6a;
+  outline: 3px solid var(--color-highlight-yellow);
   outline-offset: 2px;
 }
 
@@ -88,18 +88,18 @@ input.invalid {
   width: fit-content;
   min-height: var(--ui-control-height);
   align-items: center;
-  border: 1px solid #79b7ff;
+  border: 1px solid var(--color-accent-blue);
   border-radius: 0.5rem;
   padding: 0.2rem 0.48rem;
   color: #07101f;
-  background: #79b7ff;
+  background: var(--color-accent-blue);
   font-size: var(--ui-control-font-size);
   font-weight: 700;
   cursor: pointer;
 }
 
 .file-picker:focus-within {
-  outline: 3px solid #ffdc6a;
+  outline: 3px solid var(--color-highlight-yellow);
   outline-offset: 3px;
 }
 

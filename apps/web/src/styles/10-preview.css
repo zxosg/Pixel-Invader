@@ -1,7 +1,7 @@
 .inspection-workspace {
   display: grid;
   gap: 0.5rem;
-  border-top: 1px solid #33425d;
+  border-top: 1px solid var(--color-border-subtle);
   padding-top: 0.55rem;
 }
 
@@ -33,7 +33,7 @@
 .inspection-controls > h3 {
   width: 100%;
   margin: 0;
-  color: #e8edf5;
+  color: var(--color-text-primary);
   font-size: 0.72rem;
 }
 
@@ -52,7 +52,7 @@
   display: grid;
   min-width: 7.5rem;
   gap: 0.18rem;
-  color: #d6deea;
+  color: var(--color-text-muted);
   font-size: 0.68rem;
   font-weight: 700;
 }
@@ -62,7 +62,7 @@
   align-items: center;
   gap: 0.35rem;
   min-height: 1.9rem;
-  color: #d6deea;
+  color: var(--color-text-muted);
   font-size: 0.7rem;
   font-weight: 650;
 }
@@ -81,7 +81,7 @@
 .preview-frame {
   min-height: 13rem;
   overflow: auto;
-  border: 1px solid #33425d;
+  border: 1px solid var(--color-border-subtle);
   border-radius: 0.5rem;
   padding: 0.4rem;
   background-color: #c7c7c7;
@@ -146,7 +146,7 @@
 }
 
 .preview-stage canvas:focus-visible {
-  outline: 3px solid #ffdc6a;
+  outline: 3px solid var(--color-highlight-yellow);
   outline-offset: -3px;
 }
 
@@ -178,13 +178,13 @@
 
 .crop-selection-rect {
   fill: none;
-  stroke: #ffdc6a;
+  stroke: var(--color-highlight-yellow);
   stroke-width: 1.5;
   vector-effect: non-scaling-stroke;
 }
 
 .crop-resize-handle {
-  fill: #ffdc6a;
+  fill: var(--color-highlight-yellow);
   fill-opacity: 0.9;
   stroke: #101827;
   stroke-width: 1;
@@ -252,7 +252,7 @@
 
 .inspection-cell-overlay rect {
   fill: rgb(255 220 106 / 15%);
-  stroke: #ffdc6a;
+  stroke: var(--color-highlight-yellow);
   stroke-width: 1.5;
   vector-effect: non-scaling-stroke;
   shape-rendering: crispEdges;
@@ -285,7 +285,7 @@
 
 .bitmap-editor-primitive-cursor {
   fill: rgb(255 220 106 / 10%);
-  stroke: #ffdc6a;
+  stroke: var(--color-highlight-yellow);
   stroke-width: 1.5;
   vector-effect: non-scaling-stroke;
   shape-rendering: crispEdges;
@@ -327,7 +327,7 @@
 
 .bitmap-editor-selection-handle {
   fill: #fff;
-  stroke: #111824;
+  stroke: var(--color-surface-deep);
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
   shape-rendering: crispEdges;
@@ -352,7 +352,7 @@
 
 .tilemap-selection-overlay > rect:last-child {
   fill: rgb(121 183 255 / 12%);
-  stroke: #79b7ff;
+  stroke: var(--color-accent-blue);
   stroke-width: 2;
   vector-effect: non-scaling-stroke;
   shape-rendering: crispEdges;

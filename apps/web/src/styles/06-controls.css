@@ -11,7 +11,7 @@
 
 .eyebrow {
   margin-bottom: 0.15rem;
-  color: #79b7ff;
+  color: var(--color-accent-blue);
   font-size: 0.65rem;
   font-weight: 800;
   letter-spacing: 0.12em;
@@ -42,7 +42,7 @@ h1 {
   display: grid;
   gap: 0.65rem;
   margin-top: 0.65rem;
-  border: 1px solid #33425d;
+  border: 1px solid var(--color-border-subtle);
   border-radius: 0.65rem;
   padding: 0.7rem;
   background: rgb(22 29 41 / 88%);
@@ -91,7 +91,7 @@ h1 {
 }
 
 .imported-file-name {
-  color: #79b7ff;
+  color: var(--color-accent-blue);
   font-weight: 750;
 }
 
@@ -117,7 +117,7 @@ h1 {
 .conversion-form {
   display: grid;
   gap: 0.5rem;
-  border-block: 1px solid #33425d;
+  border-block: 1px solid var(--color-border-subtle);
   padding-block: 0.5rem;
 }
 
@@ -137,7 +137,7 @@ h1 {
   display: grid;
   align-content: start;
   gap: 0.2rem;
-  color: #d6deea;
+  color: var(--color-text-muted);
   font-weight: 700;
   font-size: var(--ui-label-font-size);
 }
@@ -147,7 +147,7 @@ h1 {
   margin: 0;
   border: 0;
   padding: 0;
-  color: #d6deea;
+  color: var(--color-text-muted);
 }
 
 .orientation-control {
@@ -160,7 +160,7 @@ h1 {
   margin: 0;
   border: 0;
   padding: 0;
-  color: #d6deea;
+  color: var(--color-text-muted);
 }
 
 .orientation-actions {
@@ -183,7 +183,7 @@ h1 {
   margin: 0;
   border: 0;
   padding: 0;
-  color: #d6deea;
+  color: var(--color-text-muted);
 }
 
 .pan-control legend {
@@ -223,7 +223,7 @@ h1 {
 }
 
 .tools-zoom-controls > span {
-  color: #d6deea;
+  color: var(--color-text-muted);
   font-size: var(--ui-label-font-size);
   font-weight: var(--ui-label-font-weight);
 }
@@ -265,7 +265,7 @@ h1 {
   margin: 0;
   border: 0;
   padding: 0;
-  color: #d6deea;
+  color: var(--color-text-muted);
 }
 
 .geometry-primary-row {
@@ -349,8 +349,8 @@ h1 {
   border: 1px solid #4e6483;
   border-radius: 0.3rem;
   padding: 0;
-  color: #d6deea;
-  background: #111824;
+  color: var(--color-text-muted);
+  background: var(--color-surface-deep);
   line-height: 1;
 }
 
@@ -374,7 +374,7 @@ h1 {
 
 .mirror-icon-axis {
   fill: none;
-  stroke: #d6deea;
+  stroke: var(--color-text-muted);
   stroke-width: 1.25;
   stroke-dasharray: 1.5 1.5;
 }
@@ -385,7 +385,7 @@ h1 {
 }
 
 .mirror-toggle:focus-visible {
-  outline: 3px solid #ffdc6a;
+  outline: 3px solid var(--color-highlight-yellow);
   outline-offset: 2px;
 }
 
@@ -403,7 +403,7 @@ h1 {
   margin: 0;
   border: 0;
   padding: 0;
-  color: #d6deea;
+  color: var(--color-text-muted);
 }
 
 .background-control legend {
@@ -429,7 +429,7 @@ h1 {
   margin: 0;
   border: 0;
   padding: 0;
-  color: #d6deea;
+  color: var(--color-text-muted);
 }
 
 .palette-control {
@@ -438,8 +438,8 @@ h1 {
   border: 1px solid #3a4961;
   border-radius: 0.4rem;
   padding: 0.2rem 0.35rem;
-  color: #d6deea;
-  background: #111824;
+  color: var(--color-text-muted);
+  background: var(--color-surface-deep);
 }
 
 .palette-control > summary,
