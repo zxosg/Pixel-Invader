@@ -1,4 +1,6 @@
-const CACHE_NAME = "retro-converter-shell-v4";
+// Replaced with a build-derived value by the swCacheVersion plugin in vite.config.ts.
+const CACHE_VERSION = "__BUILD_VERSION__";
+const CACHE_NAME = `retro-converter-shell-${CACHE_VERSION}`;
 const APP_BASE_URL = new URL("./", self.registration.scope);
 const SHELL = [
   APP_BASE_URL.toString(),
@@ -18,8 +20,13 @@ async function cacheApplicationShell() {
 }
 
 self.addEventListener("install", (event) => {
+  // The new worker waits until the page asks it to take over, so a running page keeps its own
+  // cached chunks until the user chooses to reload.
   event.waitUntil(cacheApplicationShell());
-  self.skipWaiting();
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") void self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {

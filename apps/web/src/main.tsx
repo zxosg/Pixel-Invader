@@ -2,6 +2,7 @@ import { Component, StrictMode, type ErrorInfo, type ReactNode } from "react";
 import { MantineProvider } from "@mantine/core";
 import { createRoot } from "react-dom/client";
 import { App } from "./App.js";
+import { UpdatePrompt } from "./service-worker-update.js";
 import "@mantine/core/styles.css";
 import "./styles/index.css";
 
@@ -52,13 +53,7 @@ createRoot(root).render(
       <AppErrorBoundary>
         <App />
       </AppErrorBoundary>
+      <UpdatePrompt />
     </MantineProvider>
   </StrictMode>,
 );
-
-if (import.meta.env.PROD && "serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    const baseUrl = import.meta.env.BASE_URL;
-    void navigator.serviceWorker.register(`${baseUrl}sw.js`, { scope: baseUrl });
-  });
-}
