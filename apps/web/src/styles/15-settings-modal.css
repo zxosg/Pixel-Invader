@@ -166,12 +166,6 @@
   gap: .25rem;
 }
 
-.settings-modal .checkbox-row {
-  display: flex;
-  align-items: center;
-  gap: .5rem;
-}
-
 .settings-modal-actions {
   margin-top: 0;
   padding: .85rem 1.25rem 1.25rem;

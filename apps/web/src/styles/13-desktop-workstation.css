@@ -4,30 +4,6 @@
     padding: 0.35rem 0;
   }
 
-  .hero {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    align-items: baseline;
-    gap: 0.65rem;
-  }
-
-  .hero .eyebrow {
-    display: none;
-  }
-
-  .hero h1 {
-    margin: 0;
-    font-size: 1.45rem;
-  }
-
-  .hero > p:last-child {
-    overflow: hidden;
-    margin: 0;
-    font-size: 0.68rem;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
   .proof {
     gap: 0.3rem;
     margin-top: 0.3rem;
@@ -376,10 +352,6 @@
     height: 1px;
     overflow: hidden;
     clip-path: inset(50%);
-  }
-
-  .profile-control .delete-retained {
-    display: none;
   }
 
   .profile-control .destructive-profile:not(:disabled) {
