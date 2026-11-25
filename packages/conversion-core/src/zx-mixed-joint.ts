@@ -846,21 +846,21 @@ function rankJointCellOptions(
   }
 
   const ranked: { candidateIndex: number; score: number }[] = [];
+  const paletteSize = virtualPalette.length;
   for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
-    const candidate = candidates[candidateIndex]!;
+    const [a, b, c, d] = candidates[candidateIndex]!.blendPaletteIndices;
+    // The shortlist only changes between candidates, so its cutoff is loop-invariant here.
+    const worst = ranked.length < SPATIAL_SHORTLIST_SIZE
+      ? Number.POSITIVE_INFINITY
+      : ranked[ranked.length - 1]!.score;
     let score = 0;
-    for (let pixel = 0; pixel < pixelOffsets.length; pixel += 1) {
-      const rowOffset = pixel * virtualPalette.length;
-      const [a, b, c, d] = candidate.blendPaletteIndices;
+    for (let pixel = 0, rowOffset = 0; pixel < pixelOffsets.length; pixel += 1, rowOffset += paletteSize) {
       score += Math.min(
         distances[rowOffset + a]!,
         distances[rowOffset + b]!,
         distances[rowOffset + c]!,
         distances[rowOffset + d]!,
       );
-      const worst = ranked.length < SPATIAL_SHORTLIST_SIZE
-        ? Number.POSITIVE_INFINITY
-        : ranked[ranked.length - 1]!.score;
       if (score > worst) break;
     }
     if (ranked.length === SPATIAL_SHORTLIST_SIZE && score > ranked[ranked.length - 1]!.score) continue;
