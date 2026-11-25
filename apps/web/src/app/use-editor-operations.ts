@@ -2,7 +2,7 @@ import { loadSpecsciiFontAssets, rebuildCharsetResult } from "../specscii-assets
 import { importSpecscii } from "../specscii.js";
 import { appendBlankTile, applyTileEdit, type CharsetEncoding, decodeCharsetArtifact, encodeCharsetArtifact, renderCharsetPreview, replaceTileInCharset, type TileEditOperation } from "@retro-converter/zx-charset";
 import { ConversionWorkerClient, type WorkerCharsetResult, type WorkerConversionResult } from "../worker/client.js";
-import { normalizeProjectName } from "../projects.js";
+import { normalizeProjectName } from "../project-name.js";
 import { sanitizeArtifactBaseName } from "../artifacts.js";
 import { BUILT_IN_PROFILE_ID, BUILT_IN_PROFILES, parseImportedProfile, saveStoredProfiles } from "../profiles.js";
 import { allCharsetIndices } from "../charset-selection.js";

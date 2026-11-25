@@ -1,7 +1,7 @@
 import { type ConversionSettings, DEFAULT_CONVERSION_SETTINGS, fillGeometryForDimensions, outputScreenCount, type Pmd85TargetModeId } from "@retro-converter/conversion-core";
 import { pmdHardwareModeForTarget } from "../conversion-targets.js";
 import { assertValidPmd85Screen, extractPmd85GapBytes, PMD85_SCREEN_HEIGHT, PMD85_SCREEN_WIDTH, type Pmd85ModeId } from "@retro-converter/pmd-85";
-import { normalizeProjectName } from "../projects.js";
+import { normalizeProjectName } from "../project-name.js";
 import { sanitizeArtifactBaseName, sha256Hex } from "../artifacts.js";
 import { ConversionWorkerClient, type WorkerDecodedImage } from "../worker/client.js";
 import { orientedSourceSize } from "../crop.js";

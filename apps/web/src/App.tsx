@@ -1,16 +1,14 @@
 import type { AppState } from "./app/app-state.js";
 import { uiTypographyCssVariables } from "./ui-typography.js";
-import { type CSSProperties } from "react";
+import { lazy, Suspense, type CSSProperties } from "react";
 import { WorkbenchMenuBar } from "./workbench-menu-bar.js";
 import { type ConversionSettings, DITHER_ENGINES, type DitherEngineId, ditherEngineSelectionGroupForTarget, isCompatibleEnginePair, isDitherEngineAvailableForSelection, type OrderedMatrixId, type QlMixedOptimizerId, type TargetModeId } from "@retro-converter/conversion-core";
 import { BUILT_IN_PROFILES } from "./profiles.js";
-import { AboutDialog } from "./about-dialog.js";
 import { APPLICATION_BUILD_ID, APPLICATION_RELEASE_DATE, APPLICATION_VERSION, sanitizeArtifactBaseName } from "./artifacts.js";
 import { type WorkbenchFocusTarget } from "./app-types.js";
 import { ORDERED_MATRIX_IDS, orderedMatrixLabel } from "./dithering-labels.js";
 import { RangeNumberControl } from "./app-controls.js";
-import { normalizeProjectName } from "./projects.js";
-import { ZxPaletteEditorDialog } from "./zx-palette-editor-dialog.js";
+import { normalizeProjectName } from "./project-name.js";
 import { useRuntimeState } from "./app/use-runtime-state.js";
 import { useSettingsState } from "./app/use-settings-state.js";
 import { useWorkbenchState } from "./app/use-workbench-state.js";
@@ -36,14 +34,17 @@ import { PaintColorsSettingsWindow } from "./app/sections/paint-colors-settings-
 import { AdvancedConversionSettings } from "./app/sections/advanced-conversion-settings.js";
 import { DitherComposerControls } from "./app/sections/dither-composer-controls.js";
 import { ErrorDiffusionControls } from "./app/sections/error-diffusion-controls.js";
-import { TilemapSettingsWindows } from "./app/sections/tilemap-settings-windows.js";
-import { BenchmarkPanel } from "./app/sections/benchmark-panel.js";
-import { SettingsDialog } from "./app/sections/settings-dialog.js";
 import { ToolsSettingsWindow } from "./app/sections/tools-settings-window.js";
 import { PreviewPalettePanel } from "./app/sections/preview-palette-panel.js";
 import { SourceComparisonDock } from "./app/sections/source-comparison-dock.js";
 import { ResultComparisonDock } from "./app/sections/result-comparison-dock.js";
 import { InspectionDrawer } from "./app/sections/inspection-drawer.js";
+
+const AboutDialog = lazy(() => import("./about-dialog.js").then((m) => ({ default: m.AboutDialog })));
+const ZxPaletteEditorDialog = lazy(() => import("./zx-palette-editor-dialog.js").then((m) => ({ default: m.ZxPaletteEditorDialog })));
+const TilemapSettingsWindows = lazy(() => import("./app/sections/tilemap-settings-windows.js").then((m) => ({ default: m.TilemapSettingsWindows })));
+const BenchmarkPanel = lazy(() => import("./app/sections/benchmark-panel.js").then((m) => ({ default: m.BenchmarkPanel })));
+const SettingsDialog = lazy(() => import("./app/sections/settings-dialog.js").then((m) => ({ default: m.SettingsDialog })));
 
 export function App() {
   const s0 = useRuntimeState();
@@ -366,13 +367,17 @@ export function App() {
         onOpenAbout={() => setAboutOpen(true)}
       />
 
-      <AboutDialog
-        open={aboutOpen}
-        version={APPLICATION_VERSION}
-        build={APPLICATION_BUILD_ID}
-        releaseDate={APPLICATION_RELEASE_DATE}
-        onClose={() => setAboutOpen(false)}
-      />
+      {aboutOpen ? (
+        <Suspense fallback={null}>
+          <AboutDialog
+            open={aboutOpen}
+            version={APPLICATION_VERSION}
+            build={APPLICATION_BUILD_ID}
+            releaseDate={APPLICATION_RELEASE_DATE}
+            onClose={() => setAboutOpen(false)}
+          />
+        </Suspense>
+      ) : null}
 
       <section
         ref={workbenchRootRef}
@@ -879,11 +884,11 @@ export function App() {
           ))}
           </>
           ) : (
-          <TilemapSettingsWindows s={s} />
+          <Suspense fallback={null}><TilemapSettingsWindows s={s} /></Suspense>
           )}
           </div>
 
-          <BenchmarkPanel s={s} />
+          {benchmarkOpen || s.tilemapBenchmarkOpen ? <Suspense fallback={null}><BenchmarkPanel s={s} /></Suspense> : null}
             </div>
           </div>
           <div ref={setBenchmarkPanelHost} className="workbench-comparison-host" />
@@ -1059,17 +1064,19 @@ export function App() {
         ) : null}
 
         {zxPaletteEditorOpen && isZx ? (
-          <ZxPaletteEditorDialog
-            definition={zxPaletteDefinition}
-            onChange={(definition) => {
-              setZxPaletteDefinition(definition);
-              setState({ kind: "idle" });
-            }}
-            onClose={() => setZxPaletteEditorOpen(false)}
-          />
+          <Suspense fallback={null}>
+            <ZxPaletteEditorDialog
+              definition={zxPaletteDefinition}
+              onChange={(definition) => {
+                setZxPaletteDefinition(definition);
+                setState({ kind: "idle" });
+              }}
+              onClose={() => setZxPaletteEditorOpen(false)}
+            />
+          </Suspense>
         ) : null}
 
-        <SettingsDialog s={s} />
+        {s.settingsOpen ? <Suspense fallback={null}><SettingsDialog s={s} /></Suspense> : null}
 
         <section
           ref={workbenchPreviewWorkspaceRef}

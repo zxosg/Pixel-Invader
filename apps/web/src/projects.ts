@@ -1,3 +1,4 @@
+import { normalizeProjectName } from "./project-name.js";
 import { unzipSync, zipSync, type Zippable } from "fflate";
 import {
   DEFAULT_CONVERSION_SETTINGS,
@@ -46,13 +47,7 @@ export type WorkspaceConversionMode = "palette" | "tilemap";
 export type TilemapConversionSettings = CharsetConversionOptions;
 export type ProjectResultQuality = "Draft" | "High";
 
-export function normalizeProjectName(value: string): string {
-  return value
-    .replace(/[\u0000-\u001f\u007f]/g, "")
-    .trim()
-    .slice(0, 120)
-    .trim() || "Untitled project";
-}
+export { normalizeProjectName };
 
 export interface ProjectCreateInput {
   readonly sourceBytes: Uint8Array;

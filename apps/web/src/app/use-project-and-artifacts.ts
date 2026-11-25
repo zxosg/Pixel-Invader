@@ -1,5 +1,5 @@
 import { ConversionWorkerClient, type WorkerCharsetResult, type WorkerConversionResult, type WorkerDecodedImage } from "../worker/client.js";
-import { normalizeProjectName, validateCompletedProject } from "../projects.js";
+import { normalizeProjectName } from "../project-name.js";
 import { BUILT_IN_PROFILES, type ConversionProfile, parseImportedProfile, profileModeScreens } from "../profiles.js";
 import { assertValidSoftwareScr, ZX_BITMAP_BYTES } from "@retro-converter/zx-spectrum";
 import { qlHardwareModesForTarget, type QlTargetModeId, renderZxFlashPreview, resolveZxPalette } from "@retro-converter/conversion-core";
@@ -43,7 +43,7 @@ export function useProjectAndArtifacts(
     setBitmapEditorFlashPreviewPhase(false);
     const verifier = new ConversionWorkerClient();
     try {
-      const validated = await validateCompletedProject(new Uint8Array(await file.arrayBuffer()));
+      const validated = await (await import("../projects.js")).validateCompletedProject(new Uint8Array(await file.arrayBuffer()));
       const rawProfile = validated.profile as Record<string, unknown>;
       if (
         typeof rawProfile.id !== "string" ||

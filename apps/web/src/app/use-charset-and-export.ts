@@ -24,7 +24,7 @@ import { hexToRgb } from "../dithering-labels.js";
 import { cloneNativeResultBitmap, createNativeResultBitmap, type NativeResultBitmap } from "../result-bitmap-editor.js";
 import { renderQlMixedDisplayPreview } from "../ql-mixed-preview.js";
 import { type SourceArtifactInfo } from "../app-types.js";
-import { createCompletedProject, normalizeProjectName } from "../projects.js";
+import { normalizeProjectName } from "../project-name.js";
 import type { useRuntimeState } from "./use-runtime-state.js";
 import type { useSettingsState } from "./use-settings-state.js";
 import type { useWorkbenchState } from "./use-workbench-state.js";
@@ -829,7 +829,7 @@ export function useCharsetAndExport(
         spatialPreview?.logicalWidth ?? projectResult.width,
         spatialPreview?.logicalHeight ?? projectResult.height,
       );
-      const project = await createCompletedProject({
+      const project = await (await import("../projects.js")).createCompletedProject({
         sourceBytes: sourceArtifact.bytes,
         sourceFormat: (originalImage ?? image).format,
         sourceFrameIndex,
