@@ -48,6 +48,12 @@ describe("canonical Settings Save", () => {
     });
   });
 
+  it("preserves a non-default settingsLevel from the draft", () => {
+    const draft = { profileId: BUILT_IN_PROFILE.id, presetId: BUILT_IN_PROFILE.presets[0]!.id, settingsLevel: "basic" };
+    const saved = canonicalizeSettingsForSave({ current: DEFAULT_CONVERSION_SETTINGS, profiles: BUILT_IN_PROFILES, draft });
+    expect(saved.application.settingsLevel).toBe("basic");
+  });
+
   it("preserves the experimental joint Mixed engine pair", () => {
     const paletteSelections = [
       { screenIndex: 0, enabledColorIds: [0, 2, 7], brightMode: "off" as const },
