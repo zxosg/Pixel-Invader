@@ -20,6 +20,7 @@
     "typecheck": "pnpm --filter \"./packages/*\" build && pnpm -r typecheck"
   },
   "devDependencies": {
+    "axe-core": "^4.14.1",
     "playwright": "^1.65.1",
     "typescript": "7.0.2",
     "vitest": "4.1.10"

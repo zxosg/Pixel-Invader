@@ -4,10 +4,12 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 
+const require = createRequire(import.meta.url);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const outDir = resolve(process.argv[2] ?? join(root, "test-results", "smoke"));
 mkdirSync(outDir, { recursive: true });
@@ -41,11 +43,51 @@ const expect = (cond, message) => { if (!cond) problems.push(`assert: ${message}
 const menu = async (label) => { await page.getByRole("button", { name: label, exact: true }).click(); await settle(250); };
 const closeMenu = async (label) => { await page.getByRole("button", { name: label, exact: true }).click(); await settle(150); };
 
+// Contrast audit: axe-core color-contrast (serious/critical) plus a computed-style ratio check that
+// also covers text axe skips (e.g. titles over transparent backgrounds). Disabled controls are exempt.
+const axeSource = readFileSync(require.resolve("axe-core/axe.min.js"), "utf8");
+const auditContrast = async (label) => {
+  if (!(await page.evaluate(() => typeof window.axe === "object"))) await page.addScriptTag({ content: axeSource });
+  const axeResult = await page.evaluate(() => window.axe.run(document, { runOnly: ["color-contrast"] }));
+  for (const v of axeResult.violations.filter((x) => x.impact === "serious" || x.impact === "critical")) {
+    for (const n of v.nodes) problems.push(`contrast (axe, ${label}): ${n.target.join(" ")} ${n.any[0]?.data?.contrastRatio ?? ""}`);
+  }
+  const low = await page.evaluate(() => {
+    const parse = (c) => { const m = c.match(/[\d.]+/g).map(Number); return { r: m[0], g: m[1], b: m[2], a: m[3] ?? 1 }; };
+    const lum = ({ r, g, b }) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+    const mix = (top, a, base) => ({ r: top.r * a + base.r * (1 - a), g: top.g * a + base.g * (1 - a), b: top.b * a + base.b * (1 - a) });
+    const background = (el) => {
+      const layers = [];
+      for (let e = el; e; e = e.parentElement) { const c = parse(getComputedStyle(e).backgroundColor); if (c.a > 0) layers.push(c); if (c.a >= 1) break; }
+      return layers.reverse().reduce((base, c) => mix(c, c.a, base), { r: 17, g: 21, b: 28 });
+    };
+    const out = [];
+    for (const el of document.querySelectorAll("body *")) {
+      if (![...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) continue;
+      if (el.closest("canvas, [disabled], [aria-hidden='true'], .workbench-menu-summary-separator") || el.matches(":disabled")) continue;
+      const cs = getComputedStyle(el); const rect = el.getBoundingClientRect();
+      if (cs.visibility === "hidden" || cs.display === "none" || rect.width < 2 || rect.height < 2) continue;
+      let opacity = 1; for (let e = el; e; e = e.parentElement) opacity *= Number(getComputedStyle(e).opacity);
+      const bg = background(el); const fg = parse(cs.color);
+      const text = mix(mix(fg, fg.a, bg), opacity, bg);
+      const [hi, lo] = [lum(text), lum(bg)].sort((a, b) => b - a);
+      const ratio = (hi + 0.05) / (lo + 0.05);
+      if (ratio < 4.5) out.push(`${ratio.toFixed(2)} ${el.tagName.toLowerCase()}.${el.className} "${el.textContent.trim().slice(0, 30)}"`);
+    }
+    return out;
+  });
+  for (const entry of low) problems.push(`contrast (computed, ${label}): ${entry}`);
+};
+
 try {
   await page.goto(url);
   await page.waitForSelector("text=File");
   await settle(800);
   await shot("00-empty");
+  await auditContrast("default layout");
+  await menu("File");
+  await auditContrast("File menu open");
+  await closeMenu("File");
 
   // Regression: importing a large image must not freeze the main thread (a heartbeat must keep ticking).
   await page.evaluate(() => {

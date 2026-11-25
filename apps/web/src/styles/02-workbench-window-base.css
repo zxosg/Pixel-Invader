@@ -631,3 +631,8 @@
   outline: 2px dashed var(--color-accent-blue);
   outline-offset: -3px;
 }
+
+.workbench-workspace summary:focus-visible {
+  outline: 2px solid var(--color-highlight-yellow);
+  outline-offset: -2px;
+}
