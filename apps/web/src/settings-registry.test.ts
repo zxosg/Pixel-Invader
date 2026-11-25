@@ -6,7 +6,9 @@ import {
   loadRegisteredValues,
   resetSettingsCategory,
   serializeSettingsByScope,
+  SETTING_LEVELS,
   settingMatchesSearch,
+  settingsForLevel,
   validateSettingsDraft,
 } from "./settings-registry.js";
 
@@ -78,5 +80,30 @@ describe("settings registry", () => {
     expect(validateSettingsDraft(draft).errors).toEqual({});
     expect(loadRegisteredValues({ background: { r: 12, g: 34, b: 56 } }).background).toEqual({ r: 12, g: 34, b: 56 });
     expect(loadRegisteredValues({ background: { r: 300, g: 0, b: 0 } }).background).toEqual({ r: 255, g: 255, b: 255 });
+  });
+
+  it("assigns every definition a tier with the intended Basic subset", () => {
+    expect(SETTINGS_REGISTRY.every((item) => SETTING_LEVELS.includes(item.level))).toBe(true);
+    const basic = SETTINGS_REGISTRY.filter((item) => item.level === "basic").map((item) => item.id).sort();
+    expect(basic).toEqual([
+      "brightness", "contrast", "dithering", "ditheringAmount", "framing",
+      "modeId", "paletteSelections", "presetId", "profileId",
+    ]);
+    expect(SETTINGS_REGISTRY.find((item) => item.id === "developmentMode")?.level).toBe("expert");
+    expect(SETTINGS_REGISTRY.find((item) => item.id === "saturation")?.level).toBe("advanced");
+  });
+
+  it("selects settings cumulatively by level and respects availability", () => {
+    const basic = settingsForLevel("basic", { modeId: "zx48-standard-256x192" });
+    const advanced = settingsForLevel("advanced", { modeId: "zx48-standard-256x192" });
+    expect(basic.every((item) => item.level === "basic")).toBe(true);
+    expect(advanced.length).toBeGreaterThan(basic.length);
+    expect(advanced.every((item) => item.level !== "expert")).toBe(true);
+    const zx = settingsForLevel("expert", { modeId: "zx48-standard-256x192" }).map((item) => item.id);
+    const pmd = settingsForLevel("expert", { modeId: "pmd85-mode" }).map((item) => item.id);
+    expect(zx).toContain("borderColor");
+    expect(pmd).not.toContain("borderColor");
+    expect(pmd).toContain("pmd85GapPolicy");
+    expect(zx).not.toContain("pmd85GapPolicy");
   });
 });

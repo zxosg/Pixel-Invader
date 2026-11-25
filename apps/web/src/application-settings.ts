@@ -8,6 +8,8 @@ import {
 
 export const APPLICATION_SETTINGS_KEY = "retro-converter.application-settings.v1";
 
+export type SettingsLevel = "basic" | "advanced" | "expert";
+
 export interface ApplicationSettings extends UiTypographySettings {
   readonly profileId: string;
   readonly presetId: string;
@@ -24,6 +26,7 @@ export interface ApplicationSettings extends UiTypographySettings {
   readonly exportBorderWidth: number;
   readonly exportBorderColor: { readonly r: number; readonly g: number; readonly b: number };
   readonly exportZoomFactor: 1 | 2 | 3 | 4;
+  readonly settingsLevel: SettingsLevel;
 }
 
 export interface ApplicationSettingsCatalog {
@@ -51,10 +54,12 @@ export const DEFAULT_APPLICATION_SETTINGS: ApplicationSettings = {
   exportBorderWidth: 32,
   exportBorderColor: { r: 255, g: 255, b: 255 },
   exportZoomFactor: 1,
+  settingsLevel: "advanced",
 };
 
 const FRAMINGS = new Set(["fill", "fit", "crop", "stretch"]);
 const DITHERING = new Set(["none", "ordered", "error-diffusion"]);
+const SETTINGS_LEVELS = new Set(["basic", "advanced", "expert"]);
 const LAYOUTS = new Set([
   "conversion", "palette", "dithering", "tilemap", "editor", "inspection", "custom",
 ]);
@@ -111,6 +116,9 @@ export function validateApplicationSettings(value: unknown): ApplicationSettings
     exportZoomFactor: value.exportZoomFactor === 1 || value.exportZoomFactor === 2 || value.exportZoomFactor === 3 || value.exportZoomFactor === 4
       ? value.exportZoomFactor
       : DEFAULT_APPLICATION_SETTINGS.exportZoomFactor,
+    settingsLevel: typeof value.settingsLevel === "string" && SETTINGS_LEVELS.has(value.settingsLevel)
+      ? value.settingsLevel as SettingsLevel
+      : DEFAULT_APPLICATION_SETTINGS.settingsLevel,
   };
 }
 
@@ -144,6 +152,7 @@ export function saveApplicationSettings(storage: Storage, settings: ApplicationS
       exportBorderWidth: settings.exportBorderWidth,
       exportBorderColor: settings.exportBorderColor,
       exportZoomFactor: settings.exportZoomFactor,
+      settingsLevel: settings.settingsLevel,
       uiFontFamily: settings.uiFontFamily,
       windowTitleFontSize: settings.windowTitleFontSize,
       windowTitleFontWeight: settings.windowTitleFontWeight,
