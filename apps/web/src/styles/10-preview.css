@@ -358,3 +358,46 @@
   vector-effect: non-scaling-stroke;
   shape-rendering: crispEdges;
 }
+
+.preview-frame.preview-frame-empty {
+  display: grid;
+  place-items: center;
+  background-color: var(--color-surface-panel, #11151c);
+  background-image: none;
+  cursor: default;
+}
+
+.empty-drop-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  width: min(100%, 26rem);
+  box-sizing: border-box;
+  border: 2px dashed #7f8da3;
+  border-radius: 0.5rem;
+  padding: 1.5rem 1rem;
+  color: #e6ebf2;
+  text-align: center;
+}
+
+.empty-drop-zone.drag-over {
+  border-color: #6cb6ff;
+  background: rgb(108 182 255 / 0.12);
+}
+
+.empty-drop-zone-title {
+  font-size: 1.05rem;
+}
+
+.empty-drop-zone-hint {
+  color: #b4bfcf;
+  font-size: 0.82rem;
+}
+
+.empty-drop-zone-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+}

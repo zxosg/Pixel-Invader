@@ -208,7 +208,7 @@ export function ResultComparisonDock() {
      </div>
      {workbenchDockSplitHandle("result")}
      {resultPreviewContent === "bitmap-editor" ? fullBitmapEditorPreview("result") : resultPreviewContent === "image" || resultPreviewContent === "result-image" || resultPreviewContent === "source-image" || (hasVerticalSpatialTarget && (resultPreviewContent === "screen-1" || resultPreviewContent === "screen-2")) ? <div
-       className={`preview-frame preview-viewport zx-preview ${draggingSide === "result" ? "dragging" : ""}`}
+       className={`preview-frame preview-viewport zx-preview ${draggingSide === "result" ? "dragging" : ""}${image === null ? " preview-frame-empty" : ""}`}
        ref={resultViewportRef}
        onScroll={(event) => handlePreviewScroll("result", event)}
        onPointerDown={(event) => beginPreviewDrag("result", event)}
@@ -301,7 +301,7 @@ export function ResultComparisonDock() {
                ? charsetState.kind === "running"
                  ? "Building decoder reconstruction…"
                  : "Run Tilemap High to generate the reconstruction."
-               : "A Draft preview will appear automatically."}
+               : image === null ? "The converted result appears here once you load an image." : "A Draft preview will appear automatically."}
            </p>}
      </div> : (
        <div className="preview-frame preview-content-card" aria-live="polite">

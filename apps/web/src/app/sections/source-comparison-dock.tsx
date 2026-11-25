@@ -1,6 +1,7 @@
 import { useAppState } from "../app-state.js";
 import { type PreviewContent } from "../../app-types.js";
 import { createPortal } from "react-dom";
+import { EmptySourceDropZone } from "./empty-source-drop-zone.js";
 
 export function SourceComparisonDock() {
   const s = useAppState();
@@ -41,6 +42,9 @@ export function SourceComparisonDock() {
     hasVerticalSpatialTarget,
     highlightedTileCells,
     image,
+    importClipboardImage,
+    importImage,
+    specsciiDocumentName,
     inspectResultPixel,
     inspection,
     inspectionCellOverlay,
@@ -229,7 +233,7 @@ export function SourceComparisonDock() {
      </div>
      {workbenchDockSplitHandle("source")}
      {sourcePreviewContent === "bitmap-editor" ? fullBitmapEditorPreview("source") : sourcePreviewContent === "image" || sourcePreviewContent === "source-image" || sourcePreviewContent === "result-image" || (hasVerticalSpatialTarget && (sourcePreviewContent === "screen-1" || sourcePreviewContent === "screen-2")) ? <div
-       className={`preview-frame preview-viewport source-preview-frame ${draggingSide === "source" ? "dragging" : ""}`}
+       className={`preview-frame preview-viewport source-preview-frame ${draggingSide === "source" ? "dragging" : ""}${image === null ? " preview-frame-empty" : ""}`}
        ref={sourceViewportRef}
        onScroll={(event) => handlePreviewScroll("source", event)}
        onPointerDown={(event) => beginPreviewDrag("source", event)}
@@ -240,7 +244,9 @@ export function SourceComparisonDock() {
        onFocusCapture={() => markPanSource("source")}
      >
        {image === null
-         ? null
+         ? specsciiDocumentName === null
+           ? <EmptySourceDropZone onImportFile={importImage} onPasteClipboard={() => void importClipboardImage()} />
+           : null
          : (
            <div
              className={`preview-stage ${sourceZoom === "fit" ? "fit-stage" : ""}${sourceShowsImage ? " source-image-stage" : ""}`}
