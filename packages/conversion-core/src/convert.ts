@@ -1215,11 +1215,12 @@ function refineSharedBitmapQualityV4(
     const oldDl = (outMean.l - srcMean.l) / pixelsPerCell; const oldDa = (outMean.a - srcMean.a) / pixelsPerCell; const oldDb = (outMean.b - srcMean.b) / pixelsPerCell;
     const newDl = (outMean.l + sumDelta.l - srcMean.l) / pixelsPerCell; const newDa = (outMean.a + sumDelta.a - srcMean.a) / pixelsPerCell; const newDb = (outMean.b + sumDelta.b - srcMean.b) / pixelsPerCell;
     const cellDelta = newDl * newDl + newDa * newDa + newDb * newDb - (oldDl * oldDl + oldDa * oldDa + oldDb * oldDb);
-    const edges = new Set<string>();
-    for (const pixel of indices) for (const [a, b] of boundaryEdgesFor(pixel)) edges.add(`${a},${b}`);
+    const edges = new Set<number>();
+    for (const pixel of indices) for (const e of boundaryEdgesFor(pixel)) edges.add(e[0]! * 65536 + e[1]!);
     let boundaryDelta = 0;
     for (const edge of edges) {
-      const [a, b] = edge.split(",").map(Number) as [number, number];
+      const a = Math.floor(edge / 65536);
+      const b = edge - a * 65536;
       boundaryDelta += edgeScore(a, b, override.get(a) ?? output.outputLab[a]!, override.get(b) ?? output.outputLab[b]!) - edgeScore(a, b);
     }
     const scale = 4096 * 4096;

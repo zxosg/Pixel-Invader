@@ -164,6 +164,14 @@ function srgbToLinear(value: number): number {
     : ((encoded + 0.055) / 1.055) ** 2.4;
 }
 
+const SRGB_TO_LINEAR_TABLE = Float64Array.from({ length: 256 }, (_, value) => srgbToLinear(value));
+
+function srgbToLinearCached(value: number): number {
+  return value >= 0 && value <= 255 && (value | 0) === value
+    ? SRGB_TO_LINEAR_TABLE[value]!
+    : srgbToLinear(value);
+}
+
 function linearToSrgb(value: number): number {
   const encoded = value <= 0.0031308
     ? value * 12.92
@@ -172,9 +180,9 @@ function linearToSrgb(value: number): number {
 }
 
 export function quantizedOklab(r: number, g: number, b: number): Lab {
-  const lr = srgbToLinear(r);
-  const lg = srgbToLinear(g);
-  const lb = srgbToLinear(b);
+  const lr = srgbToLinearCached(r);
+  const lg = srgbToLinearCached(g);
+  const lb = srgbToLinearCached(b);
   const l = Math.cbrt(0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb);
   const m = Math.cbrt(0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb);
   const s = Math.cbrt(0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb);

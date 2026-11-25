@@ -55,49 +55,99 @@ export interface JointMixedQuantizedCellScore {
   readonly borders: Float32Array;
 }
 
-function mixedColorError(
-  source: Uint8Array,
-  sourceOffset: number,
-  color: TemporalVirtualColor,
-): number {
-  const dr = (source[sourceOffset] ?? 0) - color.r;
-  const dg = (source[sourceOffset + 1] ?? 0) - color.g;
-  const db = (source[sourceOffset + 2] ?? 0) - color.b;
-  return dr * dr + dg * dg + db * db;
+/**
+ * A shared-bitmap candidate paints bit 0 with virtual color blend[0] and bit 1
+ * with blend[3], so a cell's RGB and boundary errors split into one term per
+ * bit and virtual color. Tabulating those terms once per cell turns the
+ * per-candidate cost from O(pixels) into O(1). All virtual colors are
+ * integers, so the regrouped sums are exact and identical to direct summation.
+ */
+interface SharedCellTables {
+  readonly rgb0: Float64Array;
+  readonly rgb1: Float64Array;
+  readonly boundary0: Float64Array;
+  readonly boundary1: Float64Array;
 }
 
-function sharedCandidateBoundaryError(
+function createSharedCellTables(virtualCount: number): SharedCellTables {
+  return {
+    rgb0: new Float64Array(virtualCount),
+    rgb1: new Float64Array(virtualCount),
+    boundary0: new Float64Array(virtualCount),
+    boundary1: new Float64Array(virtualCount),
+  };
+}
+
+function fillSharedCellTables(
+  tables: SharedCellTables,
+  used: Int32Array,
+  paletteR: Float64Array,
+  paletteG: Float64Array,
+  paletteB: Float64Array,
   source: Uint8Array,
   currentMerged: Uint8Array,
   sharedPixels: Uint8Array,
-  candidate: JointMixedCandidate,
-  virtualPalette: readonly TemporalVirtualColor[],
   cellX: number,
   cellY: number,
   cellHeight: number,
-): number {
-  let score = 0;
-  const addBoundary = (x: number, y: number, nx: number, ny: number, candidateIsFirst: boolean): void => {
-    const pixel = y * ZX_SCREEN_WIDTH + x;
-    const neighbor = ny * ZX_SCREEN_WIDTH + nx;
-    const bit = sharedPixels[pixel] ?? 0;
-    const candidateColor = virtualPalette[candidate.blendPaletteIndices[bit === 0 ? 0 : 3]]!;
-    const candidateOffset = pixel * 4;
-    const neighborOffset = neighbor * 4;
-    for (let channel = 0; channel < 3; channel += 1) {
-      const candidateChannel = channel === 0 ? candidateColor.r : channel === 1 ? candidateColor.g : candidateColor.b;
-      const predictedDelta = candidateIsFirst
-        ? (currentMerged[neighborOffset + channel] ?? 0) - candidateChannel
-        : candidateChannel - (currentMerged[neighborOffset + channel] ?? 0);
-      const sourceDelta = candidateIsFirst
-        ? (source[neighborOffset + channel] ?? 0) - (source[candidateOffset + channel] ?? 0)
-        : (source[candidateOffset + channel] ?? 0) - (source[neighborOffset + channel] ?? 0);
-      const residual = predictedDelta - sourceDelta;
-      score += residual * residual;
-    }
-  };
+  includeBoundary: boolean,
+): void {
   const left = cellX * CELL_WIDTH;
   const top = cellY * cellHeight;
+  for (let u = 0; u < used.length; u += 1) {
+    const v = used[u]!;
+    tables.rgb0[v] = 0;
+    tables.rgb1[v] = 0;
+    tables.boundary0[v] = 0;
+    tables.boundary1[v] = 0;
+  }
+  for (let row = 0; row < cellHeight; row += 1) {
+    const rowBase = (top + row) * ZX_SCREEN_WIDTH + left;
+    for (let column = 0; column < CELL_WIDTH; column += 1) {
+      const pixel = rowBase + column;
+      const offset = pixel * 4;
+      const sr = source[offset] ?? 0;
+      const sg = source[offset + 1] ?? 0;
+      const sb = source[offset + 2] ?? 0;
+      const target = (sharedPixels[pixel] ?? 0) === 0 ? tables.rgb0 : tables.rgb1;
+      for (let u = 0; u < used.length; u += 1) {
+        const v = used[u]!;
+        const dr = sr - paletteR[v]!;
+        const dg = sg - paletteG[v]!;
+        const db = sb - paletteB[v]!;
+        target[v] = target[v]! + (dr * dr + dg * dg + db * db);
+      }
+    }
+  }
+  if (!includeBoundary) return;
+  const addBoundary = (x: number, y: number, nx: number, ny: number, candidateIsFirst: boolean): void => {
+    const pixel = y * ZX_SCREEN_WIDTH + x;
+    const candidateOffset = pixel * 4;
+    const neighborOffset = (ny * ZX_SCREEN_WIDTH + nx) * 4;
+    const target = (sharedPixels[pixel] ?? 0) === 0 ? tables.boundary0 : tables.boundary1;
+    const mr = currentMerged[neighborOffset] ?? 0;
+    const mg = currentMerged[neighborOffset + 1] ?? 0;
+    const mb = currentMerged[neighborOffset + 2] ?? 0;
+    const sourceR = source[candidateOffset] ?? 0;
+    const sourceG = source[candidateOffset + 1] ?? 0;
+    const sourceB = source[candidateOffset + 2] ?? 0;
+    const nr = source[neighborOffset] ?? 0;
+    const ng = source[neighborOffset + 1] ?? 0;
+    const nb = source[neighborOffset + 2] ?? 0;
+    const sdr = candidateIsFirst ? nr - sourceR : sourceR - nr;
+    const sdg = candidateIsFirst ? ng - sourceG : sourceG - ng;
+    const sdb = candidateIsFirst ? nb - sourceB : sourceB - nb;
+    for (let u = 0; u < used.length; u += 1) {
+      const v = used[u]!;
+      const cr = paletteR[v]!;
+      const cg = paletteG[v]!;
+      const cb = paletteB[v]!;
+      const rr = (candidateIsFirst ? mr - cr : cr - mr) - sdr;
+      const rg = (candidateIsFirst ? mg - cg : cg - mg) - sdg;
+      const rb = (candidateIsFirst ? mb - cb : cb - mb) - sdb;
+      target[v] = target[v]! + (rr * rr + rg * rg + rb * rb);
+    }
+  };
   for (let row = 0; row < cellHeight; row += 1) {
     const y = top + row;
     if (left > 0) addBoundary(left, y, left - 1, y, true);
@@ -112,7 +162,48 @@ function sharedCandidateBoundaryError(
       addBoundary(x, top + cellHeight - 1, x, top + cellHeight, false);
     }
   }
-  return score;
+}
+
+interface SharedCandidateColumns {
+  readonly count: number;
+  readonly first: Int32Array;
+  readonly second: Int32Array;
+  readonly bit0: Int32Array;
+  readonly bit1: Int32Array;
+  readonly used: Int32Array;
+  readonly paletteR: Float64Array;
+  readonly paletteG: Float64Array;
+  readonly paletteB: Float64Array;
+}
+
+function sharedCandidateColumns(
+  candidates: readonly JointMixedCandidate[],
+  virtualPalette: readonly TemporalVirtualColor[],
+): SharedCandidateColumns {
+  const count = candidates.length;
+  const first = new Int32Array(count);
+  const second = new Int32Array(count);
+  const bit0 = new Int32Array(count);
+  const bit1 = new Int32Array(count);
+  const seen = new Uint8Array(virtualPalette.length);
+  for (let index = 0; index < count; index += 1) {
+    const candidate = candidates[index]!;
+    first[index] = candidate.firstAttribute;
+    second[index] = candidate.secondAttribute;
+    bit0[index] = candidate.blendPaletteIndices[0];
+    bit1[index] = candidate.blendPaletteIndices[3];
+    seen[bit0[index]!] = 1;
+    seen[bit1[index]!] = 1;
+  }
+  const used: number[] = [];
+  for (let v = 0; v < seen.length; v += 1) if (seen[v] === 1) used.push(v);
+  return {
+    count, first, second, bit0, bit1,
+    used: Int32Array.from(used),
+    paletteR: Float64Array.from(virtualPalette, (color) => color.r),
+    paletteG: Float64Array.from(virtualPalette, (color) => color.g),
+    paletteB: Float64Array.from(virtualPalette, (color) => color.b),
+  };
 }
 
 /** Refines shared-bitmap attributes against the actual paired merged colors. */
@@ -138,62 +229,48 @@ export function refineSharedBitmapAttributes(
   );
   const nextFirst = Uint8Array.from(firstAttributes);
   const nextSecond = Uint8Array.from(secondAttributes);
-  const offsets = cellPixelOffsets(0, 0, cellHeight);
+  const columns = sharedCandidateColumns(candidates, virtualPalette);
+  const tables = createSharedCellTables(virtualPalette.length);
+  const rgbErrors = new Float64Array(columns.count);
+  const boundaryErrors = new Float64Array(columns.count);
   for (let step = 0; step < rows * ZX_ATTRIBUTE_COLUMNS; step += 1) {
     const cellIndex = reverse
       ? rows * ZX_ATTRIBUTE_COLUMNS - 1 - step
       : step;
     const cellX = cellIndex % ZX_ATTRIBUTE_COLUMNS;
     const cellY = Math.floor(cellIndex / ZX_ATTRIBUTE_COLUMNS);
-    for (let localY = 0; localY < cellHeight; localY += 1) {
-      for (let localX = 0; localX < CELL_WIDTH; localX += 1) {
-        offsets[localY * CELL_WIDTH + localX] =
-          ((cellY * cellHeight + localY) * ZX_SCREEN_WIDTH + cellX * CELL_WIDTH + localX) * 4;
-      }
-    }
+    fillSharedCellTables(
+      tables, columns.used, columns.paletteR, columns.paletteG, columns.paletteB,
+      source, currentMerged, sharedPixels, cellX, cellY, cellHeight, includeBoundaryObjective,
+    );
     let minimumRgbError = Number.POSITIVE_INFINITY;
-    const ranked: { candidate: JointMixedCandidate; rgbError: number; boundaryError: number }[] = [];
-    for (const candidate of candidates) {
-      let rgbError = 0;
-      for (let pixel = 0; pixel < offsets.length; pixel += 1) {
-        const offset = offsets[pixel]!;
-        const screenPixel = offset / 4;
-        const bit = sharedPixels[screenPixel] ?? 0;
-        const color = virtualPalette[candidate.blendPaletteIndices[bit === 0 ? 0 : 3]]!;
-        rgbError += mixedColorError(source, offset, color);
-      }
-      minimumRgbError = Math.min(minimumRgbError, rgbError);
-      ranked.push({
-        candidate,
-        rgbError,
-        boundaryError: includeBoundaryObjective ? sharedCandidateBoundaryError(
-          source,
-          currentMerged,
-          sharedPixels,
-          candidate,
-          virtualPalette,
-          cellX,
-          cellY,
-          cellHeight,
-        ) : 0,
-      });
+    for (let index = 0; index < columns.count; index += 1) {
+      const rgbError = tables.rgb0[columns.bit0[index]!]! + tables.rgb1[columns.bit1[index]!]!;
+      rgbErrors[index] = rgbError;
+      boundaryErrors[index] = includeBoundaryObjective
+        ? tables.boundary0[columns.bit0[index]!]! + tables.boundary1[columns.bit1[index]!]!
+        : 0;
+      if (rgbError < minimumRgbError) minimumRgbError = rgbError;
     }
     const currentFirst = firstAttributes[cellIndex] ?? 0;
     const currentSecond = secondAttributes[cellIndex] ?? 0;
-    const currentCandidate = ranked.find(({ candidate }) =>
-      candidate.firstAttribute === currentFirst && candidate.secondAttribute === currentSecond
-    );
-    const currentBoundary = currentCandidate?.boundaryError ?? Number.POSITIVE_INFINITY;
-    const tolerance = Math.max(0, cellRgbTradeoff);
-    let selected = ranked.find(({ rgbError }) => rgbError === minimumRgbError)!;
-    for (const option of ranked) {
-      if (option.rgbError > minimumRgbError + tolerance) continue;
-      if (option.boundaryError < currentBoundary && option.boundaryError < selected.boundaryError) {
-        selected = option;
+    let currentBoundary = Number.POSITIVE_INFINITY;
+    for (let index = 0; index < columns.count; index += 1) {
+      if (columns.first[index] === currentFirst && columns.second[index] === currentSecond) {
+        currentBoundary = boundaryErrors[index]!;
+        break;
       }
     }
-    nextFirst[cellIndex] = selected.candidate.firstAttribute;
-    nextSecond[cellIndex] = selected.candidate.secondAttribute;
+    const tolerance = Math.max(0, cellRgbTradeoff);
+    let selected = 0;
+    while (rgbErrors[selected] !== minimumRgbError) selected += 1;
+    for (let index = 0; index < columns.count; index += 1) {
+      if (rgbErrors[index]! > minimumRgbError + tolerance) continue;
+      const boundary = boundaryErrors[index]!;
+      if (boundary < currentBoundary && boundary < boundaryErrors[selected]!) selected = index;
+    }
+    nextFirst[cellIndex] = columns.first[selected]!;
+    nextSecond[cellIndex] = columns.second[selected]!;
   }
   return { firstAttributes: nextFirst, secondAttributes: nextSecond };
 }
@@ -239,66 +316,53 @@ export function refineSharedBitmapAttributesSeamFirst(
   const nextFirst = Uint8Array.from(firstAttributes);
   const nextSecond = Uint8Array.from(secondAttributes);
   const workingMerged = Uint8Array.from(currentMerged);
-  const offsets = cellPixelOffsets(0, 0, cellHeight);
+  const columns = sharedCandidateColumns(candidates, virtualPalette);
+  const tables = createSharedCellTables(virtualPalette.length);
+  const rgbErrors = new Float64Array(columns.count);
+  const boundaryErrors = new Float64Array(columns.count);
   for (let step = 0; step < rows * ZX_ATTRIBUTE_COLUMNS; step += 1) {
     const cellIndex = reverse ? rows * ZX_ATTRIBUTE_COLUMNS - 1 - step : step;
     const cellX = cellIndex % ZX_ATTRIBUTE_COLUMNS;
     const cellY = Math.floor(cellIndex / ZX_ATTRIBUTE_COLUMNS);
-    for (let localY = 0; localY < cellHeight; localY += 1) {
-      for (let localX = 0; localX < CELL_WIDTH; localX += 1) {
-        offsets[localY * CELL_WIDTH + localX] =
-          ((cellY * cellHeight + localY) * ZX_SCREEN_WIDTH + cellX * CELL_WIDTH + localX) * 4;
-      }
-    }
+    fillSharedCellTables(
+      tables, columns.used, columns.paletteR, columns.paletteG, columns.paletteB,
+      source, workingMerged, sharedPixels, cellX, cellY, cellHeight, true,
+    );
     let minimumRgbError = Number.POSITIVE_INFINITY;
-    const ranked = candidates.map((candidate) => {
-      let rgbError = 0;
-      for (let pixel = 0; pixel < offsets.length; pixel += 1) {
-        const offset = offsets[pixel]!;
-        const bit = sharedPixels[offset / 4] ?? 0;
-        rgbError += mixedColorError(
-          source,
-          offset,
-          virtualPalette[candidate.blendPaletteIndices[bit === 0 ? 0 : 3]]!,
-        );
-      }
-      minimumRgbError = Math.min(minimumRgbError, rgbError);
-      return {
-        candidate,
-        rgbError,
-        boundaryError: sharedCandidateBoundaryError(
-          source,
-          workingMerged,
-          sharedPixels,
-          candidate,
-          virtualPalette,
-          cellX,
-          cellY,
-          cellHeight,
-        ),
-      };
-    });
+    for (let index = 0; index < columns.count; index += 1) {
+      const rgbError = tables.rgb0[columns.bit0[index]!]! + tables.rgb1[columns.bit1[index]!]!;
+      rgbErrors[index] = rgbError;
+      boundaryErrors[index] = tables.boundary0[columns.bit0[index]!]! + tables.boundary1[columns.bit1[index]!]!;
+      if (rgbError < minimumRgbError) minimumRgbError = rgbError;
+    }
     const tolerance = Math.max(0, cellRgbTradeoff);
     const currentFirst = nextFirst[cellIndex] ?? 0;
     const currentSecond = nextSecond[cellIndex] ?? 0;
-    const current = ranked.find(({ candidate }) =>
-      candidate.firstAttribute === currentFirst && candidate.secondAttribute === currentSecond
-    );
-    const options = ranked.filter(({ rgbError }) => rgbError <= minimumRgbError + tolerance);
-    const selected = options.reduce((best, option) =>
-      option.boundaryError < best.boundaryError ? option : best,
-    );
-    const chosen = current !== undefined && current.boundaryError <= selected.boundaryError
-      ? current.candidate
-      : selected.candidate;
-    nextFirst[cellIndex] = chosen.firstAttribute;
-    nextSecond[cellIndex] = chosen.secondAttribute;
-    for (let pixel = 0; pixel < offsets.length; pixel += 1) {
-      const offset = offsets[pixel]!;
-      const color = virtualPalette[chosen.blendPaletteIndices[(sharedPixels[offset / 4] ?? 0) === 0 ? 0 : 3]]!;
-      workingMerged[offset] = color.r;
-      workingMerged[offset + 1] = color.g;
-      workingMerged[offset + 2] = color.b;
+    let current = -1;
+    for (let index = 0; index < columns.count; index += 1) {
+      if (columns.first[index] === currentFirst && columns.second[index] === currentSecond) {
+        current = index;
+        break;
+      }
+    }
+    let selected = -1;
+    for (let index = 0; index < columns.count; index += 1) {
+      if (rgbErrors[index]! > minimumRgbError + tolerance) continue;
+      if (selected < 0 || boundaryErrors[index]! < boundaryErrors[selected]!) selected = index;
+    }
+    const chosen = current >= 0 && boundaryErrors[current]! <= boundaryErrors[selected]! ? current : selected;
+    nextFirst[cellIndex] = columns.first[chosen]!;
+    nextSecond[cellIndex] = columns.second[chosen]!;
+    const chosenCandidate = candidates[chosen]!;
+    for (let localY = 0; localY < cellHeight; localY += 1) {
+      for (let localX = 0; localX < CELL_WIDTH; localX += 1) {
+        const pixel = (cellY * cellHeight + localY) * ZX_SCREEN_WIDTH + cellX * CELL_WIDTH + localX;
+        const offset = pixel * 4;
+        const color = virtualPalette[chosenCandidate.blendPaletteIndices[(sharedPixels[pixel] ?? 0) === 0 ? 0 : 3]]!;
+        workingMerged[offset] = color.r;
+        workingMerged[offset + 1] = color.g;
+        workingMerged[offset + 2] = color.b;
+      }
     }
   }
   return { firstAttributes: nextFirst, secondAttributes: nextSecond };
@@ -782,21 +846,21 @@ function rankJointCellOptions(
   }
 
   const ranked: { candidateIndex: number; score: number }[] = [];
+  const paletteSize = virtualPalette.length;
   for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
-    const candidate = candidates[candidateIndex]!;
+    const [a, b, c, d] = candidates[candidateIndex]!.blendPaletteIndices;
+    // The shortlist only changes between candidates, so its cutoff is loop-invariant here.
+    const worst = ranked.length < SPATIAL_SHORTLIST_SIZE
+      ? Number.POSITIVE_INFINITY
+      : ranked[ranked.length - 1]!.score;
     let score = 0;
-    for (let pixel = 0; pixel < pixelOffsets.length; pixel += 1) {
-      const rowOffset = pixel * virtualPalette.length;
-      const [a, b, c, d] = candidate.blendPaletteIndices;
+    for (let pixel = 0, rowOffset = 0; pixel < pixelOffsets.length; pixel += 1, rowOffset += paletteSize) {
       score += Math.min(
         distances[rowOffset + a]!,
         distances[rowOffset + b]!,
         distances[rowOffset + c]!,
         distances[rowOffset + d]!,
       );
-      const worst = ranked.length < SPATIAL_SHORTLIST_SIZE
-        ? Number.POSITIVE_INFINITY
-        : ranked[ranked.length - 1]!.score;
       if (score > worst) break;
     }
     if (ranked.length === SPATIAL_SHORTLIST_SIZE && score > ranked[ranked.length - 1]!.score) continue;
