@@ -736,16 +736,18 @@
   }
 }
 
-@media (min-width: 1280px) and (min-height: 850px) {
+@media (min-width: 760px) {
   html,
   body,
   #root {
     height: 100%;
-    overflow: auto;
+    overflow: hidden;
   }
 
   .shell {
     height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
     display: grid;
     /* Only the menu bar and workbench remain in the shell flow. Keep the
        flexible track attached to the workbench instead of a removed hero. */
@@ -755,7 +757,16 @@
   .workspace {
     grid-template-rows: auto auto minmax(0, 1fr) auto auto;
     min-height: 0;
-    overflow: visible;
+    overflow: auto;
+  }
+
+  /* Keep Convert reachable while the workspace scrolls internally. */
+  .workspace .form-footer {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    padding: 0.3rem 0;
+    background: #11151c;
   }
 }
 
