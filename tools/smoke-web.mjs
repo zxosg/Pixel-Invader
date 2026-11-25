@@ -91,6 +91,10 @@ try {
   await settle(800);
   await shot("00-empty");
   await auditContrast("default layout");
+  expect(await page.locator(".settings-sidebar").count() === 1, "guided layout shows the settings sidebar by default");
+  await menu("View");
+  await page.getByRole("radio", { name: /Pro workspace/ }).click();
+  await settle(400);
   await menu("File");
   await auditContrast("File menu open");
   await closeMenu("File");
@@ -213,6 +217,22 @@ try {
   }
   await shot("06-sections-open");
 
+  await menu("View");
+  await page.getByRole("radio", { name: /Guided layout/ }).click();
+  await settle(1200);
+  await shot("06b-guided-loaded");
+  await auditContrast("guided layout, advanced tier");
+  expect(await page.locator("#sidebar-gamma").count() === 1, "advanced tier shows gamma");
+  await page.getByRole("radio", { name: "Basic", exact: true }).click();
+  await settle(300);
+  expect(await page.locator("#sidebar-gamma").count() === 0, "basic tier hides gamma");
+  await page.locator("#sidebar-brightness").fill("20");
+  await settle(300);
+  await page.getByRole("radio", { name: "Expert", exact: true }).click();
+  await settle(300);
+  await shot("06c-guided-expert");
+  await auditContrast("guided layout, expert tier");
+  await page.getByRole("radio", { name: "Advanced", exact: true }).click();
   await menu("Tools");
   await page.locator("[data-workbench-menu] button", { hasText: "Palette editor" }).click();
   await settle(700);

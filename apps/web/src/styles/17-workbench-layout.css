@@ -1514,3 +1514,32 @@
   }
 
 }
+
+/* Guided layout: central stage plus a right-hand settings sidebar. */
+.guided-body { display: flex; align-items: stretch; gap: 0; min-width: 0; }
+.guided-body > .workbench-workspace { flex: 1 1 auto; min-width: 0; }
+.pro-body { display: contents; }
+.workbench-workspace[data-ui-layout="guided"] .conversion-form,
+.workbench-workspace[data-ui-layout="guided"] .workspace-heading .heading-actions { display: none; }
+
+.settings-sidebar {
+  flex: 0 0 320px; width: 320px; box-sizing: border-box; display: flex; flex-direction: column;
+  border-left: 1px solid var(--color-border-subtle); background: var(--color-surface-deep); color: var(--color-text-primary);
+  max-height: calc(100vh - 3rem); position: sticky; top: 0; align-self: flex-start;
+}
+.settings-sidebar-header { padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--color-border-subtle); }
+.settings-sidebar-header h2 { margin: 0 0 0.4rem; font-size: 0.95rem; }
+.settings-tier { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; }
+.settings-tier button { padding: 0.3rem 0.2rem; border: 1px solid var(--color-border-subtle); background: transparent; color: var(--color-text-primary); cursor: pointer; border-radius: 2px; font: inherit; }
+.settings-tier button.active { background: var(--color-highlight-yellow); color: #111; font-weight: 700; }
+.settings-sidebar-note { margin: 0.4rem 0 0; font-size: 0.78rem; color: var(--color-text-soft); }
+.settings-sidebar-body { overflow-y: auto; padding: 0.4rem 0.75rem; flex: 1 1 auto; }
+.settings-sidebar-group { border: 0; margin: 0 0 0.75rem; padding: 0; min-width: 0; }
+.settings-sidebar-group legend { font-weight: 700; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; padding: 0 0 0.25rem; }
+.settings-sidebar-row { display: grid; grid-template-columns: 1fr; gap: 0.15rem; margin-bottom: 0.45rem; }
+.settings-sidebar-row label { font-size: 0.85rem; }
+.settings-sidebar-row select, .settings-sidebar-row input[type="number"] { width: 100%; box-sizing: border-box; }
+.sidebar-slider { display: grid; grid-template-columns: 1fr auto; gap: 0.4rem; align-items: center; }
+.sidebar-slider output { font-family: ui-monospace, Menlo, Consolas, monospace; min-width: 3.5em; text-align: right; }
+.settings-sidebar-footer { padding: 0.5rem 0.75rem; border-top: 1px solid var(--color-border-subtle); }
+@media (max-width: 1100px) { .settings-sidebar { flex-basis: 260px; width: 260px; } }

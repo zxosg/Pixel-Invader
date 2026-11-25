@@ -4,7 +4,8 @@ import { type CharsetDistanceMetric, type CharsetEncoding, type CharsetSource, t
 import { type CharsetTilesView, type ResultOrigin, type SourceArtifactInfo } from "../app-types.js";
 import { BUILT_IN_PROFILE, BUILT_IN_PROFILES, type ConversionProfile, loadStoredProfiles } from "../profiles.js";
 import { loadWorkbenchPreferences } from "../workbench-preferences.js";
-import { type ApplicationSettings, DEFAULT_APPLICATION_SETTINGS, loadApplicationSettings, resolveApplicationSettings } from "../application-settings.js";
+import { type ApplicationSettings, DEFAULT_APPLICATION_SETTINGS, loadApplicationSettings, resolveApplicationSettings, saveApplicationSettings } from "../application-settings.js";
+import { loadUiLayout, saveUiLayout, type UiLayout } from "../ui-layout.js";
 import { loadEnginePreferences } from "../engine-preferences.js";
 import { type AttributeHaloRadius, type AttributeHeight, type AttributeOptimizerId, type ConversionSettings, type CropAspectRatio, type CustomDiffusionKernelDefinition, type CustomOrderedMatrixDefinition, DEFAULT_CONVERSION_SETTINGS, type DitherEngineId, type DitheringMethod, ditherMethodForEngine, type FramingMode, type OrderedMatrixId, type PaletteSelection, type PanEdgeMode, type QlMixedOptimizerId, type ResamplingMethod, resolveZxPalette, type RgbColor, type Rotation, type StructuredConversionSettings, type TargetModeId, type ZxPaletteDefinition } from "@retro-converter/conversion-core";
 import { type WorkerDecodedImage } from "../worker/client.js";
@@ -128,6 +129,16 @@ export function useSettingsState(
   const [exportBorderWidth, setExportBorderWidth] = useState(startupApplicationSettings.exportBorderWidth);
   const [exportBorderColor, setExportBorderColor] = useState<RgbColor>(startupApplicationSettings.exportBorderColor);
   const [exportZoomFactor, setExportZoomFactor] = useState<ApplicationSettings["exportZoomFactor"]>(startupApplicationSettings.exportZoomFactor);
+  const [settingsLevel, setSettingsLevelState] = useState<ApplicationSettings["settingsLevel"]>(startupApplicationSettings.settingsLevel);
+  const setSettingsLevel = (level: ApplicationSettings["settingsLevel"]) => {
+    setSettingsLevelState(level);
+    saveApplicationSettings(localStorage, { ...loadApplicationSettings(localStorage), settingsLevel: level });
+  };
+  const [uiLayout, setUiLayoutState] = useState<UiLayout>(() => loadUiLayout(localStorage));
+  const setUiLayout = (layout: UiLayout) => {
+    setUiLayoutState(layout);
+    saveUiLayout(localStorage, layout);
+  };
   const [cropXEntry, setCropXEntry] = useState(String(DEFAULT_CONVERSION_SETTINGS.crop.x));
   const [cropYEntry, setCropYEntry] = useState(String(DEFAULT_CONVERSION_SETTINGS.crop.y));
   const [cropWidthEntry, setCropWidthEntry] = useState(String(DEFAULT_CONVERSION_SETTINGS.crop.width));
@@ -292,6 +303,8 @@ export function useSettingsState(
     exportBorderWidth,
     exportError,
     exportZoomFactor,
+    settingsLevel,
+    uiLayout,
     fillOffsetX,
     fillOffsetY,
     framing,
@@ -380,6 +393,9 @@ export function useSettingsState(
     setExportBorderWidth,
     setExportError,
     setExportZoomFactor,
+    setSettingsLevel,
+    setSettingsLevelState,
+    setUiLayout,
     setFillOffsetX,
     setFillOffsetY,
     setFraming,

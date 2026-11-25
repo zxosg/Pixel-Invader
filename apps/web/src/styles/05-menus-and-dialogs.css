@@ -769,7 +769,7 @@
 .workbench-menubar .workbench-export-main,
 .workbench-menubar .workbench-export-caret {
   border: 1px solid #6daeff;
-  background: linear-gradient(180deg, #82bdff 0%, #5599ed 100%);
+  background: #6daeff linear-gradient(180deg, #82bdff 0%, #5599ed 100%);
   color: #091626;
   font-size: 0.72rem;
   font-weight: 800;

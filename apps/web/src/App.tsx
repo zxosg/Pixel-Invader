@@ -34,6 +34,7 @@ import { PaintColorsSettingsWindow } from "./app/sections/paint-colors-settings-
 import { AdvancedConversionSettings } from "./app/sections/advanced-conversion-settings.js";
 import { DitherComposerControls } from "./app/sections/dither-composer-controls.js";
 import { ErrorDiffusionControls } from "./app/sections/error-diffusion-controls.js";
+import { SettingsSidebar } from "./app/sections/settings-sidebar.js";
 import { ToolsSettingsWindow } from "./app/sections/tools-settings-window.js";
 import { PreviewPalettePanel } from "./app/sections/preview-palette-panel.js";
 import { SourceComparisonDock } from "./app/sections/source-comparison-dock.js";
@@ -105,6 +106,8 @@ export function App() {
     targetModeId,
     workspaceMode,
     zxPaletteDefinition,
+    uiLayout,
+    setUiLayout,
   } = s1;
   const {
     activeWorkspaceProfileId,
@@ -315,6 +318,8 @@ export function App() {
         selectedProfileId={selectedProfileId}
         selectedPresetId={selectedPresetId}
         targetModeId={targetModeId}
+        uiLayout={uiLayout}
+        onUiLayoutChange={setUiLayout}
         onProfileChange={selectProfile}
         onPresetChange={selectPreset}
         onTargetModeChange={(mode) => selectHardwareModeFromMenu(mode as TargetModeId)}
@@ -379,8 +384,10 @@ export function App() {
         </Suspense>
       ) : null}
 
+      <div className={uiLayout === "guided" ? "guided-body" : "pro-body"} data-ui-layout={uiLayout}>
       <section
         ref={workbenchRootRef}
+        data-ui-layout={uiLayout}
         className={`proof workspace workbench-workspace workbench-settings-${workbenchSettingsDock} workbench-settings-${workbenchSettingsMinimized ? "minimized" : "expanded"}${bitmapEditorActiveSide !== null ? " workbench-bitmap-editor-active" : ""}${bitmapEditorActiveSide !== null && workbenchHasBottomDockWindows ? " workbench-bitmap-editor-bottom-dock" : ""}`}
         data-preview-layout={previewLayout}
         data-left-dock-collapsed={bitmapEditorActiveSide !== null ? "false" : !workbenchHasLeftDock || workbenchLeftWidth <= 0 ? "true" : "false"}
@@ -1116,6 +1123,8 @@ export function App() {
           aria-label="Floating preview windows"
         />
       </section>
+      {uiLayout === "guided" ? <SettingsSidebar /> : null}
+      </div>
     </main>
     </AppStateContext.Provider>
   );

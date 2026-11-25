@@ -117,6 +117,8 @@ export interface WorkbenchMenuBarProps {
   readonly activeWorkspaceProfileId: string;
   readonly workspaceProfileDirty: boolean;
   readonly onWorkspaceProfileSelect: (id: string) => void;
+  readonly uiLayout: "guided" | "pro";
+  readonly onUiLayoutChange: (layout: "guided" | "pro") => void;
   readonly onSaveWorkspaceProfileChanges: () => void;
   readonly onSaveWorkspaceProfileAs: (name: string) => boolean;
   readonly onRenameWorkspaceProfile: (id: string, name: string) => boolean;
@@ -497,6 +499,17 @@ export function WorkbenchMenuBar(props: WorkbenchMenuBarProps) {
 
       {openMenu === "view" ? (
         <div id="workbench-menu-view" className="workbench-menu-popover workbench-menu-wide" data-workbench-menu="view" role="region" aria-label="View" style={{ "--workbench-menu-popover-left": `${popoverLeft}px` } as CSSProperties}>
+          <div className="workbench-menu-group">
+            <span className="workbench-menu-heading">Layout</span>
+            <div className="workbench-menu-profile-list" role="radiogroup" aria-label="Layout">
+              {([["guided", "Guided layout", "Settings sidebar with Basic, Advanced and Expert tiers"], ["pro", "Pro workspace", "Dockable and floating windows"]] as const).map(([id, name, hint]) =>
+                <button key={id} type="button" role="radio" aria-checked={props.uiLayout === id} onClick={run(() => props.onUiLayoutChange(id))}>
+                  <span className="workbench-menu-check" aria-hidden="true">{props.uiLayout === id ? "✓" : ""}</span>
+                  <span>{name}</span>
+                  <span className="workbench-menu-profile-kind">{hint}</span>
+                </button>)}
+            </div>
+          </div>
           <div className="workbench-menu-group">
             <span className="workbench-menu-heading">Workspace profiles</span>
             <div className="workbench-menu-profile-list" role="radiogroup" aria-label="Workspace profiles">
