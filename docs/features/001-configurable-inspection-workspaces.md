@@ -214,7 +214,7 @@ Only the first and explicitly defined fourth category may affect exported output
 ## Relevant existing implementation
 
 - `apps/web/src/App.tsx` contains the current preview, palette, tilemap, and inspection composition.
-- `apps/web/src/styles.css` contains the current desktop workstation and responsive layouts.
+- `apps/web/src/styles/ (index.css)` contains the current desktop workstation and responsive layouts.
 - `apps/web/src/inspection.ts` contains inspection and palette-usage logic.
 - `Retro_Converter_SRS_v1.0-draft.3.md` defines the normative preview, inspection, determinism, and export constraints.
 

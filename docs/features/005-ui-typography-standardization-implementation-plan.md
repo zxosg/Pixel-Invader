@@ -29,7 +29,7 @@ The planned model is:
 
 ## Current implementation constraints
 
-The main UI font stack is defined in `apps/web/src/styles.css` on `:root`.
+The main UI font stack is defined in `apps/web/src/styles/ (index.css)` on `:root`.
 There are already two partial tokens, `--ui-control-font-size` and
 `--ui-label-font-size`, but many `font-size` and `font-weight` declarations
 remain hardcoded.
@@ -125,7 +125,7 @@ configured typography.
    - Tilemap workspace.
    - Settings dialog.
 3. Inventory every explicit `font-family`, `font-size`, and `font-weight`
-   declaration in `apps/web/src/styles.css`.
+   declaration in `apps/web/src/styles/ (index.css)`.
 4. Classify each declaration as:
    - Window title.
    - UI label.
@@ -203,7 +203,7 @@ Exit criteria:
 
 Primary file:
 
-- `apps/web/src/styles.css`
+- `apps/web/src/styles/ (index.css)`
 
 Tasks:
 

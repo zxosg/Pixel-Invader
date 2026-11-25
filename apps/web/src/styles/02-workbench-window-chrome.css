@@ -1,0 +1,633 @@
+/* The preview wrapper is display: contents in the tiled workbench, so the
+   inspection workspace owns the container query used for Source/Result. */
+@container preview-workspace (max-width: 42rem) {
+  .workbench-workspace .inspection-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr) auto auto;
+  }
+
+  .workbench-workspace .source-panel {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .workbench-workspace .result-panel {
+    grid-column: 1;
+    grid-row: 3;
+  }
+
+  .workbench-workspace .inspection-controls {
+    grid-column: 1;
+    grid-row: 4;
+  }
+
+  .workbench-workspace .inspection-drawer {
+    grid-column: 1;
+    grid-row: 5;
+  }
+
+  .workbench-workspace:has(.tilemap-charset-panel) .inspection-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workbench-workspace .tilemap-charset-panel {
+    grid-column: 1;
+    grid-row: 4;
+  }
+}
+
+@media (min-width: 1280px) {
+  .workbench-workspace.workbench-bitmap-editor-active .workbench-dock-left,
+  .workbench-workspace.workbench-bitmap-editor-active .inspection-workspace {
+    grid-row: 2 !important;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .workbench-tools-floating {
+    height: min(calc(100dvh - 9rem), 72rem) !important;
+    max-height: calc(100dvh - 9rem) !important;
+  }
+}
+
+.workbench-workspace.workbench-bitmap-editor-active .workbench-tools-content > .tools-control-row,
+.workbench-workspace.workbench-bitmap-editor-active .workbench-tools-content > .tools-flash-preview {
+  display: none !important;
+}
+
+@media (min-width: 1280px) {
+  /* The expanded bottom-dock layout has higher specificity than the general
+     bitmap-editor rule. When the editor hides that dock, discard its reserved
+     minimum-height row so the preview stage can use the freed space. */
+  .workbench-workspace.workbench-settings-bottom.workbench-settings-expanded.workbench-bitmap-editor-active:not(.workbench-bitmap-editor-bottom-dock) {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active {
+    height: calc(100dvh - 7.5rem);
+    max-height: calc(100dvh - 7.5rem);
+    min-height: 26rem;
+    grid-template-columns: var(--workbench-left-dock-width) minmax(0, 1fr) var(--workbench-right-dock-width);
+    grid-template-rows: auto minmax(0, 1fr);
+    overflow: hidden;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .workspace-heading {
+    grid-row: 1;
+    min-height: 2rem;
+    padding-block: 0.15rem;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .workspace-copy,
+  .workbench-workspace.workbench-bitmap-editor-active .profile-control,
+  .workbench-workspace.workbench-bitmap-editor-active .workbench-dock-bottom,
+  .workbench-workspace.workbench-bitmap-editor-active .inspection-heading,
+  .workbench-workspace.workbench-bitmap-editor-active .inspection-drawer,
+  .workbench-workspace.workbench-bitmap-editor-active .workbench-tools-content > .tools-control-row,
+  .workbench-workspace.workbench-bitmap-editor-active .workbench-tools-content > .tools-flash-preview {
+    display: none !important;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .workbench-dock-left {
+    grid-column: 1;
+    grid-row: 2;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    scrollbar-width: none;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .workbench-dock-right {
+    grid-column: 3;
+    grid-row: 2;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    scrollbar-width: none;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .inspection-workspace {
+    grid-column: 2;
+    grid-row: 2;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+    gap: 0.35rem;
+    overflow: hidden;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .preview-panel {
+    grid-template-rows: auto minmax(0, 1fr);
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .preview-panel-heading {
+    min-height: 2rem;
+    margin: 0;
+    padding: 0.15rem 0;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .preview-frame {
+    min-width: 0;
+    min-height: 0;
+    max-height: none;
+    overflow: auto;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-full-viewport {
+    height: 100%;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .preview-viewport,
+  .workbench-workspace.workbench-bitmap-editor-active .workbench-tools-content {
+    scrollbar-width: none;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .preview-viewport::-webkit-scrollbar,
+  .workbench-workspace.workbench-bitmap-editor-active .workbench-dock-left::-webkit-scrollbar,
+  .workbench-workspace.workbench-bitmap-editor-active .workbench-tools-content::-webkit-scrollbar {
+    display: none;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .workbench-dock-region > .workbench-window {
+    min-width: 0;
+    min-height: 0;
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    max-height: none;
+    overflow: hidden;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .workbench-dock-left > .workbench-window:not([open]),
+  .workbench-workspace.workbench-bitmap-editor-active .workbench-dock-right > .workbench-window:not([open]) {
+    flex: 0 0 auto;
+    height: auto;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .workbench-window-content.workbench-tools-content {
+    display: block;
+    max-height: calc(100% - 2rem);
+    overflow: auto;
+    padding: 0.3rem;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-tools-section {
+    min-width: 0;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-tools-section-heading {
+    margin-bottom: 0.25rem;
+    color: #b8c9df;
+    font-size: 0.68rem;
+    font-weight: 800;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-tools-host,
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-full-toolbar {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-full-toolbar {
+    display: grid;
+    grid-template-columns: 2.4rem minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    gap: 0.3rem;
+    height: auto;
+    max-height: none;
+    padding: 0;
+    background: transparent;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-tool-panel {
+    grid-column: 2;
+    grid-row: 1;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-tool-mode-tabs {
+    grid-column: 1;
+    grid-row: 1;
+    margin: 0;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-control-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-column: auto;
+    grid-row: auto;
+    align-content: start;
+    overflow: visible;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-pane-layout {
+    display: block;
+    min-width: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-full-layout {
+    display: block;
+    min-width: 100%;
+    width: 100%;
+    min-height: 100%;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-full-canvas {
+    margin: auto;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-region-buttons {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-region-buttons > button {
+    min-height: 1.6rem;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-picked-cell-preview {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-column: auto;
+    grid-row: auto;
+    gap: 0.2rem;
+    margin-top: 0.1rem;
+    padding-top: 0.25rem;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-picked-cell-preview[data-picked="false"] .bitmap-editor-picked-cell-color-preview,
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-picked-cell-preview[data-picked="false"] .bitmap-editor-picked-cell-empty,
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-picked-cell-preview .bitmap-editor-picked-cell-meta {
+    display: none;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-picked-cell-title,
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-picked-cell-status,
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-picked-cell-meta,
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-picked-cell-empty {
+    grid-column: 1 / -1;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-picked-cell-color-preview {
+    width: 100%;
+    min-height: 3.25rem;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-picked-cell-grid {
+    width: min(100%, 4rem);
+    max-width: 4rem;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-navigator-overlay {
+    position: absolute;
+    z-index: 8;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    cursor: crosshair;
+    pointer-events: all;
+    touch-action: none;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-navigator-overlay rect {
+    fill: rgb(121 183 255 / 20%);
+    stroke: #ffdc6a;
+    stroke-width: 3;
+    vector-effect: non-scaling-stroke;
+  }
+
+  .workbench-workspace.workbench-bitmap-editor-active .bitmap-editor-navigator-label {
+    position: absolute;
+    z-index: 9;
+    right: 0.35rem;
+    bottom: 0.3rem;
+    padding: 0.12rem 0.25rem;
+    border-radius: 0.2rem;
+    color: #fff;
+    background: rgb(8 14 24 / 78%);
+    font-size: 0.58rem;
+    pointer-events: none;
+  }
+}
+
+/* Shared aligned control rows. Each row owns its column count so labels and
+   controls stay aligned without allowing intrinsic control widths to force
+   overlap. Subgrid makes the tallest label in a row determine the control
+   baseline for every cell in that row. */
+.workbench-workspace .control-row {
+  --control-columns: 1;
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(var(--control-columns), minmax(0, 1fr));
+  gap: 0.35rem 0.55rem;
+  align-items: start;
+}
+
+.workbench-workspace .control-row-2 { --control-columns: 2; }
+.workbench-workspace .control-row-3 { --control-columns: 3; }
+.workbench-workspace .control-row-4 { --control-columns: 4; }
+.workbench-workspace .control-row-5 { --control-columns: 5; }
+
+.workbench-workspace .control-row > label,
+.workbench-workspace .control-row > .range-number-control,
+.workbench-workspace .control-row > fieldset,
+.workbench-workspace .control-row > .dithering-parameter,
+.workbench-workspace .control-row > .dithering-composer-save-row,
+.workbench-workspace .control-row > .dithering-composer-spacer {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.workbench-workspace .control-row > label,
+.workbench-workspace .control-row > fieldset,
+.workbench-workspace .control-row > .dithering-parameter {
+  display: grid;
+  grid-template-rows: subgrid;
+  grid-row: span 2;
+  align-content: start;
+}
+
+.workbench-workspace .control-row > label:not(.check-control) > select,
+.workbench-workspace .control-row > label:not(.check-control) > input,
+.workbench-workspace .control-row > label > textarea,
+.workbench-workspace .control-row > fieldset select,
+.workbench-workspace .control-row > fieldset input,
+.workbench-workspace .control-row .filter-inputs,
+.workbench-workspace .control-row .amount-inputs {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.workbench-workspace .adjustment-control {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.workbench-workspace .adjustment-control > .control-row,
+.workbench-workspace .tilemap-primary-controls,
+.workbench-workspace .geometry-primary-row,
+.workbench-workspace .framing-detail,
+.workbench-workspace .orientation-actions {
+  grid-column: 1 / -1;
+}
+
+.workbench-workspace .tools-control-row {
+  align-content: start;
+}
+
+.workbench-workspace .tools-control-row > .tools-zoom-controls,
+.workbench-workspace .tools-control-row > .check-control {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.workbench-workspace .tools-control-row > .tools-zoom-controls {
+  display: grid;
+  grid-template-rows: auto auto;
+  align-content: start;
+}
+
+.workbench-workspace .tools-control-row > .check-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  grid-row: auto;
+  grid-template-rows: none;
+  gap: 0.35rem;
+  overflow: hidden;
+  padding: 0.15rem 0.1rem;
+  text-align: left;
+}
+
+.workbench-workspace .tools-control-row > .check-control input {
+  flex: 0 0 auto;
+}
+
+.workbench-workspace .tools-control-row > .check-control span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: normal;
+}
+
+.workbench-workspace .dithering-composer-grid {
+  display: grid;
+  grid-column: 1 / -1;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  gap: 0.35rem;
+}
+
+.workbench-workspace .dithering-composer-grid > .control-row {
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.workbench-workspace .dithering-composer-grid .control-row-heading {
+  align-items: end;
+}
+
+.workbench-workspace .dithering-composer-grid .control-row-heading h3 {
+  margin: 0;
+  color: #d6deea;
+  font-size: var(--ui-label-font-size);
+  font-weight: 750;
+}
+
+.workbench-workspace .dithering-composer-grid .dithering-composer-one-line-label {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: keep-all;
+  overflow-wrap: normal;
+  white-space: nowrap;
+}
+
+.workbench-workspace .dithering-composer-grid .dithering-composer-save-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.4rem;
+  min-width: 0;
+  align-items: stretch;
+}
+
+.workbench-workspace .dithering-composer-grid .dithering-composer-save-row > button {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--ui-control-height);
+}
+
+.workbench-workspace .dithering-composer-grid .destructive-action {
+  border-color: #8a5360;
+  color: #ffc3cd;
+}
+
+.workbench-workspace .dithering-composer-grid .destructive-action:hover:not(:disabled) {
+  border-color: #d98191;
+  background: #38202a;
+}
+
+.workbench-workspace .dithering-composer-grid .control-row > label > select,
+.workbench-workspace .dithering-composer-grid .control-row > label > input,
+.workbench-workspace .dithering-composer-grid .control-cell-body > select {
+  align-self: start;
+}
+
+.workbench-workspace .dithering-composer-grid .control-row > label > textarea {
+  min-height: 5.5rem;
+  align-self: stretch;
+}
+
+.workbench-workspace .dithering-composer-grid .dithering-composer-dimensions-fields {
+  grid-template-columns: repeat(2, minmax(0, 5.5rem));
+  width: min(100%, 11.5rem);
+  align-self: start;
+}
+
+.workbench-workspace .dithering-composer-grid .dithering-composer-dimensions-fields > input {
+  width: 100%;
+  height: var(--ui-control-height);
+  min-height: var(--ui-control-height);
+  box-sizing: border-box;
+}
+
+.workbench-workspace .dithering-composer-grid .dithering-composer-editor {
+  width: 100%;
+  height: 4rem;
+  min-height: 4rem;
+  max-height: 4rem;
+  box-sizing: border-box;
+  align-self: start;
+  resize: none;
+}
+
+.workbench-workspace .dithering-composer-grid .control-cell-body > .dithering-composer-editor {
+  display: block;
+}
+
+.workbench-workspace .dithering-composer-grid .dithering-composer-error {
+  grid-column: 1 / -1;
+}
+
+.workbench-workspace .dithering-composer-grid small {
+  display: block;
+  color: #9eabbd;
+  line-height: 1.2;
+}
+
+.workbench-workspace .dithering-composer-grid .control-cell-body {
+  display: grid;
+  min-width: 0;
+  gap: 0.18rem;
+}
+
+.workbench-workspace .dithering-row-paired {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@container workbench-window (max-width: 55.99rem) {
+  .workbench-workspace .control-row-5,
+  .workbench-workspace .control-row-4 {
+    --control-columns: 3;
+  }
+}
+
+@container workbench-window (max-width: 41.99rem) {
+  .workbench-workspace .control-row-5,
+  .workbench-workspace .control-row-4,
+  .workbench-workspace .control-row-3 {
+    --control-columns: 2;
+  }
+
+  .workbench-workspace .dithering-composer-grid > .control-row,
+  .workbench-workspace .dithering-row-paired {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container workbench-window (max-width: 27.99rem) {
+  .workbench-workspace .control-row-5,
+  .workbench-workspace .control-row-4,
+  .workbench-workspace .control-row-3,
+  .workbench-workspace .control-row-2,
+  .workbench-workspace .dithering-composer-grid > .control-row,
+  .workbench-workspace .dithering-row-paired {
+    --control-columns: 1;
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Tiled title dragging uses the same focusable title surface as the existing
+   floating drag. Keep the source tile in place while showing a drop target. */
+.workbench-workspace [data-workbench-dragging="true"] {
+  opacity: 0.72;
+  cursor: grabbing;
+}
+
+.workbench-workspace [data-workbench-drop-position="before"],
+.workbench-workspace [data-workbench-drop-position="after"] {
+  position: relative;
+}
+
+.workbench-workspace .workbench-dock-left [data-workbench-drop-position="before"]::before,
+.workbench-workspace .workbench-dock-right [data-workbench-drop-position="before"]::before,
+.workbench-workspace .workbench-dock-left [data-workbench-drop-position="after"]::after,
+.workbench-workspace .workbench-dock-right [data-workbench-drop-position="after"]::after {
+  position: absolute;
+  right: 0;
+  left: 0;
+  z-index: 32;
+  height: 3px;
+  content: "";
+  background: #79b7ff;
+  pointer-events: none;
+}
+
+.workbench-workspace .workbench-dock-left [data-workbench-drop-position="before"]::before,
+.workbench-workspace .workbench-dock-right [data-workbench-drop-position="before"]::before {
+  top: -2px;
+}
+
+.workbench-workspace .workbench-dock-left [data-workbench-drop-position="after"]::after,
+.workbench-workspace .workbench-dock-right [data-workbench-drop-position="after"]::after {
+  bottom: -2px;
+}
+
+.workbench-workspace .workbench-dock-bottom [data-workbench-drop-position="before"]::before,
+.workbench-workspace .workbench-preview-dock [data-workbench-drop-position="before"]::before,
+.workbench-workspace .workbench-dock-bottom [data-workbench-drop-position="after"]::after,
+.workbench-workspace .workbench-preview-dock [data-workbench-drop-position="after"]::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 32;
+  width: 3px;
+  content: "";
+  background: #79b7ff;
+  pointer-events: none;
+}
+
+.workbench-workspace .workbench-dock-bottom [data-workbench-drop-position="before"]::before,
+.workbench-workspace .workbench-preview-dock [data-workbench-drop-position="before"]::before {
+  left: -2px;
+}
+
+.workbench-workspace .workbench-dock-bottom [data-workbench-drop-position="after"]::after,
+.workbench-workspace .workbench-preview-dock [data-workbench-drop-position="after"]::after {
+  right: -2px;
+}
+
+.workbench-workspace [data-workbench-drop-append="true"] {
+  outline: 2px dashed #79b7ff;
+  outline-offset: -3px;
+}

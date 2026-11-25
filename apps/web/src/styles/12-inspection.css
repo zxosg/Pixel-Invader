@@ -1,0 +1,109 @@
+.inspection-details {
+  display: grid;
+  grid-template-columns: minmax(18rem, 1fr) minmax(18rem, 1fr);
+  gap: 0.6rem;
+}
+
+.inspection-details > section {
+  min-width: 0;
+  border: 1px solid #33425d;
+  border-radius: 0.5rem;
+  padding: 0.5rem;
+  background: #111824;
+}
+
+.inspection-details h3 {
+  margin: 0 0 0.35rem;
+  font-size: 0.8rem;
+}
+
+.attribute-readout {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.4rem;
+  margin: 0;
+}
+
+.attribute-readout div {
+  min-width: 0;
+  border-radius: 0.3rem;
+  padding: 0.4rem;
+  background: #192233;
+}
+
+.attribute-readout dt {
+  color: #8ea0b8;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.attribute-readout dd {
+  overflow-wrap: anywhere;
+  margin: 0.15rem 0 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+}
+
+.usage-palette {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(5.5rem, 1fr));
+  gap: 0.35rem;
+}
+
+.usage-color {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid #33425d;
+  border-radius: 0.35rem;
+  padding: 0.35rem;
+  opacity: 0.4;
+  font-size: 0.72rem;
+}
+
+.usage-color.used {
+  border-color: #79b7ff;
+  opacity: 1;
+}
+
+.inspection-drawer {
+  display: none;
+  border: 1px solid #33425d;
+  border-radius: 0.45rem;
+  background: #111824;
+}
+
+.inspection-drawer summary {
+  padding: 0.35rem 0.5rem;
+  color: #d6deea;
+  font-size: 0.72rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.inspection-drawer[open] .inspection-details {
+  padding: 0 0.45rem 0.45rem;
+}
+
+.usage-swatches {
+  display: grid;
+  grid-template-columns: repeat(2, 0.65rem);
+  overflow: hidden;
+  border: 1px solid #748095;
+  border-radius: 0.2rem;
+}
+
+.usage-swatches span {
+  width: 0.65rem;
+  height: 1.2rem;
+}
+
+.preview-placeholder {
+  margin: 0;
+  color: #4d5869 !important;
+  font-size: 0.9rem !important;
+  text-align: center;
+}

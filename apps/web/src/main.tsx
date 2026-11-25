@@ -3,7 +3,7 @@ import { MantineProvider } from "@mantine/core";
 import { createRoot } from "react-dom/client";
 import { App } from "./App.js";
 import "@mantine/core/styles.css";
-import "./styles.css";
+import "./styles/index.css";
 
 const root = document.querySelector<HTMLDivElement>("#root");
 

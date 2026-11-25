@@ -1,0 +1,288 @@
+.stale-preview-badge {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  border: 1px solid #f2b84b;
+  border-radius: 999px;
+  padding: 0.18rem 0.45rem;
+  color: #17110a;
+  background: #f2b84b;
+  font-size: 0.65rem;
+  font-weight: 800;
+}
+
+.tilemap-source-summary {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.tilemap-settings-group {
+  grid-column: 1 / -1;
+}
+
+.tilemap-source-inline {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: end;
+  gap: 0.5rem;
+  border-bottom: 1px solid #33425d;
+  padding-bottom: 0.35rem;
+}
+
+.tilemap-source-inline .tilemap-source-summary {
+  grid-template-columns: repeat(var(--control-columns, 5), minmax(0, 1fr));
+}
+
+.tilemap-source-inline .tilemap-source-summary > div {
+  grid-template-columns: 1fr;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.tilemap-primary-controls {
+  grid-column: 1 / -1;
+}
+
+.tilemap-primary-controls label {
+  min-width: 0;
+}
+
+.tilemap-primary-controls select,
+.tilemap-primary-controls input[type="number"] {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.tilemap-options-row {
+  grid-column: 1 / -1;
+}
+
+.workbench-workspace .tilemap-options-row > .check-control {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  grid-row: auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: normal;
+}
+
+.workbench-workspace .tilemap-options-row > .check-control input {
+  flex: 0 0 auto;
+}
+
+.workbench-workspace .tilemap-options-row > .check-control span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tilemap-mapping-help {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.tilemap-source-summary > div {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  gap: 0.35rem;
+}
+
+.tilemap-source-summary span {
+  color: #9facbd;
+  font-size: 0.64rem;
+}
+
+.tilemap-source-summary strong {
+  overflow: hidden;
+  font-size: 0.66rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-control {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(11rem, 2fr) minmax(8rem, 1fr) repeat(3, auto);
+  align-items: end;
+  gap: 0.4rem;
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+  color: #d6deea;
+}
+
+.profile-control > label {
+  min-width: 0;
+}
+
+.profile-control > label > select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.profile-control legend {
+  grid-column: 1 / -1;
+  padding: 0;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.profile-control .compact,
+.compact-picker {
+  min-height: 1.75rem;
+  padding: 0.2rem 0.45rem;
+  font-size: 0.68rem;
+}
+
+.adjustment-control legend {
+  grid-column: 1 / -1;
+  padding: 0;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.adjustment-control button.compact {
+  min-height: 1.75rem;
+  padding: 0.2rem 0.45rem;
+  font-size: 0.68rem;
+}
+
+.filter-inputs {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 3.1rem;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.range-number-control {
+  display: grid;
+  align-content: start;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.range-number-label {
+  width: max-content;
+  min-height: 0 !important;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font-family: inherit;
+  font-size: var(--ui-label-font-size);
+  font-weight: var(--ui-label-font-weight);
+  line-height: normal;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+}
+
+.range-number-label:hover:not(:disabled) {
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 0.2em;
+}
+
+.range-number-label:disabled {
+  cursor: default;
+}
+
+.controls .filter-inputs input[type="number"] {
+  width: 100%;
+  min-width: 0;
+}
+
+.orientation-control legend {
+  width: 100%;
+  padding: 0;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.controls .check-control {
+  display: flex;
+  grid-template-columns: none;
+  align-items: center;
+  gap: 0.3rem;
+  font-weight: 600;
+}
+
+.check-control input {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: #79b7ff;
+}
+
+.amount-control legend {
+  margin-bottom: 0.35rem;
+  padding: 0;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.amount-inputs {
+  display: grid;
+  grid-template-columns: minmax(7rem, 1fr) 4.6rem;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+input[type="range"] {
+  width: 100%;
+  accent-color: #79b7ff;
+}
+
+.percentage-entry {
+  display: grid !important;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 0.3rem !important;
+}
+
+.percentage-entry input {
+  width: 100%;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.field-error {
+  color: #ff8b91;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.status {
+  min-height: 1.5rem;
+  color: #d6deea;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.conversion-status {
+  min-height: auto;
+  font-size: 0.82rem;
+}
+
+.conversion-status {
+  text-align: left;
+}
+
+.comparison {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.6rem;
+}

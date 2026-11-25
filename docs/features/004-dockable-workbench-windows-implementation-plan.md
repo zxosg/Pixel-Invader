@@ -179,7 +179,7 @@ Exit criteria:
 Primary files:
 
 - New component file, recommended: `apps/web/src/workbench-window.tsx`
-- `apps/web/src/styles.css`
+- `apps/web/src/styles/ (index.css)`
 - `apps/web/src/App.tsx`
 
 Tasks:
@@ -238,7 +238,7 @@ Exit criteria:
 Primary files:
 
 - `apps/web/src/App.tsx`
-- `apps/web/src/styles.css`
+- `apps/web/src/styles/ (index.css)`
 
 Tasks:
 
@@ -267,7 +267,7 @@ Exit criteria:
 Primary files:
 
 - `apps/web/src/App.tsx`
-- `apps/web/src/styles.css`
+- `apps/web/src/styles/ (index.css)`
 - New utility/test file if useful, recommended:
   `apps/web/src/workbench-layout.ts`
 
@@ -349,7 +349,7 @@ Exit criteria:
 
 Primary files:
 
-- `apps/web/src/styles.css`
+- `apps/web/src/styles/ (index.css)`
 - `apps/web/src/App.tsx`
 
 Tasks:

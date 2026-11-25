@@ -1,0 +1,337 @@
+/* Portal-mounted workbench windows need a final container-query pass after
+   the legacy viewport rules above. */
+.workbench-workspace .workbench-dock-region > .workbench-window,
+.workbench-workspace .workbench-dock-region > .preview-panel {
+  container: workbench-window / inline-size;
+}
+
+.workbench-workspace .inspection-workspace {
+  container: preview-workspace / inline-size;
+}
+
+.workbench-workspace .workbench-dock-left,
+.workbench-workspace .workbench-dock-right,
+.workbench-workspace .workbench-dock-bottom {
+  scrollbar-gutter: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* Bottom-dock minimized windows form a fixed-width ladder on the left. They
+   are removed from the flexible row so expanded windows reclaim their space. */
+.workbench-workspace .workbench-dock-bottom > .workbench-dock-minimized-stack {
+  order: -1;
+  display: flex;
+  flex: 0 0 14rem;
+  flex-direction: column;
+  width: 14rem;
+  min-width: 14rem;
+  min-height: 0;
+  gap: 0.35rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: auto;
+}
+
+.workbench-workspace .workbench-dock-bottom > .workbench-dock-minimized-stack:empty {
+  display: none;
+}
+
+.workbench-workspace .workbench-dock-bottom > .workbench-dock-minimized-stack > .workbench-window {
+  position: relative;
+  flex: 0 0 auto;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  max-width: none;
+  max-height: none;
+  overflow: hidden;
+}
+
+/* Hidden workbench windows retain their mounted content and saved layout, but
+   do not paint or participate in dock sizing until they are shown again. */
+.workbench-workspace [data-workbench-window][hidden] {
+  display: none !important;
+}
+
+.workbench-workspace .inspection-workspace.preview-source-hidden:not(.preview-result-hidden),
+.workbench-workspace .inspection-workspace.preview-result-hidden:not(.preview-source-hidden) {
+  grid-template-columns: minmax(240px, 1fr);
+}
+
+.workbench-workspace .inspection-workspace.preview-source-hidden:not(.preview-result-hidden) .result-panel,
+.workbench-workspace .inspection-workspace.preview-result-hidden:not(.preview-source-hidden) .source-panel {
+  grid-column: 1;
+}
+
+.workbench-workspace .inspection-workspace.preview-source-hidden:not(.preview-result-hidden):has(.tilemap-charset-panel),
+.workbench-workspace .inspection-workspace.preview-result-hidden:not(.preview-source-hidden):has(.tilemap-charset-panel) {
+  grid-template-columns: minmax(240px, 1fr) 14rem;
+}
+
+.workbench-workspace .inspection-workspace.preview-source-hidden.preview-result-hidden {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.workbench-workspace .inspection-workspace.preview-source-hidden.preview-result-hidden:has(.tilemap-charset-panel) {
+  grid-template-columns: minmax(0, 1fr) 14rem;
+}
+
+.workbench-workspace .workbench-dock-bottom > .workbench-dock-minimized-stack > .workbench-window > summary {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 0.35rem;
+  position: relative;
+  z-index: 1;
+  cursor: pointer;
+  list-style: none;
+  padding: 0.22rem 0.35rem;
+  color: #dce7f7;
+  font-size: 0.72rem;
+  font-weight: 800;
+  background: #172b43;
+}
+
+.workbench-workspace .workbench-dock-bottom > .workbench-dock-minimized-stack > .workbench-window > summary::-webkit-details-marker {
+  display: none;
+}
+
+.workbench-workspace .workbench-dock-bottom > .workbench-dock-minimized-stack > .workbench-window > summary::before {
+  flex: 0 0 auto;
+  content: "▸";
+  color: #79b7ff;
+}
+
+.workbench-workspace .workbench-dock-bottom > .workbench-dock-minimized-stack > .workbench-window[open] > summary::before {
+  content: "▾";
+}
+
+.workbench-workspace .workbench-dock-bottom > .workbench-dock-minimized-stack > .workbench-window > summary > span:first-child {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-workspace .workbench-dock-bottom > .workbench-dock-minimized-stack > .workbench-window > summary .workbench-window-actions {
+  min-width: 0;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+}
+
+.workbench-workspace .workbench-dock-region > .workbench-window,
+.workbench-workspace .workbench-dock-region > .preview-panel,
+.workbench-workspace .workbench-dock-region > .workbench-window > .workbench-window-content,
+.workbench-workspace .workbench-window-content,
+.workbench-workspace .workbench-settings-section > fieldset,
+.workbench-workspace .workbench-tools-content,
+.workbench-workspace .control-group,
+.workbench-workspace .dithering-group,
+.workbench-workspace .palette-attributes-grid,
+.workbench-workspace .adjustment-control,
+.workbench-workspace .geometry-group {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* Standard floating windows reflow their controls; a narrow internal grid
+   must not create a cosmetic horizontal scrollbar on the outer window. */
+.workbench-workspace .workbench-preview-layer > .workbench-section-floating,
+.workbench-workspace .workbench-dock-region > .workbench-window {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.workbench-workspace .workbench-dock-region > .workbench-window > summary,
+.workbench-workspace .workbench-dock-region > .preview-panel > .preview-panel-heading,
+.workbench-workspace .workbench-preview-dock > .preview-panel > .preview-panel-heading {
+  min-width: 0;
+  flex-wrap: nowrap;
+  touch-action: none;
+  user-select: none;
+}
+
+.workbench-workspace .workbench-dock-region > .workbench-window > summary > span:first-child,
+.workbench-workspace .workbench-dock-region > .preview-panel > .preview-panel-heading > h3,
+.workbench-workspace .workbench-preview-dock > .preview-panel > .preview-panel-heading > h3 {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-workspace .workbench-window-actions {
+  min-width: 0;
+  max-width: 100%;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+}
+
+.workbench-workspace .workbench-window-location-menu {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.workbench-workspace .workbench-window-location-button {
+  width: 1.55rem;
+  min-width: 1.55rem;
+  padding: 0;
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
+/* Floating workbench windows keep the move grip centered while placing the
+   dock menu at the far edge of the title bar. Its filled circular treatment
+   makes the location action distinct from the title and drag affordance. */
+.workbench-workspace :is(.workbench-section-floating, .workbench-tools-floating) > summary .workbench-window-drag-handle {
+  order: 1;
+  flex: 1 1 auto;
+}
+
+.workbench-workspace :is(.workbench-section-floating, .workbench-tools-floating) > summary > .workbench-window-actions {
+  order: 2;
+  margin-left: 0;
+}
+
+.workbench-workspace :is(.workbench-section-floating, .workbench-tools-floating) > summary .workbench-window-location-button {
+  width: 1.55rem;
+  min-width: 1.55rem;
+  height: 1.55rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 0.3rem;
+  color: transparent;
+  background: transparent;
+  font-size: 0;
+}
+
+.workbench-workspace :is(.workbench-section-floating, .workbench-tools-floating) > summary .workbench-window-location-button::before {
+  width: 0.58rem;
+  height: 0.58rem;
+  border: 1px solid rgb(210 236 255 / 82%);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 33% 25%, rgb(255 255 255 / 95%) 0 5%, transparent 24%),
+    radial-gradient(circle at 35% 28%, #bfe6ff 0, #68bdff 35%, #2785dc 72%, #1762b4 100%);
+  box-shadow:
+    inset 0 0.04rem 0.08rem rgb(255 255 255 / 72%),
+    0 0 0.18rem rgb(83 177 255 / 72%);
+  content: "";
+}
+
+.workbench-workspace :is(.workbench-section-floating, .workbench-tools-floating) > summary .workbench-window-location-button:hover,
+.workbench-workspace :is(.workbench-section-floating, .workbench-tools-floating) > summary .workbench-window-location-button[aria-expanded="true"] {
+  border-color: rgb(121 183 255 / 55%);
+  background: rgb(121 183 255 / 12%);
+}
+
+.workbench-workspace .workbench-window-location-popover {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  right: 0;
+  z-index: 100;
+  display: grid;
+  min-width: 9.5rem;
+  padding: 0.2rem;
+  gap: 0.12rem;
+  border: 1px solid #52627d;
+  border-radius: 0.35rem;
+  background: #111824;
+  box-shadow: 0 0.7rem 1.5rem rgb(0 0 0 / 42%);
+}
+
+.workbench-workspace .workbench-window-location-popover button {
+  display: flex;
+  width: 100%;
+  min-height: 1.55rem;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.45rem;
+  padding: 0.18rem 0.35rem;
+  border-color: transparent;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.workbench-workspace .workbench-window-location-popover button > span {
+  width: 1rem;
+  flex: 0 0 1rem;
+  text-align: center;
+}
+
+.workbench-workspace .workbench-window-location-popover button:hover,
+.workbench-workspace .workbench-window-location-popover button:focus-visible,
+.workbench-workspace .workbench-window-location-popover button.active {
+  border-color: #79b7ff;
+  background: #245b7b;
+}
+
+.workbench-workspace .workbench-window:has(.workbench-window-location-popover) {
+  overflow: visible;
+  z-index: 50;
+}
+
+/* A minimized ladder is scrollable during normal use, but an open control
+   menu must be allowed to escape the ladder and paint above neighboring
+   title bars. */
+.workbench-workspace .workbench-dock-minimized-stack:has(.workbench-window-location-popover) {
+  position: relative;
+  z-index: 50;
+  overflow: visible;
+}
+
+/* Location menus are rendered in document.body so dock windows and their
+   preview canvases cannot clip or paint over them. */
+.workbench-window-location-popover {
+  position: fixed;
+  z-index: 2147483000;
+  display: grid;
+  min-width: 10rem;
+  padding: 0.25rem;
+  gap: 0.12rem;
+  border: 1px solid #52627d;
+  border-radius: 0.4rem;
+  color: #d9e4f4;
+  background: #111824;
+  box-shadow: 0 0.7rem 1.5rem rgb(0 0 0 / 65%);
+}
+
+.workbench-window-location-popover button {
+  display: flex;
+  width: 100%;
+  min-height: 1.8rem;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.45rem;
+  border: 1px solid transparent;
+  border-radius: 0.25rem;
+  padding: 0.2rem 0.4rem;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.workbench-window-location-popover button > span {
+  width: 1rem;
+  flex: 0 0 1rem;
+  text-align: center;
+}
+
+.workbench-window-location-popover button:hover,
+.workbench-window-location-popover button:focus-visible,
+.workbench-window-location-popover button.active {
+  border-color: #79b7ff;
+  background: #245b7b;
+}

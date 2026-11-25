@@ -1,0 +1,223 @@
+/* Final Geometry row override after the legacy viewport rules. */
+.workbench-workspace .geometry-primary-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* Preview window headers keep all actions on one compact row, including when
+   tiled into a narrow side dock. Floating previews place the dock-location
+   action at the far right, after the move grip. */
+.workbench-workspace .workbench-preview-dock > .preview-panel > .preview-panel-heading {
+  display: flex;
+  min-width: 0;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.workbench-workspace .workbench-preview-dock > .preview-panel > .preview-panel-heading > h3 {
+  min-width: 0;
+  flex: 1 1 2rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-workspace .workbench-preview-dock > .preview-panel > .preview-panel-heading .preview-content-selector {
+  width: auto;
+  min-width: 3.5rem;
+  max-width: 13rem;
+  flex: 0 1 8rem;
+  margin-left: 0;
+}
+
+.workbench-workspace .workbench-preview-dock > .preview-panel > .preview-panel-heading .preview-zoom-actions {
+  flex: 0 0 auto;
+}
+
+.workbench-workspace .workbench-preview-dock > .preview-panel > .preview-panel-heading .preview-zoom-actions button {
+  width: 1.25rem;
+  min-width: 1.25rem;
+  min-height: 1.25rem;
+}
+
+.workbench-workspace .preview-panel-floating .preview-panel-heading .preview-content-selector {
+  order: 1;
+  flex-basis: 13rem;
+}
+
+.workbench-workspace .preview-panel-floating .preview-panel-heading .preview-zoom-actions {
+  order: 2;
+}
+
+.workbench-workspace .preview-panel-floating .preview-panel-heading .workbench-window-drag-handle {
+  order: 3;
+  flex: 1 1 auto;
+}
+
+.workbench-workspace .preview-panel-floating .preview-panel-heading > .workbench-window-actions {
+  order: 4;
+  margin-left: 0;
+}
+
+@container workbench-window (max-width: 27.99rem) {
+  .workbench-workspace .geometry-primary-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container workbench-window (max-width: 19.99rem) {
+  .workbench-workspace .geometry-primary-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Tools owns two explicit logical rows. Keep the content wrapper a single
+   full-width track so each row remains independent in every dock. */
+.workbench-workspace .workbench-tools-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  align-items: start;
+}
+
+.workbench-workspace .workbench-tools-content > .tools-control-row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(var(--control-columns), minmax(0, 1fr));
+  align-items: start;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.workbench-workspace .workbench-tools-content > .tools-control-row > .check-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-width: 0;
+  max-width: 100%;
+  gap: 0.35rem;
+  overflow: hidden;
+  padding: 0.15rem 0.1rem;
+  text-align: left;
+}
+
+.workbench-workspace .workbench-tools-content > .tools-control-row > .check-control input {
+  flex: 0 0 auto;
+}
+
+.workbench-workspace .workbench-tools-content > .tools-control-row > .check-control span {
+  display: block;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: #d6deea;
+  text-overflow: ellipsis;
+  writing-mode: horizontal-tb;
+  transform: none;
+  white-space: normal;
+}
+
+.workbench-workspace .workbench-tools-content > .tools-control-row > label:not(.check-control) {
+  min-width: 0;
+  max-width: 100%;
+}
+
+@container preview-workspace (max-width: 42rem) {
+  .workbench-workspace .inspection-workspace.preview-source-hidden:not(.preview-result-hidden),
+  .workbench-workspace .inspection-workspace.preview-result-hidden:not(.preview-source-hidden) {
+    grid-template-rows: auto minmax(0, 1fr) auto auto;
+  }
+
+  .workbench-workspace .inspection-workspace.preview-source-hidden:not(.preview-result-hidden) .result-panel,
+  .workbench-workspace .inspection-workspace.preview-result-hidden:not(.preview-source-hidden) .source-panel {
+    grid-row: 2;
+  }
+
+  .workbench-workspace .inspection-workspace.preview-source-hidden:not(.preview-result-hidden) .inspection-controls,
+  .workbench-workspace .inspection-workspace.preview-result-hidden:not(.preview-source-hidden) .inspection-controls {
+    grid-row: 3;
+  }
+
+  .workbench-workspace .inspection-workspace.preview-source-hidden:not(.preview-result-hidden) .inspection-drawer,
+  .workbench-workspace .inspection-workspace.preview-result-hidden:not(.preview-source-hidden) .inspection-drawer {
+    grid-row: 4;
+  }
+
+  .workbench-workspace .inspection-workspace.preview-source-hidden.preview-result-hidden {
+    grid-template-rows: auto auto auto;
+  }
+}
+
+@media (min-width: 1280px) {
+}
+
+/* Bitmap editor controls use the same configurable typography and control
+   sizing as the rest of the application. Keep the tab buttons aligned with
+   segmented controls; the tall icon navigation buttons remain distinct. */
+.shell .bitmap-editor-full-toolbar {
+  font-family: var(--ui-font-family);
+  font-size: var(--ui-body-font-size);
+  font-weight: var(--ui-body-font-weight);
+}
+
+.shell .bitmap-editor-full-toolbar :is(button, select, .bitmap-editor-segment-label) {
+  font-family: var(--ui-font-family);
+  font-size: var(--ui-control-font-size) !important;
+  font-weight: var(--ui-label-font-weight) !important;
+}
+
+.shell .bitmap-editor-full-toolbar button:not(.bitmap-editor-tool-nav-link),
+.shell .bitmap-editor-full-toolbar select,
+.shell .bitmap-editor-full-toolbar .bitmap-editor-command-segments,
+.shell .bitmap-editor-full-toolbar .bitmap-editor-segmented,
+.shell .bitmap-editor-full-toolbar .bitmap-editor-picker-mode-segments {
+  box-sizing: border-box;
+  height: var(--ui-control-height);
+  min-height: var(--ui-control-height);
+}
+
+.shell .bitmap-editor-full-toolbar .bitmap-editor-segment-control,
+.shell .bitmap-editor-full-toolbar .bitmap-editor-segment-label,
+.shell .bitmap-editor-full-toolbar .bitmap-editor-picker-mode-segments > button {
+  box-sizing: border-box;
+  height: 100%;
+  min-height: 0;
+}
+
+.shell .bitmap-editor-full-toolbar button:not(.bitmap-editor-tool-nav-link),
+.shell .bitmap-editor-full-toolbar select {
+  box-sizing: border-box;
+  height: var(--ui-control-height);
+  min-height: var(--ui-control-height);
+}
+
+.shell .bitmap-editor-full-toolbar :is(
+  label,
+  .bitmap-editor-control-heading,
+  .bitmap-editor-tool-select,
+  .bitmap-editor-display-control,
+  .bitmap-editor-color-swatches,
+  .bitmap-editor-region-tools > label,
+  .bitmap-editor-stipple-tools > label,
+  .bitmap-editor-grid-toggles label,
+  .bitmap-editor-zoom-tools > span,
+  .bitmap-editor-flash-tools > span
+) {
+  font-family: var(--ui-font-family);
+  font-size: var(--ui-label-font-size) !important;
+  font-weight: var(--ui-label-font-weight) !important;
+}
+
+.shell .bitmap-editor-full-toolbar :is(
+  .bitmap-editor-color-help,
+  .bitmap-editor-picked-cell-title,
+  .bitmap-editor-picked-cell-status,
+  .bitmap-editor-picked-cell-meta,
+  .bitmap-editor-picked-cell-empty,
+  .bitmap-editor-sync-pan
+) {
+  font-family: var(--ui-font-family);
+  font-size: var(--ui-body-font-size) !important;
+  font-weight: var(--ui-body-font-weight) !important;
+}

@@ -1,0 +1,111 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 70% 10%, #20325a 0, transparent 35rem),
+    #11151c;
+}
+
+button {
+  min-height: var(--ui-control-height);
+  border: 1px solid #79b7ff;
+  border-radius: 0.5rem;
+  padding: 0.2rem 0.48rem;
+  color: #07101f;
+  background: #79b7ff;
+  font: inherit;
+  font-size: var(--ui-control-font-size);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: #a9d2ff;
+}
+
+button:focus-visible {
+  outline: 3px solid #ffdc6a;
+  outline-offset: 3px;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.skip-link {
+  position: fixed;
+  z-index: 10;
+  top: 0.5rem;
+  left: 0.5rem;
+  transform: translateY(-200%);
+  border-radius: 0.4rem;
+  padding: 0.5rem 0.75rem;
+  color: #07101f;
+  background: #ffdc6a;
+  font-weight: 800;
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+button.secondary {
+  color: #e8edf5;
+  background: transparent;
+}
+
+select,
+input[type="number"] {
+  min-height: var(--ui-control-height);
+  border: 1px solid #53647e;
+  border-radius: 0.5rem;
+  padding: 0.18rem 0.38rem;
+  color: #e8edf5;
+  background: #111824;
+  font: inherit;
+  font-size: var(--ui-control-font-size);
+}
+
+select:focus-visible,
+input:focus-visible {
+  outline: 3px solid #ffdc6a;
+  outline-offset: 2px;
+}
+
+input.invalid {
+  border-color: #ff6b72;
+  background: #35171d;
+}
+
+.file-picker {
+  display: inline-flex;
+  width: fit-content;
+  min-height: var(--ui-control-height);
+  align-items: center;
+  border: 1px solid #79b7ff;
+  border-radius: 0.5rem;
+  padding: 0.2rem 0.48rem;
+  color: #07101f;
+  background: #79b7ff;
+  font-size: var(--ui-control-font-size);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.file-picker:focus-within {
+  outline: 3px solid #ffdc6a;
+  outline-offset: 3px;
+}
+
+.heading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}

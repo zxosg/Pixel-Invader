@@ -298,7 +298,7 @@ changes.
 ## Relevant existing implementation
 
 - `apps/web/src/App.tsx` contains the current workbench state and composition.
-- `apps/web/src/styles.css` contains the current desktop workbench layout,
+- `apps/web/src/styles/ (index.css)` contains the current desktop workbench layout,
   floating windows, and resize handles.
 - `apps/web/src/workbench-preferences.ts` contains persisted dock, window,
   size, and order preferences.

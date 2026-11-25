@@ -1,0 +1,281 @@
+/* User-configurable UI typography. The preview and the application shell use
+   the same variables so Settings can show the exact draft values before save. */
+.shell {
+  font-family: var(--ui-font-family);
+  font-size: var(--ui-body-font-size);
+  font-weight: var(--ui-body-font-weight);
+}
+
+.shell button,
+.shell input,
+.shell select,
+.shell textarea {
+  font-family: inherit;
+}
+
+.shell button,
+.shell select,
+.shell input[type="text"],
+.shell input[type="number"],
+.shell input[type="search"],
+.shell input[type="email"],
+.shell textarea,
+.shell label,
+.shell legend {
+  font-size: var(--ui-label-font-size);
+  font-weight: var(--ui-label-font-weight);
+}
+
+.shell .workbench-window-titlebar,
+.shell .workbench-window-title,
+.shell .workbench-window-actions,
+.shell .preview-panel-title,
+.shell .workbench-settings-section > summary {
+  font-size: var(--ui-title-font-size);
+  font-weight: var(--ui-title-font-weight);
+}
+
+.shell .control-help,
+.shell .status,
+.shell .settings-result-count,
+.shell .settings-modal-header p,
+.shell .settings-modal-content fieldset > div > p {
+  font-size: var(--ui-body-font-size);
+  font-weight: var(--ui-body-font-weight);
+}
+
+/* Keep capability-specific body copy on the same configurable scale. These
+   components historically used fixed rem sizes, which made Palette appear
+   larger or smaller than the adjacent Attributes and Dithering sections. */
+.shell .palette-subcard .subcard-help,
+.shell .palette-subcard .palette-screen-heading,
+.shell .palette-summary-screen,
+.shell .attributes-subcard > .control-help,
+.shell .dithering-group .control-help {
+  font-size: var(--ui-body-font-size);
+  font-weight: var(--ui-body-font-weight);
+}
+
+.shell .palette-subcard h3,
+.shell .attributes-subcard h3,
+.shell .palette-control > summary,
+.shell .palette-control > .palette-summary-heading {
+  font-size: var(--ui-label-font-size);
+  font-weight: var(--ui-label-font-weight);
+}
+
+.shell .palette-subcard .palette-screen-heading strong {
+  font-weight: var(--ui-label-font-weight);
+}
+
+.settings-typography-preview {
+  display: grid;
+  grid-template-columns: minmax(10rem, 1.15fr) repeat(3, minmax(0, 1fr));
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0.5rem 1.25rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid #52627d;
+  border-radius: 0.45rem;
+  background: #111824;
+  color: #e8edf5;
+  font-family: var(--ui-font-family);
+}
+
+.settings-typography-preview-heading {
+  grid-column: 1 / -1;
+  color: #9ab7de;
+  font-size: var(--ui-label-font-size);
+  font-weight: var(--ui-label-font-weight);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.typography-preview-window-title {
+  padding: 0.45rem 0.6rem;
+  border-radius: 0.3rem;
+  background: #553878;
+  color: #fff;
+  font-size: var(--ui-title-font-size);
+  font-weight: var(--ui-title-font-weight);
+}
+
+.typography-preview-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  color: #c4d0e2;
+  font-size: var(--ui-label-font-size);
+  font-weight: var(--ui-label-font-weight);
+}
+
+.typography-preview-label strong {
+  color: #fff;
+  font-weight: inherit;
+}
+
+.typography-preview-body {
+  margin: 0;
+  color: #c4d0e2;
+  font-size: var(--ui-body-font-size);
+  font-weight: var(--ui-body-font-weight);
+}
+
+.typography-preview-monospace {
+  color: #9ab7de;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--ui-body-font-size);
+  font-weight: var(--ui-body-font-weight);
+}
+
+@media (max-width: 760px) {
+  .settings-typography-preview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.workbench-dock-region {
+  display: contents;
+}
+
+@media (min-width: 760px) and (max-width: 1279px) {
+  .workbench-workspace {
+    position: relative;
+    isolation: isolate;
+  }
+
+  /* Floating previews are mounted here instead of inside the inspection grid.
+     The layer is a transparent workbench-level stacking surface; only its
+     preview children receive pointer events. */
+  .workbench-workspace .workbench-preview-layer {
+    position: absolute;
+    z-index: 20;
+    inset: 0;
+    min-width: 0;
+    min-height: 0;
+    overflow: visible;
+    pointer-events: none;
+  }
+
+  .workbench-workspace .workbench-preview-layer > .preview-panel-floating {
+    pointer-events: auto;
+  }
+
+  .workbench-workspace .preview-panel {
+    position: relative;
+  }
+
+  .workbench-workspace .preview-panel-floating {
+    position: absolute;
+    z-index: 14;
+    top: max(0.5rem, min(var(--workbench-source-floating-y), calc(100% - var(--workbench-source-floating-height) - 0.5rem)));
+    left: max(0.5rem, min(var(--workbench-source-floating-x), calc(100% - var(--workbench-source-floating-width) - 0.5rem)));
+    width: min(var(--workbench-source-floating-width), calc(100% - 1rem));
+    height: min(var(--workbench-source-floating-height), calc(100% - 1rem));
+    min-width: 320px;
+    min-height: 220px;
+    max-width: calc(100% - 1rem);
+    max-height: calc(100% - 1rem);
+    overflow: hidden;
+    border: 1px solid #52627d;
+    border-radius: 0.45rem;
+    background: #0b111b;
+    box-shadow: 0 0.8rem 2.4rem rgb(0 0 0 / 48%);
+  }
+
+  .workbench-workspace .preview-result-window {
+    top: max(0.5rem, min(var(--workbench-result-floating-y), calc(100% - var(--workbench-result-floating-height) - 0.5rem)));
+    left: max(0.5rem, min(var(--workbench-result-floating-x), calc(100% - var(--workbench-result-floating-width) - 0.5rem)));
+    width: min(var(--workbench-result-floating-width), calc(100% - 1rem));
+    height: min(var(--workbench-result-floating-height), calc(100% - 1rem));
+  }
+
+  .workbench-workspace .preview-panel-floating .preview-panel-heading {
+    min-height: 1.7rem;
+    border-bottom: 1px solid #33425d;
+    background: #172b43;
+    cursor: move;
+    user-select: none;
+  }
+
+  .workbench-workspace .preview-panel-floating .preview-frame {
+    min-height: 0;
+    max-height: none;
+    height: 100%;
+  }
+
+  .workbench-workspace .inspection-workspace.preview-source-floating:not(.preview-result-floating) .comparison,
+  .workbench-workspace .inspection-workspace.preview-result-floating:not(.preview-source-floating) .comparison {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workbench-workspace .inspection-workspace.preview-source-floating.preview-result-floating .comparison {
+    display: none;
+  }
+
+  .workbench-workspace .preview-panel-floating.workbench-floating-auto-height {
+    height: auto;
+  }
+
+  .workbench-workspace .preview-panel-floating .workbench-floating-resize-handle {
+    position: absolute;
+    right: 0.18rem;
+    bottom: 0.18rem;
+    z-index: 2;
+    width: 0.8rem;
+    height: 0.8rem;
+    border-right: 2px solid #79b7ff;
+    border-bottom: 2px solid #79b7ff;
+    cursor: nwse-resize;
+  }
+
+  .preview-window-float-action {
+    flex: 0 0 auto;
+    width: 1.45rem;
+    min-height: 1.35rem;
+    border: 1px solid #52627d;
+    border-radius: 0.2rem;
+    color: #e9f4ff;
+    background: transparent;
+    cursor: pointer;
+    font-size: 0.7rem;
+    font-weight: 800;
+  }
+
+  .preview-window-float-action:focus-visible,
+  .workbench-floating-resize-handle:focus-visible,
+  .preview-docked-resize-handle:focus-visible {
+    outline: 2px solid #ffdc6a;
+    outline-offset: 1px;
+  }
+
+  .workbench-workspace.workbench-settings-floating .workbench-window-titlebar,
+  .workbench-workspace .workbench-settings-section.workbench-section-floating > summary,
+  .workbench-workspace .preview-panel-floating .preview-panel-heading {
+    border-bottom-color: #d28be4;
+    background: #563878;
+    color: #fff4ff;
+  }
+}
+
+.app-error-boundary {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+  color: #f8fafc;
+  background: #111827;
+}
+
+.app-error-boundary section {
+  width: min(38rem, 100%);
+  padding: 2rem;
+  border: 1px solid #475569;
+  border-radius: 0.75rem;
+  background: #1e293b;
+}
+
+.app-error-boundary pre {
+  overflow: auto;
+  white-space: pre-wrap;
+}

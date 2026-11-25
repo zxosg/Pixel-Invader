@@ -1,0 +1,1423 @@
+.bitmap-editor-full-viewport {
+  position: relative;
+}
+
+.bitmap-editor-pane-layout {
+  display: grid;
+  grid-template-columns: minmax(11.2rem, 12.6rem) minmax(0, 1fr);
+  gap: 0.35rem;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.bitmap-editor-pane-layout > .bitmap-editor-full-toolbar {
+  position: relative;
+  align-self: start;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+.bitmap-editor-pane-layout > .bitmap-editor-full-viewport {
+  min-width: 0;
+  min-height: 0;
+}
+
+.bitmap-editor-full-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  min-width: max-content;
+  min-height: 100%;
+}
+
+.bitmap-editor-full-canvas {
+  flex: 0 0 auto;
+}
+
+.bitmap-editor-interaction-layer {
+  position: absolute;
+  inset: 0;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+
+.bitmap-editor-interaction-layer.selecting,
+.bitmap-editor-interaction-layer.pasting {
+  cursor: crosshair;
+}
+
+.bitmap-editor-interaction-layer.selection-mode.has-selection:not(.selecting):not(.pasting) {
+  cursor: move;
+}
+
+.bitmap-editor-full-toolbar {
+  position: relative;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: 2.8rem minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0.35rem;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 0.15rem;
+  background: #0f1827;
+}
+
+.bitmap-editor-tool-panel {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.25rem;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.bitmap-editor-pending-color-draft {
+  flex: 0 0 auto;
+  padding: 0.25rem 0.35rem;
+  border: 1px solid #79b7ff;
+  border-radius: 0.25rem;
+  color: #dbeeff;
+  background: #1b2b40;
+  font-size: 0.62rem;
+  line-height: 1.25;
+}
+
+.bitmap-editor-control-grid {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 0.2rem;
+  min-width: 0;
+  min-height: 0;
+  overflow: visible;
+}
+
+.bitmap-editor-control-grid > .bitmap-editor-action-grid,
+.bitmap-editor-control-grid > .bitmap-editor-command-segments,
+.bitmap-editor-control-grid > .bitmap-editor-native-palette,
+.bitmap-editor-control-grid > .bitmap-editor-attribute-policy,
+.bitmap-editor-control-grid > .bitmap-editor-region-tools,
+.bitmap-editor-control-grid > .bitmap-editor-stipple-tools,
+.bitmap-editor-control-grid > .bitmap-editor-primitives,
+.bitmap-editor-control-grid > .bitmap-editor-display-tools,
+.bitmap-editor-control-grid > .bitmap-editor-color-operations {
+  grid-column: 1 / 3;
+}
+
+.bitmap-editor-full-toolbar[data-tool-mode="display"] [data-editor-group]:not([data-editor-group="display"]),
+.bitmap-editor-full-toolbar[data-tool-mode="selection"] [data-editor-group]:not([data-editor-group="selection"]),
+.bitmap-editor-full-toolbar[data-tool-mode="draw"] [data-editor-group]:not([data-editor-group="draw"]),
+.bitmap-editor-full-toolbar[data-tool-mode="primitives"] [data-editor-group]:not([data-editor-group="primitives"]),
+.bitmap-editor-full-toolbar[data-tool-mode="colors"] [data-editor-group]:not([data-editor-group="colors"]) {
+  display: none !important;
+}
+
+.bitmap-editor-tool-mode-tabs {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35rem;
+  grid-column: 1;
+  grid-row: 1;
+  min-width: 0;
+  padding-top: 0.1rem;
+}
+
+.bitmap-editor-tool-mode-tabs .bitmap-editor-tool-nav-link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.65rem;
+  min-width: 0;
+  padding: 0;
+  border: 1px solid #31415a;
+  border-radius: 0.35rem;
+  background: #111824;
+  color: #c5d3e6;
+  cursor: pointer;
+}
+
+.bitmap-editor-tool-mode-tabs .bitmap-editor-tool-nav-link:hover {
+  background: #1b2b40;
+}
+
+.bitmap-editor-tool-mode-tabs .bitmap-editor-tool-nav-link[data-active] {
+  border-color: #7ab4ff;
+  background: #285b78;
+  color: #f4f8ff;
+}
+
+.bitmap-editor-tool-mode-tabs .bitmap-editor-tool-icon,
+.bitmap-editor-tool-mode-tabs .bitmap-editor-tool-icon svg {
+  display: block;
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.bitmap-editor-tool-mode-tabs .bitmap-editor-tool-nav-section {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-inline: 0;
+}
+
+.bitmap-editor-tool-mode-tabs .bitmap-editor-tool-icon svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.bitmap-editor-tool-mode-tabs .bitmap-editor-tool-icon svg circle:not([r="2.7"]) {
+  fill: currentColor;
+  stroke: none;
+}
+
+.bitmap-editor-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.bitmap-editor-sync-pan {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: #b8c9df;
+  font-size: 0.68rem;
+}
+
+.bitmap-editor-display-tools,
+.bitmap-editor-color-operations {
+  display: grid;
+  gap: 0.3rem;
+  align-content: start;
+  min-width: 0;
+  padding: 0.35rem;
+  border: 1px solid #31415a;
+  border-radius: 0.35rem;
+}
+
+.bitmap-editor-display-tools > .bitmap-editor-tool-select,
+.bitmap-editor-color-operations > .bitmap-editor-tool-select,
+.bitmap-editor-color-replace-row > label {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+  color: #b8c9df;
+  font-size: 0.68rem;
+}
+
+.bitmap-editor-display-tools select,
+.bitmap-editor-color-operations select {
+  min-width: 0;
+  width: 100%;
+  padding: 0.22rem 0.3rem;
+}
+
+.bitmap-editor-command-segments,
+.bitmap-editor-segmented {
+  --sc-color: #7189aa;
+  --sc-label-color: #f4fbff;
+  --sc-radius: 0.2rem;
+  --sc-font-size: 0.58rem;
+  --sc-padding: 0 0.1rem;
+  --separator-color: #52627d;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #52627d;
+  border-radius: 0.2rem;
+  background: #52627d;
+  padding: 0;
+}
+
+.bitmap-editor-command-segments .bitmap-editor-segment-control,
+.bitmap-editor-segmented .bitmap-editor-segment-control {
+  min-height: 1.25rem;
+  background: transparent;
+}
+
+.bitmap-editor-command-segments .bitmap-editor-segment-label,
+.bitmap-editor-segmented .bitmap-editor-segment-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 2;
+  min-height: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.1rem;
+  border: 0;
+  border-radius: 0;
+  color: #e8edf5;
+  background: transparent;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.bitmap-editor-command-segments .bitmap-editor-segment-label[data-disabled],
+.bitmap-editor-segmented .bitmap-editor-segment-label[data-disabled] {
+  color: #d5ddeb;
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+.bitmap-editor-command-segments .bitmap-editor-segment-label[data-active]::before,
+.bitmap-editor-segmented .bitmap-editor-segment-label[data-active]::before {
+  background: var(--sc-color);
+  box-shadow: inset 0 0 0 1px #79b7ff;
+}
+
+.bitmap-editor-command-segments .bitmap-editor-segment-indicator,
+.bitmap-editor-segmented .bitmap-editor-segment-indicator {
+  border: 1px solid #79b7ff;
+  border-radius: 0.15rem;
+  box-shadow: inset 0 0 0 1px #79b7ff;
+}
+
+.bitmap-editor-command-segments[data-with-items-borders] .bitmap-editor-segment-control::before,
+.bitmap-editor-segmented[data-with-items-borders] .bitmap-editor-segment-control::before {
+  background: #52627d;
+}
+
+.bitmap-editor-display-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.bitmap-editor-display-control {
+  display: grid;
+  align-content: start;
+  gap: 0.18rem;
+  min-width: 0;
+  color: #b8c9df;
+  font-size: 0.66rem;
+  font-weight: 750;
+}
+
+.bitmap-editor-display-control .bitmap-editor-segment-control {
+  min-width: 0;
+}
+
+.bitmap-editor-display-control .bitmap-editor-segment-label {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.bitmap-editor-flash-control {
+  grid-column: 1 / -1;
+}
+
+.bitmap-editor-content-visibility .bitmap-editor-display-control {
+  font-weight: 650;
+}
+
+.bitmap-editor-display-tools .bitmap-editor-grid-toggles,
+.bitmap-editor-display-tools .bitmap-editor-zoom-tools,
+.bitmap-editor-display-tools .bitmap-editor-flash-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.bitmap-editor-display-tools .bitmap-editor-grid-toggles label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: #b8c9df;
+  font-size: 0.68rem;
+}
+
+.bitmap-editor-display-tools .bitmap-editor-grid-toggles input {
+  width: 0.9rem;
+  height: 0.9rem;
+  margin: 0;
+  accent-color: #79b7ff;
+}
+
+.bitmap-editor-display-tools .bitmap-editor-zoom-tools > span,
+.bitmap-editor-display-tools .bitmap-editor-flash-tools > span {
+  min-width: 2.4rem;
+  color: #b8c9df;
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.bitmap-editor-color-replace-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.3rem;
+}
+
+.bitmap-editor-color-swatches {
+  display: grid;
+  gap: 0.16rem;
+  min-width: 0;
+  color: #b8c9df;
+  font-size: 0.66rem;
+  font-weight: 750;
+}
+
+.bitmap-editor-color-swatches > div {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.14rem;
+  min-width: 0;
+}
+
+.bitmap-editor-color-swatches button {
+  min-width: 0;
+  min-height: 1.35rem;
+  padding: 0;
+  border: 1px solid #52627d;
+  border-radius: 0.18rem;
+  background: var(--swatch-color);
+  cursor: pointer;
+}
+
+.bitmap-editor-color-swatches button:hover,
+.bitmap-editor-color-swatches button:focus-visible {
+  outline: 2px solid #dcecff;
+  outline-offset: 1px;
+}
+
+.bitmap-editor-color-swatches button.selected {
+  border: 2px solid #f4f8ff;
+  box-shadow: 0 0 0 1px #79b7ff;
+}
+
+.bitmap-editor-color-help {
+  color: #9aacc4;
+  font-size: 0.65rem;
+}
+
+.bitmap-editor-region-tools,
+.bitmap-editor-stipple-tools {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.2rem;
+  min-width: 0;
+  padding-top: 0.2rem;
+  border-top: 1px solid #31415a;
+}
+
+.bitmap-editor-region-tools > label,
+.bitmap-editor-stipple-tools > label,
+.bitmap-editor-region-tools > .bitmap-editor-tool-select {
+  display: grid;
+  gap: 0.08rem;
+  min-width: 0;
+  color: #b8c9df;
+  font-size: 0.65rem;
+}
+
+.bitmap-editor-region-tools select,
+.bitmap-editor-stipple-tools select {
+  min-width: 0;
+  width: 100%;
+  padding: 0.18rem 0.22rem;
+  font-size: 0.68rem;
+}
+
+.bitmap-editor-region-buttons {
+  grid-column: 1 / 3;
+  min-width: 0;
+}
+
+.bitmap-editor-selection-transform-tools {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.bitmap-editor-selection-tool-label {
+  color: #b8c9df;
+  font-size: 0.65rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.bitmap-editor-transform-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+.bitmap-editor-transform-icon svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.bitmap-editor-selection-paste-content {
+  grid-column: 1 / 3;
+}
+
+.bitmap-editor-selection-status {
+  grid-column: 1 / 3;
+  color: #b8c9df;
+  font-size: 0.62rem;
+  overflow-wrap: anywhere;
+}
+
+.bitmap-editor-stipple-toggle {
+  grid-template-columns: auto 1fr !important;
+  align-items: center;
+  color: #d6deea;
+}
+
+.bitmap-editor-primitives {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.28rem;
+  min-width: 0;
+  padding-top: 0.25rem;
+  border-top: 1px solid #31415a;
+}
+
+.bitmap-editor-primitive-kind {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.2rem;
+}
+
+.bitmap-editor-primitive-kind-button {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  min-height: 1.8rem;
+  padding: 0.15rem;
+}
+
+.bitmap-editor-primitive-kind-button.active {
+  border-color: #79b7ff;
+  background: #285b78;
+  color: #f4f8ff;
+}
+
+.bitmap-editor-primitive-kind-button svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.bitmap-editor-primitive-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  color: #c5d3e6;
+  font-size: 0.65rem;
+}
+
+.bitmap-editor-primitive-operation,
+.bitmap-editor-primitive-pattern-source,
+.bitmap-editor-primitives > .bitmap-editor-stipple-picker,
+.bitmap-editor-primitive-custom-pattern,
+.bitmap-editor-primitive-help {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.bitmap-editor-primitive-custom-pattern {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: #9aacc4;
+  font-size: 0.62rem;
+}
+
+.bitmap-editor-primitive-color-sample {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: auto 0.75rem minmax(2.5rem, 3.5rem) auto 0.75rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.22rem;
+  min-width: 0;
+  padding: 0.2rem 0.3rem;
+  border: 1px solid #34445d;
+  border-radius: 0.35rem;
+  background: #0c1421;
+}
+
+.bitmap-editor-primitive-color-sample-label {
+  color: #b8c9df;
+  font-size: 0.55rem;
+  font-weight: 800;
+}
+
+.bitmap-editor-primitive-color-chip {
+  width: 0.72rem;
+  height: 0.72rem;
+  border: 1px solid #8b9bb2;
+  border-radius: 0.15rem;
+}
+
+.bitmap-editor-primitive-pattern-sample {
+  display: grid;
+  width: 3.5rem;
+  aspect-ratio: 1;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid #8293aa;
+  border-radius: 0.12rem;
+}
+
+.bitmap-editor-primitive-pattern-sample > span {
+  min-width: 0;
+  min-height: 0;
+  outline: 1px solid rgb(0 0 0 / 22%);
+  outline-offset: -1px;
+}
+
+.bitmap-editor-primitive-help {
+  margin: 0;
+  color: #9aacc4;
+  font-size: 0.62rem;
+  line-height: 1.3;
+}
+
+.bitmap-editor-tool-array {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #52627d;
+  border-radius: 0.2rem;
+  background: #52627d;
+}
+
+.bitmap-editor-picker-mode-segments {
+  display: grid;
+  gap: 1px;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #52627d;
+  border-radius: 0.2rem;
+  background: #52627d;
+}
+
+.bitmap-editor-picker-mode-segments {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.bitmap-editor-picker-mode-segments > button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 1.25rem;
+  padding: 0 0.1rem;
+  border: 1px solid #52627d;
+  border-radius: 0;
+  background: #52627d;
+  color: #e8edf5;
+  font-size: 0.58rem;
+  font-weight: 750;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.bitmap-editor-picker-mode-segments > button.active {
+  border-color: #79b7ff;
+  background: #7189aa;
+  color: #f4fbff;
+  box-shadow: inset 0 0 0 1px #79b7ff;
+}
+
+.bitmap-editor-picker-mode-segments > button:disabled {
+  color: #d5ddeb;
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.bitmap-editor-tool-array > button {
+  border: 1px solid #52627d;
+  border-radius: 0;
+}
+
+.bitmap-editor-picker-array {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.bitmap-editor-tools-grid > .bitmap-editor-tool-array,
+.bitmap-editor-tools-grid > .bitmap-editor-operation-split,
+.bitmap-editor-tools-grid > .bitmap-editor-tool-mode-segments,
+.bitmap-editor-tools-grid > .bitmap-editor-picker-mode-segments,
+.bitmap-editor-tools-grid > .bitmap-editor-tools-segment {
+  grid-column: 1 / 3;
+}
+
+.bitmap-editor-stipple-tools {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 0.3rem;
+}
+
+.bitmap-editor-stipple-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.bitmap-editor-stipple-toggles > .bitmap-editor-stipple-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  white-space: nowrap;
+  color: #d6deea;
+}
+
+.bitmap-editor-stipple-picker {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.bitmap-editor-stipple-matrix-select {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.3rem;
+  color: #b8c9df;
+  font-size: 0.62rem;
+}
+
+.bitmap-editor-stipple-matrix-select select {
+  min-width: 0;
+  width: 100%;
+}
+
+.bitmap-editor-stipple-previews {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: end;
+  gap: 0.45rem;
+}
+
+.bitmap-editor-stipple-preview {
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 0.15rem;
+  min-width: 0;
+  color: #b8c9df;
+  font-size: 0.58rem;
+  text-align: center;
+}
+
+.bitmap-editor-stipple-matrix {
+  display: grid;
+  width: min(100%, 4.5rem);
+  aspect-ratio: 1;
+  overflow: hidden;
+  border: 1px solid #73839c;
+  background: #070c14;
+  image-rendering: pixelated;
+}
+
+.bitmap-editor-stipple-matrix > i {
+  min-width: 0;
+  min-height: 0;
+  background: #111b2b;
+}
+
+.bitmap-editor-stipple-matrix > i.on {
+  background: #82bbff;
+}
+
+.bitmap-editor-stipple-density {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 2.5rem;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  color: #b8c9df;
+  font-size: 0.62rem;
+}
+
+.bitmap-editor-stipple-density input {
+  width: 100%;
+  min-width: 0;
+}
+
+.bitmap-editor-stipple-density output {
+  color: #e5eefb;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.bitmap-editor-picked-cell-actions .bitmap-editor-segment-label {
+  padding-inline: 0.08rem;
+}
+
+.bitmap-editor-control-grid > .bitmap-editor-action-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.bitmap-editor-action-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.2rem;
+  width: 100%;
+}
+
+.bitmap-editor-action-wide {
+  grid-column: 1 / 3;
+}
+
+.bitmap-editor-target-control {
+  grid-column: 1 / 3;
+}
+
+.bitmap-editor-history-grid > button {
+  grid-column: span 1;
+}
+
+.bitmap-editor-operation-split {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1px;
+  width: 100%;
+  border-radius: 0.2rem;
+  overflow: hidden;
+  background: #52627d;
+}
+
+.bitmap-editor-operation-split .bitmap-editor-operation-action {
+  border-radius: 0;
+  border-color: #52627d;
+}
+
+.bitmap-editor-operation-split .bitmap-editor-operation-action:first-child {
+  border-radius: 0.2rem 0 0 0.2rem;
+}
+
+.bitmap-editor-operation-split .bitmap-editor-operation-action:last-child {
+  border-radius: 0 0.2rem 0.2rem 0;
+}
+
+.bitmap-editor-split-button {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  width: 100%;
+  border-radius: 0.2rem;
+  overflow: hidden;
+  background: #52627d;
+}
+
+.bitmap-editor-split-action {
+  border-radius: 0;
+  border-color: #52627d;
+}
+
+.bitmap-editor-split-action:first-child {
+  border-radius: 0.2rem 0 0 0.2rem;
+}
+
+.bitmap-editor-split-action:last-child {
+  border-radius: 0 0.2rem 0.2rem 0;
+}
+
+.bitmap-editor-target-control {
+  display: grid;
+  gap: 0.08rem;
+  color: #b9c3d2;
+  font-size: 0.55rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.bitmap-editor-target-control select {
+  min-width: 0;
+  width: 100%;
+  height: 1.15rem;
+  min-height: 1.15rem;
+  padding: 0 0.08rem;
+  font-size: 0.55rem;
+}
+
+.bitmap-editor-full-action {
+  min-width: 0;
+  width: 100%;
+  height: 1.25rem;
+  min-height: 1.25rem;
+  padding: 0 0.1rem;
+  font-size: 0.58rem;
+  line-height: 1;
+  white-space: normal;
+}
+
+.bitmap-editor-mode-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.18rem;
+}
+
+.bitmap-editor-mode-label svg,
+.bitmap-editor-picker-icon svg {
+  display: block;
+  width: 0.8rem;
+  height: 0.8rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.bitmap-editor-picker-icon {
+  display: grid;
+  place-items: center;
+}
+
+.bitmap-editor-attribute-policy {
+  display: grid;
+  gap: 0.12rem;
+  margin-top: 0.12rem;
+  border-top: 1px solid #33425d;
+  padding-top: 0.2rem;
+}
+
+.bitmap-editor-attribute-color-row {
+  display: grid;
+  grid-template-columns: 2.15rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.16rem;
+  min-width: 0;
+}
+
+.bitmap-editor-attribute-row-label {
+  color: #b9c3d2;
+  font-size: 0.58rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.bitmap-editor-attribute-color-grid {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 0.05rem;
+}
+
+.bitmap-editor-attribute-color-grid .bitmap-editor-attribute-color {
+  width: 100%;
+  height: 1rem;
+  min-height: 1rem;
+}
+
+.bitmap-editor-attribute-color,
+.bitmap-editor-attribute-icon {
+  position: relative;
+  min-width: 0;
+  height: 0.75rem;
+  min-height: 0.75rem;
+  margin: 0;
+  border: 1px solid #52627d;
+  border-radius: 0.2rem;
+  padding: 0;
+  background: #111824;
+  color: #b9c3d2;
+  font-size: 0.65rem;
+  line-height: 1;
+}
+
+.bitmap-editor-attribute-color.selected,
+.bitmap-editor-attribute-icon.selected,
+.bitmap-editor-full-action.active {
+  border-color: #79b7ff;
+  box-shadow: 0 0 0 1px #79b7ff inset;
+}
+
+.bitmap-editor-attribute-policy .bitmap-editor-attribute-color.selected,
+.bitmap-editor-native-palette .bitmap-editor-attribute-color.selected {
+  border: 2px solid #f5f8ff;
+  box-shadow: 0 0 0 1px #111824 inset, 0 0 0 1px #79b7ff;
+  z-index: 1;
+}
+
+.bitmap-editor-attribute-color-grid .bitmap-editor-attribute-icon {
+  width: 100%;
+  height: 1rem;
+  min-height: 1rem;
+}
+
+.bitmap-editor-attribute-color-grid .bitmap-editor-attribute-icon.selected {
+  border: 2px solid #f5f8ff;
+  box-shadow: 0 0 0 1px #111824 inset, 0 0 0 1px #79b7ff;
+  z-index: 1;
+}
+
+.bitmap-editor-attribute-policy .bitmap-editor-attribute-color.selected::after,
+.bitmap-editor-native-palette .bitmap-editor-attribute-color.selected::after,
+.bitmap-editor-attribute-color-grid .bitmap-editor-attribute-icon.selected::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0.32rem;
+  height: 0.32rem;
+  border: 1px solid #111824;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 75%);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.bitmap-editor-attribute-color span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 0.12rem;
+}
+
+.bitmap-editor-native-palette {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.12rem;
+  margin-top: 0.12rem;
+  border-top: 1px solid #33425d;
+  padding-top: 0.2rem;
+}
+
+.bitmap-editor-native-palette .bitmap-editor-attribute-color {
+  height: 0.85rem;
+  min-height: 0.85rem;
+}
+
+.bitmap-editor-transparent-swatch {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 1px solid #7d8797;
+  background: linear-gradient(135deg, transparent 46%, #7d8797 47%, #7d8797 53%, transparent 54%);
+}
+
+.paint-colors-window {
+  min-width: 220px;
+}
+
+.paint-colors-window.workbench-section-floating {
+  position: absolute;
+  top: var(--paint-colors-floating-y);
+  left: var(--paint-colors-floating-x);
+  width: var(--paint-colors-floating-width);
+  height: var(--paint-colors-floating-height);
+  z-index: 20;
+}
+
+.paint-colors-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0.3rem;
+  padding: 0.35rem;
+  min-width: 0;
+}
+
+.paint-colors-orientation-switch {
+  position: relative;
+  display: flex;
+  flex: 0 0 2.4rem;
+  box-sizing: border-box;
+  align-items: center;
+  justify-content: flex-start;
+  width: 2.4rem;
+  height: 0.975rem;
+  min-width: 2.4rem;
+  min-height: 0.975rem;
+  padding: 0;
+  border: 1px solid #54708f;
+  border-radius: 999px;
+  background: #28364a;
+  color: #e8edf5;
+  font-size: 0.46rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.paint-colors-orientation-control[aria-checked="true"] .paint-colors-orientation-switch {
+  justify-content: flex-start;
+  border-color: #38a9d2;
+  background: #168ab5;
+}
+
+.paint-colors-orientation-control[aria-checked="false"] .paint-colors-orientation-switch {
+  justify-content: flex-end;
+}
+
+.paint-colors-orientation-knob {
+  position: absolute;
+  top: 0.075rem;
+  left: 0.075rem;
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 1px solid #dbe4ef;
+  border-radius: 50%;
+  background: #f4f7fb;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 30%);
+  transition: left 120ms ease;
+}
+
+.paint-colors-orientation-control[aria-checked="true"] .paint-colors-orientation-knob {
+  left: calc(100% - 0.825rem);
+}
+
+.paint-colors-orientation-control {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.paint-colors-orientation-label {
+  color: #e8edf5;
+  font-size: 0.62rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.paint-colors-role-row {
+  display: grid;
+  grid-column: 1;
+  grid-template-columns: 1rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.paint-colors-role-row > strong,
+.paint-colors-flag > strong {
+  color: #c9d3e3;
+  text-align: center;
+  font-size: 0.75rem;
+  line-height: 1;
+}
+
+.paint-colors-swatches {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.paint-colors-swatches .bitmap-editor-attribute-color,
+.paint-colors-swatches .bitmap-editor-attribute-icon {
+  width: 100%;
+  height: 1.15rem;
+  min-height: 1.15rem;
+  min-width: 0;
+}
+
+.paint-colors-flag {
+  display: grid;
+  grid-template-columns: 0.8rem repeat(3, 1.1rem);
+  align-items: center;
+  gap: 0.08rem;
+}
+
+.paint-colors-policy,
+.paint-colors-picker {
+  display: grid;
+  place-items: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid #52627d;
+  border-radius: 0.2rem;
+  background: #111824;
+  color: #c9d3e3;
+  line-height: 1;
+}
+
+.paint-colors-policy.selected,
+.paint-colors-picker.active {
+  border-color: #79b7ff;
+  box-shadow: 0 0 0 1px #79b7ff inset;
+}
+
+.paint-colors-policy .bitmap-editor-transparent-swatch {
+  width: 0.8rem;
+  height: 0.8rem;
+}
+
+.paint-colors-picker {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+  align-self: center;
+  width: 1.45rem;
+  height: 1.45rem;
+  font-size: 1.1rem;
+}
+
+.paint-colors-content-columns {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: stretch;
+}
+
+.paint-colors-content-columns .paint-colors-role-row {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto auto;
+  align-content: start;
+  justify-items: stretch;
+  padding: 0.2rem;
+  border: 1px solid #33425d;
+  border-radius: 0.25rem;
+}
+
+.paint-colors-content-columns .paint-colors-role-row[data-color-role="ink"] {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.paint-colors-content-columns .paint-colors-role-row[data-color-role="paper"] {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.paint-colors-content-columns .paint-colors-role-row > strong {
+  text-align: left;
+}
+
+.paint-colors-content-columns .paint-colors-swatches {
+  grid-template-columns: minmax(1.2rem, 1fr);
+  grid-auto-rows: 1.15rem;
+}
+
+.paint-colors-content-columns .paint-colors-flag {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-self: stretch;
+  margin-top: 0.2rem;
+  border-top: 1px solid #33425d;
+  padding-top: 0.15rem;
+}
+
+.paint-colors-content-columns .paint-colors-picker {
+  grid-column: 3;
+  grid-row: 1 / 3;
+  justify-self: end;
+  align-self: start;
+}
+
+.bitmap-editor-attribute-policy-row {
+  display: grid;
+  grid-template-columns: 1.2rem minmax(0, 1fr);
+  gap: 0.12rem;
+  align-items: center;
+  margin-top: 0.08rem;
+}
+
+.tools-flash-preview {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  margin-top: 0.12rem;
+  border-top: 1px solid #33425d;
+  padding: 0.25rem 0.1rem 0;
+  color: #b9c3d2;
+  font-size: 0.68rem;
+}
+
+.tools-flash-preview > span {
+  margin-right: 0.1rem;
+  font-weight: 600;
+}
+
+.tools-flash-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.18rem;
+  min-width: 0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tools-flash-radio input {
+  width: 0.9rem;
+  height: 0.9rem;
+  margin: 0;
+  accent-color: #79b7ff;
+}
+
+.tools-flash-radio input:focus-visible + span {
+  outline: 2px solid #79b7ff;
+  outline-offset: 2px;
+  border-radius: 0.1rem;
+}
+
+.tools-flash-radio input:disabled + span {
+  color: #8795a8;
+}
+
+.tools-flash-radio:has(input:disabled) {
+  cursor: not-allowed;
+}
+
+.tools-flash-preview small {
+  color: #8795a8;
+  font-size: 0.6rem;
+}
+
+.bitmap-editor-flash-merged-preview {
+  display: grid;
+  grid-column: 3 / 5;
+  grid-row: 2;
+  gap: 0.12rem;
+  width: 100%;
+  min-width: 0;
+  max-width: 12rem;
+  align-self: start;
+  margin-top: 0.12rem;
+}
+
+.bitmap-editor-flash-merged-preview canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 4 / 3;
+  image-rendering: pixelated;
+  border: 1px solid #33425d;
+  border-radius: 0.2rem;
+}
+
+.bitmap-editor-picked-cell-preview {
+  display: grid;
+  gap: 0.12rem;
+  grid-column: auto;
+  grid-row: auto;
+  align-self: start;
+  min-width: 0;
+  margin: 0;
+  border-top: 1px solid #33425d;
+  padding-top: 0.2rem;
+  color: #b9c3d2;
+  font-size: 0.5rem;
+  line-height: 1.15;
+}
+
+.bitmap-editor-picked-cell-color-preview {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 2.4rem;
+  border: 1px solid #52627d;
+  border-radius: 0.2rem;
+  overflow: hidden;
+  background: #111824;
+}
+
+.bitmap-editor-picked-cell-color-preview.empty {
+  background-image: linear-gradient(135deg, rgb(125 135 151 / 18%) 25%, transparent 25%, transparent 50%, rgb(125 135 151 / 18%) 50%, rgb(125 135 151 / 18%) 75%, transparent 75%);
+  background-size: 0.45rem 0.45rem;
+}
+
+.bitmap-editor-picked-cell-manipulation {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.bitmap-editor-picked-cell-directions {
+  width: 100%;
+}
+
+.bitmap-editor-control-heading {
+  color: #b8c9df;
+  font-size: 0.68rem;
+  font-weight: 750;
+  line-height: 1.2;
+}
+
+.bitmap-editor-picked-cell-title {
+  color: #eef6ff;
+  font-weight: 800;
+}
+
+.bitmap-editor-picked-cell-empty {
+  color: #8390a5;
+}
+
+.bitmap-editor-picked-cell-status {
+  color: #9dc7ff;
+  font-weight: 700;
+}
+
+.bitmap-editor-picked-cell-grid {
+  display: grid;
+  width: min(100%, 10rem);
+  max-width: 10rem;
+  aspect-ratio: 8 / 8;
+  border: 1px solid #52627d;
+  background: #0a101b;
+}
+
+.bitmap-editor-picked-cell-pixel {
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid rgb(15 24 39 / 35%);
+}
+
+.bitmap-editor-picked-cell-meta {
+  overflow-wrap: anywhere;
+}
+
+.bitmap-editor-policy-symbol {
+  color: #eef6ff;
+  font-size: 0.85rem;
+  text-align: center;
+}
