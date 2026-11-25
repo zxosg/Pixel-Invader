@@ -376,6 +376,10 @@ export class ConversionWorkerClient {
     });
   }
 
+  get busy(): boolean {
+    return this.#pending.size > 0;
+  }
+
   dispose(): void {
     this.#worker.terminate();
     const error = new Error("Conversion worker was disposed.");

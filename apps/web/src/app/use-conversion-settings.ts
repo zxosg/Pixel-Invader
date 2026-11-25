@@ -472,6 +472,13 @@ export function useConversionSettings(
       setTilemapStale(true);
     }
 
+    // A superseded draft still computing is aborted immediately; an idle draft worker is kept for reuse.
+    const supersededDraftWorker = draftWorkerRef.current;
+    if (supersededDraftWorker !== null && supersededDraftWorker.busy) {
+      supersededDraftWorker.dispose();
+      draftWorkerRef.current = null;
+    }
+
     if (finalRunningRef.current) {
       workerRef.current?.dispose();
       workerRef.current = new ConversionWorkerClient();
@@ -531,8 +538,7 @@ export function useConversionSettings(
     setDraftState({ kind: "scheduled", retainedResult });
     const timer = window.setTimeout(() => {
       if (revisionRef.current !== revision) return;
-      draftWorkerRef.current?.dispose();
-      const draftWorker = new ConversionWorkerClient();
+      const draftWorker = draftWorkerRef.current ?? new ConversionWorkerClient();
       draftWorkerRef.current = draftWorker;
       setDraftState({ kind: "running", retainedResult });
       void draftWorker.convertImage(
