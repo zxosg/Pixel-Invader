@@ -130,6 +130,26 @@ try {
   expect((await page.locator("canvas, img").count()) > 0, "preview renders");
   await shot("02-converted");
 
+  // Fit: the shell must not scroll the page, and header + Convert must stay inside the viewport.
+  for (const [width, height] of [[1440, 900], [1280, 720], [820, 1180]]) {
+    await page.setViewportSize({ width, height });
+    await settle(500);
+    const fit = await page.evaluate(() => {
+      const de = document.documentElement;
+      const convert = [...document.querySelectorAll("button")].find((b) => b.textContent.includes("Convert High"))?.getBoundingClientRect();
+      const header = document.querySelector(".workbench-menubar")?.getBoundingClientRect();
+      return { sw: de.scrollWidth, sh: Math.max(de.scrollHeight, document.body.scrollHeight), w: innerWidth, h: innerHeight, convert, header };
+    });
+    const tag = `${width}x${height}`;
+    expect(fit.sw <= fit.w, `no horizontal scroll at ${tag} (scrollWidth ${fit.sw} > ${fit.w})`);
+    expect(fit.sh <= fit.h, `no page vertical scroll at ${tag} (scrollHeight ${fit.sh} > ${fit.h})`);
+    expect(fit.header && fit.header.top >= 0 && fit.header.bottom <= fit.h, `header visible at ${tag}`);
+    expect(fit.convert && fit.convert.top >= 0 && fit.convert.bottom <= fit.h && fit.convert.right <= fit.w, `Convert button visible at ${tag}`);
+    await shot(`02-fit-${tag}`);
+  }
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await settle(400);
+
   for (const label of ["File", "Convert", "View", "Window", "Tools"]) {
     await menu(label);
     const items = await page.locator("[data-workbench-menu] button").count();
