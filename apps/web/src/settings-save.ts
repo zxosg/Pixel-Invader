@@ -146,6 +146,7 @@ export function canonicalizeSettingsForSave({ draft, current, profiles }: Settin
     exportBorderWidth: numberValue(draft, "exportBorderWidth", DEFAULT_APPLICATION_SETTINGS.exportBorderWidth),
     exportBorderColor: rgbValue(draft, "exportBorderColor", DEFAULT_APPLICATION_SETTINGS.exportBorderColor),
     exportZoomFactor: numberValue(draft, "exportZoomFactor", DEFAULT_APPLICATION_SETTINGS.exportZoomFactor) as ApplicationSettings["exportZoomFactor"],
+    settingsLevel: DEFAULT_APPLICATION_SETTINGS.settingsLevel,
     uiFontFamily: stringValue(draft, "uiFontFamily", DEFAULT_APPLICATION_SETTINGS.uiFontFamily) as ApplicationSettings["uiFontFamily"],
     windowTitleFontSize: numberValue(draft, "windowTitleFontSize", DEFAULT_APPLICATION_SETTINGS.windowTitleFontSize),
     windowTitleFontWeight: stringValue(draft, "windowTitleFontWeight", DEFAULT_APPLICATION_SETTINGS.windowTitleFontWeight) as ApplicationSettings["windowTitleFontWeight"],

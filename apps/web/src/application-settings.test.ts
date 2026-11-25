@@ -85,6 +85,11 @@ describe("application settings", () => {
     });
   });
 
+  it("persists settingsLevel and falls back to the default when invalid", () => {
+    expect(validateApplicationSettings({ ...DEFAULT_APPLICATION_SETTINGS, settingsLevel: "expert" })?.settingsLevel).toBe("expert");
+    expect(validateApplicationSettings({ ...DEFAULT_APPLICATION_SETTINGS, settingsLevel: "bogus" })?.settingsLevel).toBe(DEFAULT_APPLICATION_SETTINGS.settingsLevel);
+  });
+
   it("normalizes legacy Custom startup layouts to Conversion", () => {
     expect(validateApplicationSettings({
       ...DEFAULT_APPLICATION_SETTINGS,

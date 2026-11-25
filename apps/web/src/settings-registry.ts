@@ -20,6 +20,9 @@ export type SettingCategory =
   | "appearance"
   | "export";
 
+export type SettingLevel = "basic" | "advanced" | "expert";
+export const SETTING_LEVELS: readonly SettingLevel[] = ["basic", "advanced", "expert"];
+
 export type SettingScope = "application" | "conversion" | "project";
 export type SettingPresetId =
   | "all"
@@ -57,6 +60,8 @@ export interface SettingDefinition<T = unknown> {
   readonly keywords?: readonly string[];
   readonly presets?: readonly SettingPresetId[];
   readonly scope: SettingScope;
+  /** Lowest settings tier at which this setting is shown. */
+  readonly level: SettingLevel;
   readonly control: SettingControl<T>;
   readonly optionProvider?: SettingOptionProvider;
   readonly defaultValue: T;
@@ -102,7 +107,27 @@ const categories: Record<SettingCategory, string> = {
 
 export const SETTING_CATEGORIES = categories;
 
-export const SETTINGS_REGISTRY: readonly SettingDefinition[] = [
+const BASIC_SETTING_IDS: ReadonlySet<string> = new Set([
+  "profileId", "presetId", "modeId", "framing", "dithering", "ditheringAmount",
+  "brightness", "contrast", "paletteSelections",
+]);
+const EXPERT_SETTING_IDS: ReadonlySet<string> = new Set([
+  "developmentMode", "synchronizePan", "synchronizeZoom", "mouseWheelZoom",
+  "uiFontFamily", "windowTitleFontSize", "windowTitleFontWeight", "uiLabelFontSize",
+  "uiLabelFontWeight", "uiBodyFontSize", "uiBodyFontWeight",
+  "customOrderedMatrices", "customDiffusionKernels", "composer", "ditherEngineId",
+  "errorDiffusionRandomization", "errorDiffusionLineSuppression",
+  "fillOffsetX", "fillOffsetY", "panOffsetX", "panOffsetY",
+  "cropX", "cropY", "cropWidth", "cropHeight",
+  "attributeOptimizerId", "qlMixedOptimizerId", "attributeSmoothing", "attributeHaloInfluence",
+  "attributeHaloHorizontal", "attributeHaloVertical", "verticalSpatialSwapRows",
+  "pmd85PaletteCalibrationId", "pmd85GapPolicy",
+]);
+
+const settingLevel = (id: string): SettingLevel =>
+  BASIC_SETTING_IDS.has(id) ? "basic" : EXPERT_SETTING_IDS.has(id) ? "expert" : "advanced";
+
+const SETTING_DEFINITIONS: readonly Omit<SettingDefinition, "level">[] = [
   { id: "exportBorderEnabled", category: "export", label: "GIF border", description: "Add a symmetric border to GIF exports. This is an export-only preference and does not run conversion.", scope: "application", control: { kind: "boolean" }, defaultValue: true, validate: bool, keywords: ["gif", "padding", "frame"] },
   { id: "exportBorderWidth", category: "export", label: "GIF border width", description: "Border width in source pixels on each edge when GIF border is enabled.", scope: "application", control: { kind: "number", min: 0, max: 256, step: 1 }, defaultValue: 32, validate: integerNumber(0, 256), isEnabled: (values) => values.exportBorderEnabled === true, disabledReason: "Available when GIF border is enabled.", keywords: ["gif", "padding"] },
   { id: "exportBorderColor", category: "export", label: "GIF border color", description: "Fill color for the GIF-only border. Independent of Geometry background and does not run conversion.", scope: "application", control: { kind: "color" }, defaultValue: { r: 255, g: 255, b: 255 }, validate: rgbColor, isEnabled: (values) => values.exportBorderEnabled === true, disabledReason: "Available when GIF border is enabled.", keywords: ["gif", "padding", "background"] },
@@ -169,6 +194,9 @@ export const SETTINGS_REGISTRY: readonly SettingDefinition[] = [
   { id: "pmd85PaletteCalibrationId", category: "palette", label: "PMD 85 palette calibration", description: "Calibration used to interpret PMD 85 output colors.", scope: "conversion", control: { kind: "select", options: [{ value: "pure-rgb", label: "Pure RGB" }, { value: "neutral-white", label: "Neutral white/silver" }, { value: "emulator-soft", label: "Emulator soft" }] }, optionProvider: "pmd-calibrations", defaultValue: "pure-rgb", validate: oneOf(["pure-rgb", "neutral-white", "emulator-soft"] as const, "pure-rgb"), isAvailable: (context) => context.modeId?.startsWith("pmd85-") === true, disabledReason: "Available for PMD 85 targets." },
   { id: "pmd85GapPolicy", category: "palette", label: "PMD 85 gap policy", description: "Preserve imported gap bytes or zero-fill them on reconversion.", scope: "conversion", control: { kind: "select", options: [{ value: "preserve-imported", label: "Preserve imported" }, { value: "zero", label: "Zero-fill" }] }, defaultValue: "preserve-imported", validate: oneOf(["preserve-imported", "zero"] as const, "preserve-imported"), isAvailable: (context) => context.modeId?.startsWith("pmd85-") === true, disabledReason: "Available for PMD 85 targets." },
 ];
+
+export const SETTINGS_REGISTRY: readonly SettingDefinition[] =
+  SETTING_DEFINITIONS.map((definition) => ({ ...definition, level: settingLevel(definition.id) }));
 
 export const SETTING_FILTER_PRESETS: readonly { readonly id: SettingPresetId; readonly label: string }[] = [
   { id: "all", label: "All settings" }, { id: "startup", label: "Startup" }, { id: "workspace-mouse", label: "Workspace and mouse" },
@@ -241,4 +269,15 @@ export function loadRegisteredValues(raw: unknown, definitions = SETTINGS_REGIST
 
 export function applicationSettingsValues(settings: ApplicationSettings): Record<string, unknown> {
   return { ...settings };
+}
+
+/** Settings whose tier is at or below `level`, restricted to those available in `context`. */
+export function settingsForLevel(
+  level: SettingLevel,
+  context: SettingsContext = {},
+  definitions: readonly SettingDefinition[] = SETTINGS_REGISTRY,
+): readonly SettingDefinition[] {
+  const maxRank = SETTING_LEVELS.indexOf(level);
+  return definitions.filter((definition) =>
+    SETTING_LEVELS.indexOf(definition.level) <= maxRank && (definition.isAvailable?.(context) ?? true));
 }
