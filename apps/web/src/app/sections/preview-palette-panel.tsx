@@ -1,8 +1,9 @@
-import type { AppState } from "../app-state.js";
+import { useAppState } from "../app-state.js";
 import { type BrightMode } from "@retro-converter/conversion-core";
 import { glyphDataUrl } from "../../specscii-assets.js";
 
-export function PreviewPalettePanel({ s }: { s: AppState }) {
+export function PreviewPalettePanel() {
+  const s = useAppState();
   const {
     applyPickedTilemapIndex,
     beginCharsetSelection,

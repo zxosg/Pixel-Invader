@@ -1,8 +1,9 @@
-import type { AppState } from "../app-state.js";
+import { useAppState } from "../app-state.js";
 import { ATTRIBUTE_OPTIMIZERS, type AttributeOptimizerId, DITHER_ENGINES, isDitherEngineAvailableForSelection, latestDitherEngineForMethod } from "@retro-converter/conversion-core";
 import { isAttributeOptimizerAvailableForTarget } from "../../engine-preferences.js";
 
-export function AdvancedConversionSettings({ s }: { s: AppState }) {
+export function AdvancedConversionSettings() {
+  const s = useAppState();
   const {
     attributeOptimizerId,
     ditherEngineId,

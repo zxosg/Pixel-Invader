@@ -1,8 +1,9 @@
-import type { AppState } from "../app-state.js";
+import { useAppState } from "../app-state.js";
 import { CHARSET_ARTIFACT_HEADER_BYTES } from "@retro-converter/zx-charset";
 import { ZX_BASE_COLORS } from "../../inspection.js";
 
-export function InspectionDrawer({ s }: { s: AppState }) {
+export function InspectionDrawer() {
+  const s = useAppState();
   const {
     charsetState,
     displayedAttributeHeight,

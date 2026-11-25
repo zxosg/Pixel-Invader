@@ -1,4 +1,4 @@
-import type { AppState } from "./app/app-state.js";
+import { AppStateContext, type AppState } from "./app/app-state.js";
 import { uiTypographyCssVariables } from "./ui-typography.js";
 import { lazy, Suspense, type CSSProperties } from "react";
 import { WorkbenchMenuBar } from "./workbench-menu-bar.js";
@@ -301,7 +301,7 @@ export function App() {
 
 
   return (
-    <>
+    <AppStateContext.Provider value={s}>
     <a className="skip-link" href="#workspace-title">Skip to converter</a>
     <main className="shell" id="main-content" style={uiTypographyCssVariables(uiTypography) as CSSProperties}>
       <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">{workbenchAnnouncement}</div>
@@ -559,14 +559,14 @@ export function App() {
             >
               <span className="visually-hidden">Drag to resize</span>
             </div>
-            <WorkbenchWindowTitlebar s={s} />
+            <WorkbenchWindowTitlebar />
             <div className="workbench-window-content" hidden={workbenchSettingsMinimized && !workbenchHasFloatingSections}>
-          <GeometrySettingsWindow s={s} />
-          <AdjustmentsSettingsWindow s={s} />
+          <GeometrySettingsWindow />
+          <AdjustmentsSettingsWindow />
           {workspaceMode === "palette" ? (
           <>
-          <PaletteSettingsWindow s={s} />
-          <PaintColorsSettingsWindow s={s} />
+          <PaletteSettingsWindow />
+          <PaintColorsSettingsWindow />
           {workbenchPortal("dithering", (
           <details
             className={`workbench-settings-section workbench-window${workbenchDitheringFloating ? ` workbench-section-floating workbench-dithering-floating${workbenchDitheringFloatingAutoHeight ? " workbench-floating-auto-height" : ""}` : ""}`}
@@ -638,7 +638,7 @@ export function App() {
             ) : null}
           <fieldset id="settings-dithering" className={`control-group dithering-group${settingsSection === "dithering" ? " settings-focused" : ""}`}>
             <legend className="visually-hidden">Dithering</legend>
-          <AdvancedConversionSettings s={s} />
+          <AdvancedConversionSettings />
           {isQl && targetModeId === "mode8-mode4-mixed-512x256" ? (
             <label className="dithering-wide">
               <span>Mixed optimizer</span>
@@ -817,8 +817,8 @@ export function App() {
               </select>
             </label>
           ) : null}
-          <DitherComposerControls s={s} />
-          <ErrorDiffusionControls s={s} />
+          <DitherComposerControls />
+          <ErrorDiffusionControls />
           {(ditherEngineId === "error-diffusion-phase-balanced-v3" ||
             ditherEngineId === "error-diffusion-phase-balanced-checker-v3-1" ||
             ditherEngineId === "error-diffusion-phase-balanced-checker-v3-2" ||
@@ -884,11 +884,11 @@ export function App() {
           ))}
           </>
           ) : (
-          <Suspense fallback={null}><TilemapSettingsWindows s={s} /></Suspense>
+          <Suspense fallback={null}><TilemapSettingsWindows /></Suspense>
           )}
           </div>
 
-          {benchmarkOpen || s.tilemapBenchmarkOpen ? <Suspense fallback={null}><BenchmarkPanel s={s} /></Suspense> : null}
+          {benchmarkOpen || s.tilemapBenchmarkOpen ? <Suspense fallback={null}><BenchmarkPanel /></Suspense> : null}
             </div>
           </div>
           <div ref={setBenchmarkPanelHost} className="workbench-comparison-host" />
@@ -1076,7 +1076,7 @@ export function App() {
           </Suspense>
         ) : null}
 
-        {s.settingsOpen ? <Suspense fallback={null}><SettingsDialog s={s} /></Suspense> : null}
+        {s.settingsOpen ? <Suspense fallback={null}><SettingsDialog /></Suspense> : null}
 
         <section
           ref={workbenchPreviewWorkspaceRef}
@@ -1090,9 +1090,9 @@ export function App() {
             </div>
           </div>
 
-          <ToolsSettingsWindow s={s} />
+          <ToolsSettingsWindow />
 
-          <PreviewPalettePanel s={s} />
+          <PreviewPalettePanel />
 
           <div
             className="comparison workbench-preview-dock"
@@ -1100,15 +1100,15 @@ export function App() {
             data-preview-layout={previewLayout}
             {...workbenchDockDropAttributes("center")}
           >
-            <SourceComparisonDock s={s} />
-            <ResultComparisonDock s={s} />
+            <SourceComparisonDock />
+            <ResultComparisonDock />
           </div>
 
           {showPixelGrid && (previewZoom === "fit" || previewZoom < 4) ? (
             <p className="control-help" role="status">Pixel grid becomes visible at 4:1 zoom.</p>
           ) : null}
 
-          <InspectionDrawer s={s} />
+          <InspectionDrawer />
         </section>
         <div
           className="workbench-preview-layer"
@@ -1117,6 +1117,6 @@ export function App() {
         />
       </section>
     </main>
-    </>
+    </AppStateContext.Provider>
   );
 }

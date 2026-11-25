@@ -1,8 +1,9 @@
-import type { AppState } from "../app-state.js";
+import { useAppState } from "../app-state.js";
 import { workbenchDockIcon, workbenchDockLabel } from "../workbench-windows-helpers.js";
 import { createPortal } from "react-dom";
 
-export function WorkbenchWindowTitlebar({ s }: { s: AppState }) {
+export function WorkbenchWindowTitlebar() {
+  const s = useAppState();
   const {
     preventWorkbenchDragClick,
     resetWorkbenchLayout,

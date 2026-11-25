@@ -1,7 +1,8 @@
-import type { AppState } from "../app-state.js";
+import { useAppState } from "../app-state.js";
 import { type QlMixedDisplayResolution } from "../../ql-mixed-preview.js";
 
-export function ToolsSettingsWindow({ s }: { s: AppState }) {
+export function ToolsSettingsWindow() {
+  const s = useAppState();
   const {
     adjustWorkbenchFloatingSize,
     bitmapEditorActiveSide,

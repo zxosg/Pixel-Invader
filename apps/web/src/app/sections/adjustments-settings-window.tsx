@@ -1,7 +1,8 @@
-import type { AppState } from "../app-state.js";
+import { useAppState } from "../app-state.js";
 import { RangeNumberControl } from "../../app-controls.js";
 
-export function AdjustmentsSettingsWindow({ s }: { s: AppState }) {
+export function AdjustmentsSettingsWindow() {
+  const s = useAppState();
   const {
     adjustWorkbenchFloatingSize,
     brightness,

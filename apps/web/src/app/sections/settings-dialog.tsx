@@ -1,4 +1,4 @@
-import type { AppState } from "../app-state.js";
+import { useAppState } from "../app-state.js";
 import { BUILT_IN_PROFILE } from "../../profiles.js";
 import { type BrightMode, type DitherEngineId, type DitheringMethod, ditherMethodForEngine, latestDitherEngineForMethod, type RgbColor, type TargetModeId } from "@retro-converter/conversion-core";
 import { uiTypographyCssVariables, uiTypographyFromRecord } from "../../ui-typography.js";
@@ -7,7 +7,8 @@ import { type ApplicationSettings, DEFAULT_APPLICATION_SETTINGS } from "../../ap
 import { hexToRgb, rgbToHex } from "../../dithering-labels.js";
 import { type CSSProperties } from "react";
 
-export function SettingsDialog({ s }: { s: AppState }) {
+export function SettingsDialog() {
+  const s = useAppState();
   const {
     profiles,
     saveApplicationSettingsDraft,

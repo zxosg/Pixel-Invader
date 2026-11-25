@@ -1,8 +1,9 @@
-import type { AppState } from "../app-state.js";
+import { useAppState } from "../app-state.js";
 import { createPortal } from "react-dom";
 import { ditherMethodForEngine } from "@retro-converter/conversion-core";
 
-export function BenchmarkPanel({ s }: { s: AppState }) {
+export function BenchmarkPanel() {
+  const s = useAppState();
   const {
     amount,
     attributeHeight,

@@ -1,8 +1,9 @@
-import type { AppState } from "../app-state.js";
+import { useAppState } from "../app-state.js";
 import { type PreviewContent } from "../../app-types.js";
 import { createPortal } from "react-dom";
 
-export function SourceComparisonDock({ s }: { s: AppState }) {
+export function SourceComparisonDock() {
+  const s = useAppState();
   const {
     adjustWorkbenchFloatingSize,
     beginBitmapEditorNavigatorDrag,

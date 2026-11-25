@@ -1,7 +1,8 @@
-import type { AppState } from "../app-state.js";
+import { useAppState } from "../app-state.js";
 import { RangeNumberControl } from "../../app-controls.js";
 
-export function ErrorDiffusionControls({ s }: { s: AppState }) {
+export function ErrorDiffusionControls() {
+  const s = useAppState();
   const {
     amount,
     amountEntry,

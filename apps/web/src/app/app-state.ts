@@ -1,3 +1,4 @@
+import { createContext, useContext } from "react";
 import type { useRuntimeState } from "./use-runtime-state.js";
 import type { useSettingsState } from "./use-settings-state.js";
 import type { useWorkbenchState } from "./use-workbench-state.js";
@@ -33,3 +34,13 @@ export type AppState = ReturnType<typeof useRuntimeState> &
   ReturnType<typeof useProjectAndArtifacts> &
   ReturnType<typeof usePreviewSizing> &
   ReturnType<typeof usePreviewLabels>;
+
+// Shared through context rather than a prop: React dev builds serialise component props
+// for performance tracks, which walks this whole object (including image buffers) on every render.
+export const AppStateContext = createContext<AppState | null>(null);
+
+export function useAppState(): AppState {
+  const state = useContext(AppStateContext);
+  if (!state) throw new Error("useAppState must be used inside AppStateContext.Provider");
+  return state;
+}

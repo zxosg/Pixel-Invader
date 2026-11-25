@@ -1,8 +1,9 @@
-import type { AppState } from "../app-state.js";
+import { useAppState } from "../app-state.js";
 import { nativePaletteForResult } from "../../result-bitmap-editor.js";
 import { ZX_BASE_COLORS } from "../../inspection.js";
 
-export function PaintColorsSettingsWindow({ s }: { s: AppState }) {
+export function PaintColorsSettingsWindow() {
+  const s = useAppState();
   const {
     adjustWorkbenchFloatingSize,
     bitmapEditorActiveSide,

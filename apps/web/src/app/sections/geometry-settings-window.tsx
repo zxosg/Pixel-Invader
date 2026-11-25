@@ -1,9 +1,10 @@
-import type { AppState } from "../app-state.js";
+import { useAppState } from "../app-state.js";
 import { type CropAspectRatio, type FramingMode, type PanEdgeMode, type ResamplingMethod, type Rotation } from "@retro-converter/conversion-core";
 import { RangeNumberControl } from "../../app-controls.js";
 import { hexToRgb, rgbToHex } from "../../dithering-labels.js";
 
-export function GeometrySettingsWindow({ s }: { s: AppState }) {
+export function GeometrySettingsWindow() {
+  const s = useAppState();
   const {
     adjustWorkbenchFloatingSize,
     background,

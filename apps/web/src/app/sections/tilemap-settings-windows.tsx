@@ -1,9 +1,10 @@
-import type { AppState } from "../app-state.js";
+import { useAppState } from "../app-state.js";
 import { ATTRIBUTE_OPTIMIZERS, DITHER_ENGINES } from "@retro-converter/conversion-core";
 import { type CharsetDistanceMetric, type CharsetEncoding, type CharsetSource, type DerivedCharsetStrategy } from "@retro-converter/zx-charset";
 import { clampCharsetRange } from "../../specscii-assets.js";
 
-export function TilemapSettingsWindows({ s }: { s: AppState }) {
+export function TilemapSettingsWindows() {
+  const s = useAppState();
   const {
     adjustWorkbenchFloatingSize,
     attributeOptimizerId,

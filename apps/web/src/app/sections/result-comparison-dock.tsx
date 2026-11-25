@@ -1,9 +1,10 @@
-import type { AppState } from "../app-state.js";
+import { useAppState } from "../app-state.js";
 import { type PreviewContent } from "../../app-types.js";
 import { gridPathForDimensions } from "../../bitmap-editor-geometry.js";
 import { createPortal } from "react-dom";
 
-export function ResultComparisonDock({ s }: { s: AppState }) {
+export function ResultComparisonDock() {
+  const s = useAppState();
   const {
     adjustWorkbenchFloatingSize,
     beginBitmapEditorNavigatorDrag,

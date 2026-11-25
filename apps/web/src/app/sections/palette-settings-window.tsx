@@ -1,8 +1,9 @@
-import type { AppState } from "../app-state.js";
+import { useAppState } from "../app-state.js";
 import { type AttributeHaloRadius, type AttributeHeight, paletteSelectionsMatch } from "@retro-converter/conversion-core";
 import { RangeNumberControl } from "../../app-controls.js";
 
-export function PaletteSettingsWindow({ s }: { s: AppState }) {
+export function PaletteSettingsWindow() {
+  const s = useAppState();
   const {
     adjustWorkbenchFloatingSize,
     attributeHaloHorizontal,

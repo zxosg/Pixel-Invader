@@ -47,6 +47,33 @@ try {
   await settle(800);
   await shot("00-empty");
 
+  // Regression: importing a large image must not freeze the main thread (a heartbeat must keep ticking).
+  await page.evaluate(() => {
+    window.__heartbeat = { max: 0, last: performance.now() };
+    setInterval(() => {
+      const now = performance.now();
+      window.__heartbeat.max = Math.max(window.__heartbeat.max, now - window.__heartbeat.last);
+      window.__heartbeat.last = now;
+    }, 50);
+  });
+  const bigPng = await page.evaluate(async () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 4000; canvas.height = 3000;
+    const ctx = canvas.getContext("2d");
+    const gradient = ctx.createLinearGradient(0, 0, 4000, 3000);
+    gradient.addColorStop(0, "#c33"); gradient.addColorStop(0.5, "#3c3"); gradient.addColorStop(1, "#33c");
+    ctx.fillStyle = gradient; ctx.fillRect(0, 0, 4000, 3000);
+    for (let i = 0; i < 400; i += 1) { ctx.fillStyle = `hsl(${i * 7 % 360} 80% 50%)`; ctx.fillRect((i * 97) % 3900, (i * 61) % 2900, 120, 90); }
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+    return Array.from(new Uint8Array(await blob.arrayBuffer()));
+  });
+  await page.setInputFiles("input[type=file] >> nth=0", { name: "large.png", mimeType: "image/png", buffer: Buffer.from(bigPng) });
+  await page.waitForSelector("text=Accepted PNG", { timeout: 30000 });
+  await settle(2500);
+  const stall = await page.evaluate(() => window.__heartbeat.max);
+  report.largeImageMaxStallMs = Math.round(stall);
+  expect(stall < 3000, `large image import keeps the page responsive (max main-thread stall ${Math.round(stall)}ms)`);
+
   await page.setInputFiles("input[type=file] >> nth=0", join(root, "test-fixtures", "selfie.png"));
   await page.waitForSelector("text=Accepted PNG", { timeout: 20000 });
   await settle(2500);

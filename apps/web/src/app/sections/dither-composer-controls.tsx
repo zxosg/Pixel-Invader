@@ -1,9 +1,10 @@
-import type { AppState } from "../app-state.js";
+import { useAppState } from "../app-state.js";
 import { type ConversionSettings, defineCustomDiffusionKernel, defineCustomOrderedMatrix } from "@retro-converter/conversion-core";
 import { BUILT_IN_COMPOSER_PROPAGATION_IDS, composerPropagationLabel, ORDERED_MATRIX_IDS, orderedMatrixLabel, parseKernelEntries, parseMatrixValues } from "../../dithering-labels.js";
 import { composerMixOptions } from "../../dithering-ui.js";
 
-export function DitherComposerControls({ s }: { s: AppState }) {
+export function DitherComposerControls() {
+  const s = useAppState();
   const {
     composer,
     customDiffusionKernels,
