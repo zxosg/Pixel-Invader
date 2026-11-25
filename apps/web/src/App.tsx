@@ -327,6 +327,8 @@ export function App() {
         canDeleteImportedProfiles={profiles.length > BUILT_IN_PROFILES.length}
         onDeleteSelectedProfile={deleteSelectedProfile}
         onDeleteImportedProfiles={deleteAllImportedProfiles}
+        hasImage={image !== null}
+        imageName={sourceFileName}
         canConvert={image !== null && settingsValid && state.kind !== "running"}
         conversionRunning={state.kind === "running"}
         onConvert={() => void convertImage()}

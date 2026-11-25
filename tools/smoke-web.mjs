@@ -204,7 +204,7 @@ try {
     await settle(300);
   }
 
-  const focus = page.locator("select").first();
+  const focus = page.locator("select[aria-label=\"Configuration focus\"]");
   for (const option of await focus.evaluate((s) => [...s.options].map((o) => o.text))) {
     await focus.selectOption({ label: option });
     await settle(500);

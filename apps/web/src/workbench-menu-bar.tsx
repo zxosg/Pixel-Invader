@@ -83,6 +83,8 @@ export interface WorkbenchMenuBarProps {
   readonly canDeleteImportedProfiles: boolean;
   readonly onDeleteSelectedProfile: () => void;
   readonly onDeleteImportedProfiles: () => void;
+  readonly hasImage: boolean;
+  readonly imageName: string | null;
   readonly canConvert: boolean;
   readonly conversionRunning: boolean;
   readonly onConvert: () => void;
@@ -168,6 +170,7 @@ export function WorkbenchMenuBar(props: WorkbenchMenuBarProps) {
 
   const isTilemap = props.workspaceMode === "tilemap";
   const primaryExportEnabled = isTilemap ? props.canExportTilemap : props.canExportResult;
+  const hasResult = primaryExportEnabled;
   const primaryExport = isTilemap ? props.onExportTilemapPreview : props.onExportPreview;
 
   useEffect(() => {
@@ -364,13 +367,38 @@ export function WorkbenchMenuBar(props: WorkbenchMenuBarProps) {
         {menuButton("window", "Window")}
         {menuButton("settings", "Tools")}
       </div>
-      <div className="workbench-menu-summary" aria-label="Current conversion setup">
-        <span className="workbench-menu-summary-mode">{props.workspaceMode === "tilemap" ? "Tilemap" : "Palette"}</span>
-        <span className="workbench-menu-summary-separator" aria-hidden="true">/</span>
-        <span className="workbench-menu-summary-profile">{selectedProfile.name}</span>
-        <span className="workbench-menu-summary-separator" aria-hidden="true">/</span>
-        <span className="workbench-menu-summary-hardware">{props.workspaceMode === "tilemap" ? "ZX Spectrum" : HARDWARE_MODE_LABELS[props.targetModeId] ?? props.targetModeId}</span>
-      </div>
+      <ol className="workflow-bar" aria-label="Conversion workflow">
+        <li className={`workflow-step${props.hasImage ? " done" : " active"}`}>
+          <button type="button" onClick={() => imageInputRef.current?.click()} title={props.imageName ?? "Open an image"}>
+            <span className="workflow-step-number">1</span>
+            <span className="workflow-step-label">Image</span>
+            <span className="workflow-step-detail">{props.hasImage ? props.imageName ?? "Loaded" : "Choose…"}</span>
+          </button>
+        </li>
+        <li className="workflow-step done">
+          <span className="workflow-step-number">2</span>
+          <label className="workflow-target">
+            <span className="workflow-step-label">Target</span>
+            <select value={props.selectedProfileId} onChange={(event) => props.onProfileChange(event.target.value)} aria-label="Target profile">
+              {props.profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
+            </select>
+          </label>
+          <span className="workflow-step-detail">{props.workspaceMode === "tilemap" ? "Tilemap" : HARDWARE_MODE_LABELS[props.targetModeId] ?? props.targetModeId}</span>
+        </li>
+        <li className={`workflow-step${props.conversionRunning ? " running" : props.hasImage && !hasResult ? " active" : hasResult ? " done" : ""}`}>
+          {props.conversionRunning
+            ? <button type="button" onClick={props.onCancelConvert}><span className="workflow-step-number">3</span><span className="workflow-step-label">Cancel</span><span className="workflow-step-detail">Converting…</span></button>
+            : <button type="button" className="workflow-convert" disabled={!props.canConvert} onClick={props.onConvert} title={`Convert (${modifierLabel}+Enter)`}>
+              <span className="workflow-step-number">3</span><span className="workflow-step-label">Convert</span>
+            </button>}
+        </li>
+        <li className={`workflow-step${hasResult ? " active" : ""}`}>
+          <button type="button" disabled={!hasResult} onClick={() => document.getElementById("inspection-title")?.scrollIntoView({ block: "start" })}>
+            <span className="workflow-step-number">4</span><span className="workflow-step-label">Inspect</span>
+          </button>
+        </li>
+        <li className="workflow-step workflow-step-export-label" aria-hidden="true"><span className="workflow-step-number">5</span></li>
+      </ol>
       <div className="workbench-export-split" role="group" aria-label="Export">
         <button className="workbench-export-main" type="button" disabled={!primaryExportEnabled} title={`Export PNG preview (${modifierLabel}+E)`} onClick={run(primaryExport)}>Export</button>
         <button
