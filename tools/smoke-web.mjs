@@ -1,8 +1,9 @@
 // Browser smoke test: loads the app, imports an image, converts, exercises menus,
 // layouts, preview editors, dialogs and exports; fails on any console error.
-// Usage: node tools/smoke-web.mjs [outDir]   (SMOKE_URL=http://host:port to reuse a running server)
+// Usage: node tools/smoke-web.mjs [outDir]   (SMOKE_URL=http://host:port to reuse a running server; SMOKE_PORT to pin the dev-server port)
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import { createServer } from "node:net";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
@@ -17,7 +18,12 @@ mkdirSync(outDir, { recursive: true });
 let server = null;
 let url = process.env.SMOKE_URL;
 if (!url) {
-  const port = 5290;
+  // Free port by default so parallel worktrees never reuse each other's dev server; SMOKE_PORT pins one.
+  const port = Number(process.env.SMOKE_PORT) || await new Promise((resolvePort, reject) => {
+    const probe = createServer();
+    probe.on("error", reject);
+    probe.listen(0, () => { const { port: free } = probe.address(); probe.close(() => resolvePort(free)); });
+  });
   server = spawn("pnpm", ["--filter", "@retro-converter/web", "exec", "vite", "--port", String(port), "--strictPort"], { cwd: root, stdio: "ignore" });
   url = `http://localhost:${port}/`;
   for (let i = 0; i < 100; i += 1) {
