@@ -4,7 +4,7 @@ import type { WorkspaceConversionMode } from "./projects.js";
 import type { WorkspaceLayoutId } from "./workspace-preferences.js";
 import type { ConversionProfile } from "./profiles.js";
 
-type MenuId = "file" | "convert" | "view" | "window" | "settings";
+type MenuId = "file" | "convert" | "view" | "window" | "settings" | "export";
 
 const PANEL_LABELS: Readonly<Record<ActiveWorkbenchWindowId, string>> = {
   tools: "Tools",
@@ -164,9 +164,23 @@ export function WorkbenchMenuBar(props: WorkbenchMenuBarProps) {
     return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
   }, [openMenu]);
 
+  const isTilemap = props.workspaceMode === "tilemap";
+  const primaryExportEnabled = isTilemap ? props.canExportTilemap : props.canExportResult;
+  const primaryExport = isTilemap ? props.onExportTilemapPreview : props.onExportPreview;
+
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        if (props.canConvert) props.onConvert();
+        return;
+      }
+      if (event.key.toLowerCase() === "e" && !event.shiftKey) {
+        event.preventDefault();
+        if (primaryExportEnabled) primaryExport();
+        return;
+      }
       const target = event.target;
       if (target instanceof HTMLElement && (target.isContentEditable || target.closest("input, textarea, select, [contenteditable='true']"))) return;
       const key = event.key.toLowerCase();
@@ -183,7 +197,7 @@ export function WorkbenchMenuBar(props: WorkbenchMenuBarProps) {
     };
     document.addEventListener("keydown", handleShortcut);
     return () => document.removeEventListener("keydown", handleShortcut);
-  }, [props.canSaveProject, props.onOpenSettings, props.onSaveProject]);
+  }, [props.canSaveProject, props.onOpenSettings, props.onSaveProject, props.canConvert, props.onConvert, primaryExportEnabled, primaryExport]);
 
   const positionPopover = (id: MenuId) => {
     const root = rootRef.current;
@@ -355,6 +369,26 @@ export function WorkbenchMenuBar(props: WorkbenchMenuBarProps) {
         <span className="workbench-menu-summary-separator" aria-hidden="true">/</span>
         <span className="workbench-menu-summary-hardware">{props.workspaceMode === "tilemap" ? "ZX Spectrum" : HARDWARE_MODE_LABELS[props.targetModeId] ?? props.targetModeId}</span>
       </div>
+      <div className="workbench-export-split" role="group" aria-label="Export">
+        <button className="workbench-export-main" type="button" disabled={!primaryExportEnabled} title={`Export PNG preview (${modifierLabel}+E)`} onClick={run(primaryExport)}>Export</button>
+        <button
+          ref={(element) => { menuButtonRefs.current.export = element; }}
+          className="workbench-export-caret"
+          type="button"
+          disabled={!primaryExportEnabled}
+          aria-label="More export formats"
+          aria-controls="workbench-menu-export"
+          aria-expanded={openMenu === "export"}
+          onClick={() => {
+            const next = openMenu === "export" ? null : "export";
+            setOpenMenu(next);
+            if (next !== null) requestAnimationFrame(() => {
+              positionPopover("export");
+              rootRef.current?.querySelector<HTMLElement>('[data-workbench-menu="export"] button:not(:disabled)')?.focus();
+            });
+          }}
+        >▾</button>
+      </div>
 
       <input ref={imageInputRef} className="workbench-menu-file-input" type="file" accept="image/png,image/jpeg,image/gif,.png,.jpg,.jpeg,.gif,.scr" onChange={(event) => resetFileInput(event, props.onOpenImage)} />
       <input ref={pmdInputRef} className="workbench-menu-file-input" type="file" accept="application/octet-stream,.bin" onChange={(event) => resetFileInput(event, props.onOpenPmd)} />
@@ -390,11 +424,11 @@ export function WorkbenchMenuBar(props: WorkbenchMenuBarProps) {
               <button type="button" disabled={!props.canExportTilemap} onClick={run(props.onExportSpecscii)}>Specscii Screen JSON</button>
               <button type="button" disabled={!props.canExportTilemap} onClick={run(props.onExportCharset)}>Final Charset</button>
               <button type="button" disabled={!props.canExportResult} onClick={run(props.onExportPaletteSource)}>Palette Source .scr</button>
-              <button type="button" disabled={!props.canExportTilemap} onClick={run(props.onExportTilemapPreview)}>Decoder Preview PNG</button>
+              <button type="button" disabled={!props.canExportTilemap} onClick={run(props.onExportTilemapPreview)}><span>Decoder Preview PNG</span><kbd>{modifierLabel} E</kbd></button>
               <button type="button" disabled={!props.canExportTilemap} onClick={run(props.onExportGif)}>Animated GIF</button>
               <button type="button" disabled={!props.canExportTilemap} onClick={run(props.onExportTilemapDiagnostics)}>Tilemap Diagnostics JSON</button>
             </> : <>
-              <button type="button" disabled={!props.canExportResult} onClick={run(props.onExportPreview)}>PNG Preview</button>
+              <button type="button" disabled={!props.canExportResult} onClick={run(props.onExportPreview)}><span>PNG Preview</span><kbd>{modifierLabel} E</kbd></button>
               <button type="button" disabled={!props.canExportResult} onClick={run(props.onExportGif)}>Animated GIF</button>
               <button type="button" disabled={!props.canExportResult} onClick={run(props.onExportBinary)}>Hardware Binary</button>
               <button type="button" disabled={!props.canExportMetadata} onClick={run(props.onExportMetadata)}>Metadata JSON</button>
@@ -450,7 +484,7 @@ export function WorkbenchMenuBar(props: WorkbenchMenuBarProps) {
             <label className="workbench-menu-select"><span>Hardware mode</span><select value={props.targetModeId} onChange={(event) => props.onTargetModeChange(event.target.value)}>{modeChoices.map((mode) => <option key={mode} value={mode}>{HARDWARE_MODE_LABELS[mode] ?? mode}</option>)}</select></label>
           )}
           <div className="workbench-menu-group">
-            <button className="workbench-menu-primary" type="button" disabled={!props.canConvert} onClick={run(props.onConvert)}>Convert High</button>
+            <button className="workbench-menu-primary" type="button" disabled={!props.canConvert} onClick={run(props.onConvert)}><span>Convert High</span><kbd>{modifierLabel} ↵</kbd></button>
             {props.conversionRunning ? <button type="button" onClick={run(props.onCancelConvert)}>Cancel High</button> : null}
           </div>
           {props.canDeleteSelectedProfile || props.canDeleteImportedProfiles ? <div className="workbench-menu-group workbench-menu-profile-management">
@@ -527,10 +561,38 @@ export function WorkbenchMenuBar(props: WorkbenchMenuBarProps) {
         </div>
       ) : null}
 
+      {openMenu === "export" ? (
+        <div id="workbench-menu-export" className="workbench-menu-popover workbench-menu-wide" data-workbench-menu="export" role="region" aria-label="Export" style={{ "--workbench-menu-popover-left": `${popoverLeft}px` } as CSSProperties}>
+          <div className="workbench-menu-group">
+            {isTilemap ? <>
+              <button type="button" disabled={!props.canExportTilemap} onClick={run(props.onExportTilemapPreview)}><span>Decoder Preview PNG<small>Image of the reconstructed screen</small></span><kbd>{modifierLabel} E</kbd></button>
+              <button type="button" disabled={!props.canExportTilemap} onClick={run(props.onExportTilemap)}><span>Raw Tilemap<small>Tilemap data for your program</small></span></button>
+              <button type="button" disabled={!props.canExportTilemap} onClick={run(props.onExportCharset)}><span>Final Charset<small>Generated character set</small></span></button>
+              <button type="button" disabled={!props.canExportResult} onClick={run(props.onExportPaletteSource)}><span>Palette Source .scr<small>Hardware screen file</small></span></button>
+              <button type="button" disabled={!props.canExportTilemap} onClick={run(props.onExportSpecscii)}><span>Specscii Screen JSON<small>Editable Specscii screen</small></span></button>
+            </> : <>
+              <button type="button" disabled={!props.canExportResult} onClick={run(props.onExportPreview)}><span>PNG Preview<small>Image of the result for sharing</small></span><kbd>{modifierLabel} E</kbd></button>
+              <button type="button" disabled={!props.canExportResult} onClick={run(props.onExportBinary)}><span>Hardware Binary<small>Native screen file for the target machine</small></span></button>
+              <button type="button" disabled={!props.canExportResult} onClick={run(props.onExportGif)}><span>Animated GIF<small>Flash/frame animation</small></span></button>
+              <button type="button" disabled={!props.canExportMetadata} onClick={run(props.onExportMetadata)}><span>Metadata JSON<small>Conversion settings and statistics</small></span></button>
+            </>}
+          </div>
+        </div>
+      ) : null}
+
       {openMenu === "settings" ? (
         <div id="workbench-menu-settings" className="workbench-menu-popover" data-workbench-menu="settings" role="region" aria-label="Tools" style={{ "--workbench-menu-popover-left": `${popoverLeft}px` } as CSSProperties}>
           {props.isZx ? <button type="button" onClick={run(props.onOpenPaletteEditor)}>Palette editor…</button> : null}
           <button type="button" onClick={run(props.onOpenSettings)}><span>Application Settings…</span><kbd>{modifierLabel} ,</kbd></button>
+          <div className="workbench-menu-group" aria-label="Keyboard shortcuts">
+            <span className="workbench-menu-heading">Keyboard shortcuts</span>
+            <p className="workbench-menu-shortcut"><span>Open image</span><kbd>{modifierLabel} O</kbd></p>
+            <p className="workbench-menu-shortcut"><span>Paste image</span><kbd>{modifierLabel} V</kbd></p>
+            <p className="workbench-menu-shortcut"><span>Convert High</span><kbd>{modifierLabel} ↵</kbd></p>
+            <p className="workbench-menu-shortcut"><span>Export PNG</span><kbd>{modifierLabel} E</kbd></p>
+            <p className="workbench-menu-shortcut"><span>Save project</span><kbd>{modifierLabel} S</kbd></p>
+            <p className="workbench-menu-shortcut"><span>Settings</span><kbd>{modifierLabel} ,</kbd></p>
+          </div>
         </div>
       ) : null}
     </nav>
