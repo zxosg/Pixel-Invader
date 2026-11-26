@@ -16,7 +16,7 @@
   overflow: hidden;
   padding: 0;
   color: var(--text, #eef4ff);
-  background: var(--panel, #111a29);
+  background: var(--panel, var(--color-control-bg));
   border: 1px solid var(--line, #4f75a2);
   border-radius: .6rem;
   box-shadow: 0 1rem 4rem rgb(0 0 0 / 45%);
@@ -93,7 +93,7 @@
   gap: .5rem;
   padding: .75rem 1.25rem;
   border-block: 1px solid var(--line, #4f75a2);
-  background: color-mix(in srgb, var(--panel, #111a29) 92%, white);
+  background: color-mix(in srgb, var(--panel, var(--color-control-bg)) 92%, white);
 }
 
 .settings-result-count {
@@ -170,7 +170,7 @@
   margin-top: 0;
   padding: .85rem 1.25rem 1.25rem;
   border-top: 1px solid var(--line, #4f75a2);
-  background: var(--panel, #111a29);
+  background: var(--panel, var(--color-control-bg));
 }
 
 @media (max-width: 650px) {

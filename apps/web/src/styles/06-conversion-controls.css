@@ -73,7 +73,7 @@ h1 {
 }
 
 .source-format-status {
-  color: #9eabbd;
+  color: var(--color-text-dim);
 }
 
 .imported-file-name {
@@ -89,7 +89,7 @@ h1 {
 .pmd-tv-note {
   margin: 0.25rem 0 0;
   overflow-x: auto;
-  color: #9eabbd;
+  color: var(--color-text-dim);
   font-size: 0.7rem;
   line-height: 1.2;
   white-space: nowrap;
@@ -452,7 +452,7 @@ h1 {
   min-width: 4rem;
   align-items: center;
   gap: 0.25rem;
-  color: #9eabbd;
+  color: var(--color-text-dim);
   font-size: 0.62rem;
 }
 
@@ -485,11 +485,11 @@ h1 {
 .palette-screen-heading {
   display: flex;
   justify-content: space-between;
-  color: #9eabbd;
+  color: var(--color-text-dim);
   font-size: 0.65rem;
 }
 
 .control-help {
-  color: #9eabbd;
+  color: var(--color-text-dim);
   font-size: 0.75rem;
 }

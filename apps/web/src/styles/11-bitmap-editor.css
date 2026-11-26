@@ -1069,7 +1069,7 @@
   min-height: 0.975rem;
   padding: 0;
   border: 1px solid #54708f;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: #28364a;
   color: var(--color-text-primary);
   font-size: 0.46rem;

@@ -99,7 +99,7 @@
 
 .workbench-menu-summary-mode {
   border: 1px solid #344b6a;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 0.16rem 0.45rem;
   background: #1a2b43;
   color: #a9d3ff;
@@ -138,7 +138,7 @@
   padding: 0.45rem;
   border: 1px solid #3c4c65;
   border-radius: 0.65rem;
-  background: linear-gradient(180deg, #172337 0%, #111a29 100%);
+  background: linear-gradient(180deg, #172337 0%, var(--color-control-bg) 100%);
   box-shadow: 0 18px 44px #000a, 0 2px 8px #0006, inset 0 1px #ffffff0a;
   animation: workbench-menu-enter 120ms ease-out both;
 }
@@ -255,7 +255,7 @@
 }
 
 .workbench-menu-group > .workbench-menu-primary:disabled {
-  border-color: #3c4b60;
+  border-color: var(--color-border-control);
   background: #253449;
   color: #8b99ad;
 }
@@ -553,7 +553,7 @@
 
 .about-dialog-subtitle {
   margin-top: 0.3rem !important;
-  color: #9eabbd;
+  color: var(--color-text-dim);
   font-size: 0.8rem;
 }
 
@@ -576,7 +576,7 @@
 }
 
 .about-dialog-details dt {
-  color: #9eabbd;
+  color: var(--color-text-dim);
 }
 
 .about-dialog-details dd {
@@ -623,7 +623,7 @@
 }
 
 .about-dialog-hardware li small {
-  color: #9eabbd;
+  color: var(--color-text-dim);
   font-size: 0.65rem;
 }
 
@@ -789,7 +789,7 @@
 
 .workbench-menubar .workbench-export-main:disabled,
 .workbench-menubar .workbench-export-caret:disabled {
-  border-color: #3c4b60;
+  border-color: var(--color-border-control);
   background: #253449;
   color: #8b99ad;
   cursor: not-allowed;
@@ -817,20 +817,20 @@
 .workflow-bar {
   display: flex; min-width: 0; align-items: center; gap: 0.2rem; margin: 0 0 0 auto; padding: 0 0.5rem; list-style: none;
 }
-.workflow-step { display: flex; align-items: center; gap: 0.35rem; min-width: 0; padding: 0.1rem 0.45rem; border: 1px solid transparent; border-radius: 2px; color: #c4d0e2; font-size: 0.72rem; white-space: nowrap; }
+.workflow-step { display: flex; align-items: center; gap: 0.35rem; min-width: 0; padding: 0.1rem 0.45rem; border: 1px solid transparent; border-radius: var(--radius-sm); color: #c4d0e2; font-size: 0.72rem; white-space: nowrap; }
 .workflow-step + .workflow-step::before { content: "›"; margin-right: 0.35rem; color: #8b99ae; }
-.workflow-step.active { border-color: #ffdc6a; }
+.workflow-step.active { border-color: var(--color-highlight-yellow); }
 .workflow-step.done .workflow-step-number { background: #2f7d4f; color: #fff; }
 .workflow-step button, .workflow-target select { font: inherit; color: inherit; }
-.workflow-step button { display: flex; align-items: center; gap: 0.35rem; padding: 0.2rem 0.35rem; border: 0; border-radius: 2px; background: transparent; cursor: pointer; min-width: 0; }
+.workflow-step button { display: flex; align-items: center; gap: 0.35rem; padding: 0.2rem 0.35rem; border: 0; border-radius: var(--radius-sm); background: transparent; cursor: pointer; min-width: 0; }
 .workflow-step button:disabled { color: #8b99ad; cursor: not-allowed; }
-.workflow-step-number { display: inline-grid; place-items: center; width: 1.2rem; height: 1.2rem; border-radius: 2px; background: #2a3a52; color: #e8edf5; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.68rem; font-weight: 800; }
+.workflow-step-number { display: inline-grid; place-items: center; width: 1.2rem; height: 1.2rem; border-radius: var(--radius-sm); background: #2a3a52; color: var(--color-text-primary); font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.68rem; font-weight: 800; }
 .workflow-step-label { font-weight: 700; }
 .workflow-step-detail { overflow: hidden; max-width: 11rem; text-overflow: ellipsis; color: #aab8cd; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.66rem; }
 .workflow-target { display: flex; align-items: center; gap: 0.35rem; }
-.workflow-target select { max-width: 12rem; background: #1a2b43; border: 1px solid #344b6a; border-radius: 2px; padding: 0.1rem 0.25rem; }
-.workflow-step .workflow-convert:not(:disabled) { background: #ffdc6a; color: #111; }
-.workflow-step .workflow-convert:not(:disabled) .workflow-step-number { background: #111; color: #ffdc6a; }
+.workflow-target select { max-width: 12rem; background: #1a2b43; border: 1px solid #344b6a; border-radius: var(--radius-sm); padding: 0.1rem 0.25rem; }
+.workflow-step .workflow-convert:not(:disabled) { background: var(--color-highlight-yellow); color: #111; }
+.workflow-step .workflow-convert:not(:disabled) .workflow-step-number { background: #111; color: var(--color-highlight-yellow); }
 .workflow-step-export-label { padding-right: 0; }
 .workbench-menubar { border-image: linear-gradient(90deg, #d00 0 12.5%, #00d 12.5% 25%, #d0d 25% 37.5%, #0d0 37.5% 50%, #0dd 50% 62.5%, #dd0 62.5% 75%, #ddd 75% 87.5%, #fff 87.5% 100%) 0 0 3 0; border-bottom-width: 3px; border-bottom-style: solid; }
 @media (max-width: 1280px) { .workflow-step-detail { display: none; } .workflow-target select { max-width: 8rem; } }

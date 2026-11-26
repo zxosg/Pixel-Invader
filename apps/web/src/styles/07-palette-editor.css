@@ -15,7 +15,7 @@
   max-height: min(42rem, 92vh);
   overflow: hidden;
   color: var(--text, #eef4ff);
-  background: var(--panel, #111a29);
+  background: var(--panel, var(--color-control-bg));
   border: 1px solid var(--line, #4f75a2);
   border-radius: .6rem;
   box-shadow: 0 1rem 4rem rgb(0 0 0 / 45%);
@@ -37,7 +37,7 @@
 
 .zx-palette-editor-header p {
   margin-top: .25rem;
-  color: #9eabbd;
+  color: var(--color-text-dim);
   font-size: .8rem;
 }
 
@@ -62,7 +62,7 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 0.6rem;
-  color: #9eabbd;
+  color: var(--color-text-dim);
   font-size: 0.75rem;
 }
 

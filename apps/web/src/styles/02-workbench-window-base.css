@@ -521,7 +521,7 @@
 
 .workbench-workspace .dithering-composer-grid small {
   display: block;
-  color: #9eabbd;
+  color: var(--color-text-dim);
   line-height: 1.2;
 }
 

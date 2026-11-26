@@ -3,7 +3,7 @@
   top: 0.35rem;
   right: 0.35rem;
   border: 1px solid #f2b84b;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 0.18rem 0.45rem;
   color: #17110a;
   background: #f2b84b;

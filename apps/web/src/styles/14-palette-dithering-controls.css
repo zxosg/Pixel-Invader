@@ -146,7 +146,7 @@
 
 .subcard-help {
   margin: -0.08rem 0 0;
-  color: #9eabbd;
+  color: var(--color-text-dim);
   font-size: 0.65rem;
   line-height: 1.2;
 }
