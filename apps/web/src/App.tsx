@@ -1135,6 +1135,33 @@ export function App() {
           >
             <SourceComparisonDock />
             <ResultComparisonDock />
+            {uiLayout === "guided" && compareMode === "swipe" ? (
+              <div
+                className="swipe-handle"
+                role="slider"
+                tabIndex={0}
+                aria-label="Swipe divider"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={swipePosition}
+                onKeyDown={(event) => {
+                  if (event.key === "ArrowLeft") setSwipePosition((v) => Math.max(0, v - 2));
+                  if (event.key === "ArrowRight") setSwipePosition((v) => Math.min(100, v + 2));
+                }}
+                onPointerDown={(event) => {
+                  const host = event.currentTarget.parentElement;
+                  if (host === null) return;
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                  const move = (e: PointerEvent) => {
+                    const box = host.getBoundingClientRect();
+                    setSwipePosition(Math.round(Math.min(100, Math.max(0, ((e.clientX - box.left) / box.width) * 100))));
+                  };
+                  const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
+                  window.addEventListener("pointermove", move);
+                  window.addEventListener("pointerup", up);
+                }}
+              />
+            ) : null}
           </div>
 
           {showPixelGrid && (previewZoom === "fit" || previewZoom < 4) ? (

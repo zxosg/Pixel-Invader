@@ -253,6 +253,7 @@ try {
     await settle(400);
     expect(await page.locator(`.comparison[data-compare-mode]`).count() === 1, `compare mode ${name} applies`);
     await shot(shotName);
+    if (name === "Swipe") { expect(await page.getByRole("slider", { name: "Swipe divider" }).count() === 1, "swipe divider handle present"); }
     await auditContrast(`compare ${name}`);
   }
   await page.getByRole("radio", { name: "Side by side", exact: true }).click();
