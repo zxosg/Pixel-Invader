@@ -2,12 +2,10 @@ import { AppStateContext, type AppState } from "./app/app-state.js";
 import { uiTypographyCssVariables } from "./ui-typography.js";
 import { lazy, Suspense, useEffect, useState, type CSSProperties } from "react";
 import { WorkbenchMenuBar } from "./workbench-menu-bar.js";
-import { type ConversionSettings, DITHER_ENGINES, type DitherEngineId, ditherEngineSelectionGroupForTarget, isCompatibleEnginePair, isDitherEngineAvailableForSelection, type OrderedMatrixId, type QlMixedOptimizerId, type TargetModeId } from "@retro-converter/conversion-core";
+import { type TargetModeId } from "@retro-converter/conversion-core";
 import { BUILT_IN_PROFILES } from "./profiles.js";
 import { APPLICATION_BUILD_ID, APPLICATION_RELEASE_DATE, APPLICATION_VERSION, sanitizeArtifactBaseName } from "./artifacts.js";
 import { type WorkbenchFocusTarget } from "./app-types.js";
-import { ORDERED_MATRIX_IDS, orderedMatrixLabel } from "./dithering-labels.js";
-import { RangeNumberControl } from "./app-controls.js";
 import { normalizeProjectName } from "./project-name.js";
 import { useRuntimeState } from "./app/use-runtime-state.js";
 import { useSettingsState } from "./app/use-settings-state.js";
@@ -31,11 +29,9 @@ import { GeometrySettingsWindow } from "./app/sections/geometry-settings-window.
 import { AdjustmentsSettingsWindow } from "./app/sections/adjustments-settings-window.js";
 import { PaletteSettingsWindow } from "./app/sections/palette-settings-window.js";
 import { PaintColorsSettingsWindow } from "./app/sections/paint-colors-settings-window.js";
-import { AdvancedConversionSettings } from "./app/sections/advanced-conversion-settings.js";
-import { DitherComposerControls } from "./app/sections/dither-composer-controls.js";
-import { ErrorDiffusionControls } from "./app/sections/error-diffusion-controls.js";
 import { CompareModeBar, type CompareMode } from "./app/sections/compare-mode-bar.js";
 import { StatusBar } from "./app/sections/status-bar.js";
+import { DitheringControls } from "./app/sections/dithering-controls.js";
 import { SettingsSidebar } from "./app/sections/settings-sidebar.js";
 import { ToolsSettingsWindow } from "./app/sections/tools-settings-window.js";
 import { PreviewPalettePanel } from "./app/sections/preview-palette-panel.js";
@@ -73,35 +69,22 @@ export function App() {
     draftState,
     lastFinal,
     setAboutOpen,
-    setSliderValidity,
     setState,
     state,
   } = s0;
   const {
-    artisticPattern,
-    attributeHeight,
-    attributeOptimizerId,
     charsetSource,
     dirty,
-    ditherEngineId,
-    dithering,
-    errorDiffusionLineSuppression,
     existingCharset,
     exportError,
     gifFrameSelection,
     image,
     imageStatus,
-    orderedMatrix,
     profiles,
     projectName,
-    qlMixedOptimizerId,
     selectedPresetId,
     selectedProfileId,
-    setArtisticPattern,
-    setErrorDiffusionLineSuppression,
     setGifFrameSelection,
-    setOrderedMatrix,
-    setQlMixedOptimizerId,
     setZxPaletteDefinition,
     sourceArtifact,
     sourceFileName,
@@ -117,12 +100,10 @@ export function App() {
     benchmarkRunning,
     developmentMode,
     isPmd,
-    isQl,
     isZx,
     previewZoom,
     projectNameDraft,
     projectSaveDialogOpen,
-    selectedPlatformId,
     selectedProfile,
     setBenchmarkOpen,
     setBenchmarkPanelHost,
@@ -235,7 +216,6 @@ export function App() {
     workspaceProfileOptions,
   } = s4;
   const {
-    switchDithering,
   } = s5;
   const {
     cancelGifFrameSelection,
@@ -263,11 +243,9 @@ export function App() {
     openApplicationSettings,
     runEngineBenchmark,
     runTilemapBenchmark,
-    selectDitherEngine,
     selectPreset,
     selectProfile,
     switchWorkspaceConversionMode,
-    syncMatrixEditorFromSelection,
   } = s9;
   const {
     cancelHigh,
@@ -595,7 +573,7 @@ export function App() {
           <>
           <PaletteSettingsWindow />
           <PaintColorsSettingsWindow />
-          {workbenchPortal("dithering", (
+          {uiLayout === "guided" ? null : workbenchPortal("dithering", (
           <details
             className={`workbench-settings-section workbench-window${workbenchDitheringFloating ? ` workbench-section-floating workbench-dithering-floating${workbenchDitheringFloatingAutoHeight ? " workbench-floating-auto-height" : ""}` : ""}`}
             {...workbenchWindowDragAttributes("dithering")}
@@ -664,250 +642,7 @@ export function App() {
                 }}
               />
             ) : null}
-          <fieldset id="settings-dithering" className={`control-group dithering-group${settingsSection === "dithering" ? " settings-focused" : ""}`}>
-            <legend className="visually-hidden">Dithering</legend>
-          <AdvancedConversionSettings />
-          {isQl && targetModeId === "mode8-mode4-mixed-512x256" ? (
-            <label className="dithering-wide">
-              <span>Mixed optimizer</span>
-              <select
-                value={qlMixedOptimizerId}
-                onChange={(event) => {
-                  setQlMixedOptimizerId(
-                    event.target.value as QlMixedOptimizerId,
-                  );
-                  setState({ kind: "idle" });
-                }}
-              >
-                <option value="ql-mixed-average-v1">Average v1 · legacy</option>
-                <option value="ql-mixed-low-perception-v2">Low perception v2</option>
-                <option value="ql-mixed-high-detail-v2">High detail v2</option>
-                <option value="ql-mixed-balanced-v2">Balanced v2 · default</option>
-              </select>
-            </label>
-          ) : null}
-          <fieldset className="dithering-method-control dithering-wide">
-            <legend>Dithering method</legend>
-            <div className="segmented-control" role="radiogroup" aria-label="Dithering method">
-              {([
-                ["none", "No dithering"],
-                ["ordered", "Ordered"],
-                ["error-diffusion", "Error diffusion"],
-              ] as const).map(([value, label]) => (
-                <label className="segmented-option" key={value}>
-                  <input
-                    type="radio"
-                    name="dithering-method"
-                    value={value}
-                    checked={dithering === value}
-                    onChange={() => switchDithering(value)}
-                  />
-                  <span>{label}</span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
-          {dithering === "error-diffusion" ? (
-            <label className="dithering-wide">
-              <span>Dither algorithm</span>
-              <select
-                value={ditherEngineId}
-                onChange={(event) => selectDitherEngine(event.target.value as DitherEngineId)}
-              >
-                {(() => {
-                  const compatible = DITHER_ENGINES.filter((engine) =>
-                    engine.method === "error-diffusion" &&
-                    isDitherEngineAvailableForSelection(
-                      selectedPlatformId,
-                      targetModeId,
-                      attributeOptimizerId,
-                      engine.id,
-                    )
-                  );
-                  const recommended = new Set<DitherEngineId>([
-                    "error-diffusion-decorrelated-v3",
-                    "error-diffusion-atkinson-v1",
-                    "error-diffusion-checker-artistic-v1",
-                  ]);
-                  return <>
-                    <optgroup label="Recommended">
-                      {compatible.filter((engine) => recommended.has(engine.id)).map((engine) =>
-                        <option key={engine.id} value={engine.id}>{engine.name}</option>)}
-                    </optgroup>
-                    <optgroup label="Alternatives and historical engines">
-                      {compatible.filter((engine) =>
-                        !recommended.has(engine.id) &&
-                        ditherEngineSelectionGroupForTarget(engine.id, targetModeId) !== "to-be-hidden" &&
-                        engine.lifecycle !== "experimental"
-                      ).map((engine) =>
-                        <option key={engine.id} value={engine.id}>{engine.name}</option>)}
-                    </optgroup>
-                    <optgroup label="Experimental engines">
-                      {compatible.filter((engine) =>
-                        !recommended.has(engine.id) &&
-                        ditherEngineSelectionGroupForTarget(engine.id, targetModeId) !== "to-be-hidden" &&
-                        engine.lifecycle === "experimental"
-                      ).map((engine) =>
-                        <option key={engine.id} value={engine.id}>{engine.name}</option>)}
-                    </optgroup>
-                    <optgroup label="To be hidden">
-                      {compatible.filter((engine) =>
-                        ditherEngineSelectionGroupForTarget(engine.id, targetModeId) === "to-be-hidden"
-                      ).map((engine) =>
-                        <option key={engine.id} value={engine.id}>{engine.name}</option>)}
-                    </optgroup>
-                  </>;
-                })()}
-              </select>
-            </label>
-          ) : null}
-          {dithering !== "none" && dithering !== "error-diffusion" ? (
-            <label className="dithering-wide">
-              <span>Dither engine</span>
-              <select
-                value={ditherEngineId}
-                onChange={(event) => selectDitherEngine(event.target.value as DitherEngineId)}
-                title={DITHER_ENGINES.find((engine) => engine.id === ditherEngineId)?.name}
-              >
-                {(() => {
-                  const compatible = DITHER_ENGINES.filter((engine) =>
-                    engine.method === "ordered" &&
-                    engine.platforms.includes(selectedPlatformId as never) &&
-                    (selectedPlatformId === "sinclair-ql" ||
-                      isCompatibleEnginePair(attributeOptimizerId, engine.id)) &&
-                    (engine.targetModeIds === undefined || engine.targetModeIds.includes(targetModeId)) &&
-                    (targetModeId !== "zx48-mixed-256x192" || !("family" in engine))
-                  );
-                  const recommended = new Set<DitherEngineId>([
-                    "ordered-strict-matrix-v6",
-                    "ordered-mixed-phase-stable-v8",
-                  ]);
-                  return <>
-                    <optgroup label="Recommended">
-                      {compatible.filter((engine) => recommended.has(engine.id)).map((engine) =>
-                        <option key={engine.id} value={engine.id}>{engine.name}</option>)}
-                    </optgroup>
-                    <optgroup label="Alternatives and historical engines">
-                      {compatible.filter((engine) =>
-                        !recommended.has(engine.id) &&
-                        ditherEngineSelectionGroupForTarget(engine.id, targetModeId) !== "to-be-hidden" &&
-                        engine.lifecycle !== "experimental"
-                      ).map((engine) =>
-                        <option key={engine.id} value={engine.id}>{engine.name}</option>)}
-                    </optgroup>
-                    <optgroup label="Experimental engines">
-                      {compatible.filter((engine) =>
-                        ditherEngineSelectionGroupForTarget(engine.id, targetModeId) !== "to-be-hidden" &&
-                        engine.lifecycle === "experimental"
-                      ).map((engine) =>
-                        <option key={engine.id} value={engine.id}>{engine.name}</option>)}
-                    </optgroup>
-                    <optgroup label="To be hidden">
-                      {compatible.filter((engine) =>
-                        ditherEngineSelectionGroupForTarget(engine.id, targetModeId) === "to-be-hidden"
-                      ).map((engine) =>
-                        <option key={engine.id} value={engine.id}>{engine.name}</option>)}
-                    </optgroup>
-                  </>;
-                })()}
-              </select>
-            </label>
-          ) : null}
-          {(ditherEngineId === "artistic-ordered-hybrid-v1" ||
-            ditherEngineId === "artistic-ordered-tone-safe-v2" ||
-            ditherEngineId === "artistic-chessboard-smooth-v1") ? (
-            <label>
-              <span>Pattern preference</span>
-              <select value={artisticPattern} onChange={(event) => { setArtisticPattern(event.target.value as NonNullable<ConversionSettings["artisticPattern"]>); setState({ kind: "idle" }); }}>
-                <option value="auto">Auto</option>
-                <option value="checkerboard">Checkerboard</option>
-                <option value="horizontal">Horizontal</option>
-                <option value="vertical">Vertical</option>
-              </select>
-              {attributeHeight === 1 ? <small>8×1 cells use row-local alternating motifs.</small> : null}
-            </label>
-          ) : null}
-          {dithering === "ordered" &&
-            ditherEngineId !== "artistic-ordered-hybrid-v1" &&
-            ditherEngineId !== "artistic-ordered-tone-safe-v2" ? (
-            <label>
-              <span>Ordered matrix</span>
-              <select value={orderedMatrix} onChange={(event) => {
-                const nextMatrix = event.target.value as OrderedMatrixId;
-                setOrderedMatrix(nextMatrix);
-                syncMatrixEditorFromSelection(nextMatrix);
-                setState({ kind: "idle" });
-              }}>
-                {(DITHER_ENGINES.find((engine) => engine.id === ditherEngineId)?.orderedMatrixIds ??
-                  ORDERED_MATRIX_IDS.slice(0, 4)).map((matrixId) => (
-                  <option key={matrixId} value={matrixId}>{orderedMatrixLabel(matrixId)}</option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          <DitherComposerControls />
-          <ErrorDiffusionControls />
-          {(ditherEngineId === "error-diffusion-phase-balanced-v3" ||
-            ditherEngineId === "error-diffusion-phase-balanced-checker-v3-1" ||
-            ditherEngineId === "error-diffusion-phase-balanced-checker-v3-2" ||
-            ditherEngineId === "error-diffusion-phase-balanced-checker-v3-3" ||
-            ditherEngineId === "error-diffusion-checker-phase-v4" ||
-            ditherEngineId === "error-diffusion-checker-phase-v4-4" ||
-            ditherEngineId === "error-diffusion-checker-artistic-v1" ||
-            ditherEngineId === "error-diffusion-checker-phase-v4-5" ||
-            ditherEngineId === "error-diffusion-checker-phase-v4-5-1" ||
-            ditherEngineId === "error-diffusion-checker-phase-v4-1" ||
-            ditherEngineId === "error-diffusion-checker-phase-v4-2" ||
-            ditherEngineId === "error-diffusion-checker-phase-v4-3" ||
-            ditherEngineId === "error-diffusion-checker-phase-v5" ||
-            ditherEngineId === "error-diffusion-matrix-guided-v1") || (
-            isQl &&
-            targetModeId === "mode8-mode4-mixed-512x256" &&
-            ditherEngineId === "artistic-ordered-hybrid-v1"
-          ) ? (
-            <div className="dithering-row">
-              {(ditherEngineId === "error-diffusion-phase-balanced-v3" ||
-                ditherEngineId === "error-diffusion-phase-balanced-checker-v3-1" ||
-                ditherEngineId === "error-diffusion-phase-balanced-checker-v3-2" ||
-                ditherEngineId === "error-diffusion-phase-balanced-checker-v3-3" ||
-                ditherEngineId === "error-diffusion-checker-phase-v4" ||
-                ditherEngineId === "error-diffusion-checker-phase-v4-4" ||
-                ditherEngineId === "error-diffusion-checker-artistic-v1" ||
-                ditherEngineId === "error-diffusion-checker-phase-v4-5" ||
-                ditherEngineId === "error-diffusion-checker-phase-v4-5-1" ||
-                ditherEngineId === "error-diffusion-checker-phase-v4-1" ||
-                ditherEngineId === "error-diffusion-checker-phase-v4-2" ||
-                ditherEngineId === "error-diffusion-checker-phase-v4-3" ||
-                ditherEngineId === "error-diffusion-checker-phase-v5" ||
-                ditherEngineId === "error-diffusion-matrix-guided-v1" ||
-                (isQl &&
-                  targetModeId === "mode8-mode4-mixed-512x256" &&
-                  ditherEngineId === "artistic-ordered-hybrid-v1")) ? (
-                <div
-                  className="dithering-parameter"
-                    title="Reduces vertical diffusion runs and favors balanced alternating 2×2 placement; v3.1 adds local placement, v3.2 integrates checker decisions into v3 propagation, v3.3 reorients only true 50% checker blocks, v4.4 adds a checker carrier, v4.5 adaptively selects checker or dispersed 4×4 carriers, and v4.5.1 uses coverage-preserving atomic 2×2 color-pair correction to reduce spikes without isolated pixel flips. At 0%, output matches Projected unrestricted v2."
-                >
-                  <RangeNumberControl
-                    id="error-line-suppression"
-                    label="Line suppression"
-                    value={errorDiffusionLineSuppression}
-                    min={0}
-                    max={100}
-                    unit="%"
-                    onChange={(value) => {
-                      setErrorDiffusionLineSuppression(value);
-                      setState({ kind: "idle" });
-                    }}
-                    onValidityChange={setSliderValidity}
-                  />
-                  <span className="control-help">
-                    Reduces vertical diffusion runs while retaining short 2×1 transitions. v3.1 applies local placement after v3; v3.2 integrates coverage-preserving 2×2 checker decisions into v3 propagation; v3.3 only reorients existing 50% checker blocks; v4.4 uses an artistic checker carrier as a conservative v3 tie-breaker; v4.5 adaptively selects stable checker or dispersed 4×4 carrier regions, while v4.5.1 prefers a stable complementary checker phase and applies only atomic, coverage-preserving 2×2 color-pair corrections in smooth regions. In QL Mode 8/4 mixed Artistic checker mode, line suppression scales the mixed-resolution checker carrier from 0% to 100%. For v4.4, v4.5, and v4.5.1, line suppression controls carrier strength from 0% to 100%; it does not change the underlying tone diffusion. At 0%, output matches Projected unrestricted v2.
-                  </span>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-          </fieldset>
+          <DitheringControls level="expert" />
           </details>
           ))}
           </>

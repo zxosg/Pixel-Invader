@@ -23,6 +23,11 @@ export type SettingCategory =
 export type SettingLevel = "basic" | "advanced" | "expert";
 export const SETTING_LEVELS: readonly SettingLevel[] = ["basic", "advanced", "expert"];
 
+/** True when the active tier shows controls that start at `minimum`. */
+export function levelAtLeast(level: SettingLevel, minimum: SettingLevel): boolean {
+  return SETTING_LEVELS.indexOf(level) >= SETTING_LEVELS.indexOf(minimum);
+}
+
 export type SettingScope = "application" | "conversion" | "project";
 export type SettingPresetId =
   | "all"

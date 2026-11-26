@@ -70,7 +70,7 @@ const auditContrast = async (label) => {
     const out = [];
     for (const el of document.querySelectorAll("body *")) {
       if (![...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) continue;
-      if (el.closest("canvas, [disabled], [aria-hidden='true'], .workbench-menu-summary-separator") || el.matches(":disabled")) continue;
+      if (el.closest("canvas, [disabled], [aria-hidden='true'], .workbench-menu-summary-separator, label:has(> input:disabled)") || el.matches(":disabled")) continue;
       const cs = getComputedStyle(el); const rect = el.getBoundingClientRect();
       if (cs.visibility === "hidden" || cs.display === "none" || rect.width < 2 || rect.height < 2) continue;
       let opacity = 1; for (let e = el; e; e = e.parentElement) opacity *= Number(getComputedStyle(e).opacity);
@@ -222,12 +222,40 @@ try {
   await settle(1200);
   await shot("06b-guided-loaded");
   await auditContrast("guided layout, advanced tier");
-  expect(await page.locator("#sidebar-gamma").count() === 1, "advanced tier shows gamma");
+  const sidebar = page.locator(".settings-sidebar");
+  expect(await sidebar.getByLabel("Gamma slider").count() === 1, "advanced tier shows gamma");
   await page.getByRole("radio", { name: "Basic", exact: true }).click();
   await settle(300);
-  expect(await page.locator("#sidebar-gamma").count() === 0, "basic tier hides gamma");
-  await page.locator("#sidebar-brightness").fill("20");
+  expect(await sidebar.getByLabel("Gamma slider").count() === 0, "basic tier hides gamma");
+  await sidebar.getByLabel("Brightness value").fill("20");
+  await sidebar.getByLabel("Brightness value").blur();
   await settle(300);
+  expect(await sidebar.getByLabel("Brightness value").inputValue() === "20", "brightness edit applies");
+  await sidebar.getByRole("button", { name: "Reset Brightness" }).dblclick();
+  await settle(300);
+  expect(await sidebar.getByLabel("Brightness value").inputValue() === "0", "double-click label resets slider");
+  await sidebar.getByLabel("Brightness value").fill("30");
+  await sidebar.getByLabel("Brightness value").blur();
+  await sidebar.getByRole("button", { name: "Reset adjustments" }).click();
+  await settle(300);
+  expect(await sidebar.getByLabel("Brightness value").inputValue() === "0", "reset adjustments restores defaults");
+  await page.getByRole("radio", { name: "Expert", exact: true }).click();
+  await settle(300);
+  {
+    const hasRandomization = async () => await sidebar.getByLabel("Error randomization value").count() === 1;
+    const hasMatrix = async () => await sidebar.getByText("Ordered matrix", { exact: true }).count() === 1;
+    const ordered = sidebar.locator(".segmented-option", { hasText: /^Ordered$/ });
+    const diffusion = sidebar.locator(".segmented-option", { hasText: /^Error diffusion$/ });
+    await diffusion.click();
+    await settle(400);
+    expect(await hasRandomization() && !(await hasMatrix()), "error diffusion shows randomization, not matrix");
+    await ordered.click();
+    await settle(400);
+    expect(!(await hasRandomization()) && await hasMatrix(), "ordered shows matrix, not randomization");
+    await shot("06b-sidebar-ordered");
+    await diffusion.click();
+    await settle(300);
+  }
   await page.getByRole("radio", { name: "Expert", exact: true }).click();
   await settle(300);
   expect(await page.locator("footer.status-bar").count() === 1, "status bar is shown");

@@ -1,25 +1,22 @@
 import { useAppState } from "../app-state.js";
+import { levelAtLeast, type SettingLevel } from "../../settings-registry.js";
 import { type AttributeHaloRadius, type AttributeHeight, paletteSelectionsMatch } from "@retro-converter/conversion-core";
 import { RangeNumberControl } from "../../app-controls.js";
 
-export function PaletteSettingsWindow() {
+export function PaletteControls({ level = "expert" }: { readonly level?: SettingLevel }) {
   const s = useAppState();
   const {
-    adjustWorkbenchFloatingSize,
     attributeHaloHorizontal,
     attributeHaloInfluence,
     attributeHaloVertical,
     attributeHeight,
     attributeOptimizerId,
     attributeSmoothing,
-    bringWorkbenchWindowToFront,
     changePmd85Calibration,
     dithering,
     effectivePaletteOptionsByScreen,
     flickerSuppressionEffective,
     flickerSuppressionPolicyMismatch,
-    handleWorkbenchTitlebarClick,
-    handleWorkbenchTitlebarKeyDown,
     image,
     isPmd,
     isQl,
@@ -41,96 +38,14 @@ export function PaletteSettingsWindow() {
     setSliderValidity,
     setState,
     setVerticalSpatialSwapRows,
-    setWorkbenchPaletteFloatingX,
-    setWorkbenchPaletteFloatingY,
-    setWorkbenchWindowOpen,
     setZxMixedAttributesOnly,
     settingsSection,
-    startWorkbenchFloatingResize,
-    startWorkbenchSectionDrag,
-    startWorkbenchTitlebarDrag,
     targetModeId,
     togglePaletteColor,
     verticalSpatialSwapRows,
-    workbenchDockSplitHandle,
-    workbenchDockWindowStyle,
-    workbenchPaletteFloating,
-    workbenchPaletteFloatingAutoHeight,
-    workbenchPortal,
-    workbenchWindowActions,
-    workbenchWindowDragAttributes,
-    workbenchWindowLayout,
-    workbenchWindowZIndex,
     zxMixedAttributesOnly,
   } = s;
   return (
-    <>{workbenchPortal("palette", (
-   <details
-     className={`workbench-settings-section workbench-window${workbenchPaletteFloating ? ` workbench-section-floating workbench-palette-floating${workbenchPaletteFloatingAutoHeight ? " workbench-floating-auto-height" : ""}` : ""}`}
-     {...workbenchWindowDragAttributes("palette")}
-     data-workbench-window="palette"
-     hidden={!workbenchWindowLayout("palette").visible}
-     data-dock={workbenchWindowLayout("palette").dock}
-     data-minimized={workbenchWindowLayout("palette").minimized ? "true" : "false"}
-     open={workbenchWindowLayout("palette").open && !workbenchWindowLayout("palette").minimized}
-     style={workbenchDockWindowStyle("palette", workbenchPaletteFloating ? { zIndex: workbenchWindowZIndex("palette") } : undefined)}
-     onPointerDown={(event) => {
-       if (workbenchPaletteFloating) {
-         event.stopPropagation();
-         bringWorkbenchWindowToFront("palette");
-       }
-     }}
-     onFocusCapture={() => {
-       if (workbenchPaletteFloating) bringWorkbenchWindowToFront("palette");
-     }}
-     onToggle={(event) => setWorkbenchWindowOpen("palette", event.currentTarget.open)}
-   >
-     <summary
-       onPointerDown={(event) => startWorkbenchTitlebarDrag("palette", event)}
-       onKeyDown={(event) => handleWorkbenchTitlebarKeyDown("palette", event)}
-     onClick={(event) => handleWorkbenchTitlebarClick("palette", event)}
-     >
-       <span>{isQl ? "QL palette" : isPmd ? "PMD 85 palette" : "ZX palette and attributes"}</span>
-       {workbenchWindowActions("palette")}
-       {workbenchPaletteFloating ? (
-         <span
-           className="workbench-window-drag-handle"
-           role="button"
-           tabIndex={0}
-           aria-label="Move Palette window"
-           title="Drag to move Palette"
-           onPointerDown={(event) => startWorkbenchSectionDrag("palette", event)}
-           onClick={(event) => {
-             event.preventDefault();
-             event.stopPropagation();
-           }}
-           onKeyDown={(event) => {
-             const step = event.shiftKey ? 32 : 8;
-             if (event.key === "ArrowLeft") setWorkbenchPaletteFloatingX((x) => Math.max(8, x - step));
-             if (event.key === "ArrowRight") setWorkbenchPaletteFloatingX((x) => x + step);
-             if (event.key === "ArrowUp") setWorkbenchPaletteFloatingY((y) => Math.max(8, y - step));
-             if (event.key === "ArrowDown") setWorkbenchPaletteFloatingY((y) => y + step);
-           }}
-         >⠿</span>
-       ) : null}
-     </summary>
-     {workbenchDockSplitHandle("palette")}
-     {workbenchPaletteFloating ? (
-       <div
-         className="workbench-floating-resize-handle"
-         role="button"
-         tabIndex={0}
-         aria-label="Resize Palette window"
-         onPointerDown={(event) => startWorkbenchFloatingResize("palette", event)}
-         onKeyDown={(event) => {
-           const step = event.shiftKey ? 32 : 8;
-           if (event.key === "ArrowRight") adjustWorkbenchFloatingSize("palette", step, 0);
-           if (event.key === "ArrowLeft") adjustWorkbenchFloatingSize("palette", -step, 0);
-           if (event.key === "ArrowDown") adjustWorkbenchFloatingSize("palette", 0, step);
-           if (event.key === "ArrowUp") adjustWorkbenchFloatingSize("palette", 0, -step);
-         }}
-       />
-     ) : null}
    <fieldset id="settings-palette" className={`control-group palette-group${settingsSection === "palette" ? " settings-focused" : ""}`}>
      <legend className="visually-hidden">{isQl ? "QL palette" : isPmd ? "PMD 85 palette" : "ZX palette and attributes"}</legend>
      <div className="palette-attributes-grid">
@@ -211,7 +126,8 @@ export function PaletteSettingsWindow() {
          </span>
        )}
      </section>
-     <section className={`attributes-subcard${isPmd ? " pmd-attributes-subcard" : ""}`} aria-labelledby="attributes-subcard-title">
+     {levelAtLeast(level, "advanced") ? (
+    <section className={`attributes-subcard${isPmd ? " pmd-attributes-subcard" : ""}`} aria-labelledby="attributes-subcard-title">
        <h3 id="attributes-subcard-title">Attributes</h3>
      {targetModeId.includes("vertical-spatial") ? (
        <label className="check-control" title="Allow the optimizer to exchange the upper and lower physical rows in each mixed cell.">
@@ -426,8 +342,107 @@ export function PaletteSettingsWindow() {
      </label>
    ) : null}
      </section>
+    ) : null}
      </div>
    </fieldset>
+  );
+}
+
+export function PaletteSettingsWindow() {
+  const s = useAppState();
+  const {
+    adjustWorkbenchFloatingSize,
+    bringWorkbenchWindowToFront,
+    handleWorkbenchTitlebarClick,
+    handleWorkbenchTitlebarKeyDown,
+    isPmd,
+    isQl,
+    setWorkbenchPaletteFloatingX,
+    setWorkbenchPaletteFloatingY,
+    setWorkbenchWindowOpen,
+    startWorkbenchFloatingResize,
+    startWorkbenchSectionDrag,
+    startWorkbenchTitlebarDrag,
+    workbenchDockSplitHandle,
+    workbenchDockWindowStyle,
+    workbenchPaletteFloating,
+    workbenchPaletteFloatingAutoHeight,
+    workbenchPortal,
+    workbenchWindowActions,
+    workbenchWindowDragAttributes,
+    workbenchWindowLayout,
+    workbenchWindowZIndex,
+  } = s;
+  if (s.uiLayout === "guided") return null;
+  return (
+    <>{workbenchPortal("palette", (
+   <details
+     className={`workbench-settings-section workbench-window${workbenchPaletteFloating ? ` workbench-section-floating workbench-palette-floating${workbenchPaletteFloatingAutoHeight ? " workbench-floating-auto-height" : ""}` : ""}`}
+     {...workbenchWindowDragAttributes("palette")}
+     data-workbench-window="palette"
+     hidden={!workbenchWindowLayout("palette").visible}
+     data-dock={workbenchWindowLayout("palette").dock}
+     data-minimized={workbenchWindowLayout("palette").minimized ? "true" : "false"}
+     open={workbenchWindowLayout("palette").open && !workbenchWindowLayout("palette").minimized}
+     style={workbenchDockWindowStyle("palette", workbenchPaletteFloating ? { zIndex: workbenchWindowZIndex("palette") } : undefined)}
+     onPointerDown={(event) => {
+       if (workbenchPaletteFloating) {
+         event.stopPropagation();
+         bringWorkbenchWindowToFront("palette");
+       }
+     }}
+     onFocusCapture={() => {
+       if (workbenchPaletteFloating) bringWorkbenchWindowToFront("palette");
+     }}
+     onToggle={(event) => setWorkbenchWindowOpen("palette", event.currentTarget.open)}
+   >
+     <summary
+       onPointerDown={(event) => startWorkbenchTitlebarDrag("palette", event)}
+       onKeyDown={(event) => handleWorkbenchTitlebarKeyDown("palette", event)}
+     onClick={(event) => handleWorkbenchTitlebarClick("palette", event)}
+     >
+       <span>{isQl ? "QL palette" : isPmd ? "PMD 85 palette" : "ZX palette and attributes"}</span>
+       {workbenchWindowActions("palette")}
+       {workbenchPaletteFloating ? (
+         <span
+           className="workbench-window-drag-handle"
+           role="button"
+           tabIndex={0}
+           aria-label="Move Palette window"
+           title="Drag to move Palette"
+           onPointerDown={(event) => startWorkbenchSectionDrag("palette", event)}
+           onClick={(event) => {
+             event.preventDefault();
+             event.stopPropagation();
+           }}
+           onKeyDown={(event) => {
+             const step = event.shiftKey ? 32 : 8;
+             if (event.key === "ArrowLeft") setWorkbenchPaletteFloatingX((x) => Math.max(8, x - step));
+             if (event.key === "ArrowRight") setWorkbenchPaletteFloatingX((x) => x + step);
+             if (event.key === "ArrowUp") setWorkbenchPaletteFloatingY((y) => Math.max(8, y - step));
+             if (event.key === "ArrowDown") setWorkbenchPaletteFloatingY((y) => y + step);
+           }}
+         >⠿</span>
+       ) : null}
+     </summary>
+     {workbenchDockSplitHandle("palette")}
+     {workbenchPaletteFloating ? (
+       <div
+         className="workbench-floating-resize-handle"
+         role="button"
+         tabIndex={0}
+         aria-label="Resize Palette window"
+         onPointerDown={(event) => startWorkbenchFloatingResize("palette", event)}
+         onKeyDown={(event) => {
+           const step = event.shiftKey ? 32 : 8;
+           if (event.key === "ArrowRight") adjustWorkbenchFloatingSize("palette", step, 0);
+           if (event.key === "ArrowLeft") adjustWorkbenchFloatingSize("palette", -step, 0);
+           if (event.key === "ArrowDown") adjustWorkbenchFloatingSize("palette", 0, step);
+           if (event.key === "ArrowUp") adjustWorkbenchFloatingSize("palette", 0, -step);
+         }}
+       />
+     ) : null}
+   <PaletteControls level="expert" />
    </details>
    ))}</>
   );

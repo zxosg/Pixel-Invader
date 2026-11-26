@@ -1,7 +1,8 @@
 import { useAppState } from "../app-state.js";
 import { RangeNumberControl } from "../../app-controls.js";
+import { levelAtLeast, type SettingLevel } from "../../settings-registry.js";
 
-export function ErrorDiffusionControls() {
+export function ErrorDiffusionControls({ level = "expert" }: { readonly level?: SettingLevel }) {
   const s = useAppState();
   const {
     amount,
@@ -49,7 +50,7 @@ export function ErrorDiffusionControls() {
          </label>
          {amountValid ? null : <span className="field-error" id="amount-error">Invalid value</span>}
        </div>
-       <div
+       {levelAtLeast(level, "expert") ? <div
          className="dithering-parameter"
          title="Deterministically breaks repeating Error-diffusion patterns."
        >
@@ -69,7 +70,7 @@ export function ErrorDiffusionControls() {
          <span className="control-help">
            Deterministically breaks repeating Error-diffusion patterns.
          </span>
-       </div>
+       </div> : null}
      </div>
    ) : dithering !== "none" ? (
      <fieldset className="amount-control dithering-wide">

@@ -1,14 +1,13 @@
 import { useAppState } from "../app-state.js";
+import { levelAtLeast, type SettingLevel } from "../../settings-registry.js";
 import { type CropAspectRatio, type FramingMode, type PanEdgeMode, type ResamplingMethod, type Rotation } from "@retro-converter/conversion-core";
 import { RangeNumberControl } from "../../app-controls.js";
 import { hexToRgb, rgbToHex } from "../../dithering-labels.js";
 
-export function GeometrySettingsWindow() {
+export function GeometryControls({ level = "expert" }: { readonly level?: SettingLevel }) {
   const s = useAppState();
   const {
-    adjustWorkbenchFloatingSize,
     background,
-    bringWorkbenchWindowToFront,
     changeCropAspectRatio,
     cropAspectRatio,
     cropHeightEntry,
@@ -20,8 +19,6 @@ export function GeometrySettingsWindow() {
     ensurePixelCrop,
     fillGeometry,
     framing,
-    handleWorkbenchTitlebarClick,
-    handleWorkbenchTitlebarKeyDown,
     image,
     mirrorHorizontal,
     mirrorVertical,
@@ -45,94 +42,10 @@ export function GeometrySettingsWindow() {
     setRotation,
     setSliderValidity,
     setState,
-    setWorkbenchGeometryFloatingX,
-    setWorkbenchGeometryFloatingY,
-    setWorkbenchWindowOpen,
     settingsSection,
-    startWorkbenchFloatingResize,
-    startWorkbenchSectionDrag,
-    startWorkbenchTitlebarDrag,
     updateCropEntry,
-    workbenchDockSplitHandle,
-    workbenchDockWindowStyle,
-    workbenchGeometryFloating,
-    workbenchGeometryFloatingAutoHeight,
-    workbenchPortal,
-    workbenchWindowActions,
-    workbenchWindowDragAttributes,
-    workbenchWindowLayout,
-    workbenchWindowZIndex,
   } = s;
   return (
-    <>{workbenchPortal("geometry", (
-   <details
-     className={`workbench-settings-section workbench-window${workbenchGeometryFloating ? ` workbench-section-floating workbench-geometry-floating${workbenchGeometryFloatingAutoHeight ? " workbench-floating-auto-height" : ""}` : ""}`}
-     {...workbenchWindowDragAttributes("geometry")}
-     data-workbench-window="geometry"
-     hidden={!workbenchWindowLayout("geometry").visible}
-     data-dock={workbenchWindowLayout("geometry").dock}
-     data-minimized={workbenchWindowLayout("geometry").minimized ? "true" : "false"}
-     open={workbenchWindowLayout("geometry").open && !workbenchWindowLayout("geometry").minimized}
-     style={workbenchDockWindowStyle("geometry", workbenchGeometryFloating ? { zIndex: workbenchWindowZIndex("geometry") } : undefined)}
-     onPointerDown={(event) => {
-       if (workbenchGeometryFloating) {
-         event.stopPropagation();
-         bringWorkbenchWindowToFront("geometry");
-       }
-     }}
-     onFocusCapture={() => {
-       if (workbenchGeometryFloating) bringWorkbenchWindowToFront("geometry");
-     }}
-     onToggle={(event) => setWorkbenchWindowOpen("geometry", event.currentTarget.open)}
-   >
-     <summary
-       onPointerDown={(event) => {
-         startWorkbenchTitlebarDrag("geometry", event);
-       }}
-       onKeyDown={(event) => handleWorkbenchTitlebarKeyDown("geometry", event)}
-       onClick={(event) => handleWorkbenchTitlebarClick("geometry", event)}
-     >
-       <span>Geometry</span>
-       {workbenchWindowActions("geometry")}
-       {workbenchGeometryFloating ? (
-         <span
-           className="workbench-window-drag-handle"
-           role="button"
-           tabIndex={0}
-           aria-label="Move Geometry window"
-           title="Drag to move Geometry"
-           onPointerDown={(event) => startWorkbenchSectionDrag("geometry", event)}
-           onClick={(event) => {
-             event.preventDefault();
-             event.stopPropagation();
-           }}
-           onKeyDown={(event) => {
-             const step = event.shiftKey ? 32 : 8;
-             if (event.key === "ArrowLeft") setWorkbenchGeometryFloatingX((x) => Math.max(8, x - step));
-             if (event.key === "ArrowRight") setWorkbenchGeometryFloatingX((x) => x + step);
-             if (event.key === "ArrowUp") setWorkbenchGeometryFloatingY((y) => Math.max(8, y - step));
-             if (event.key === "ArrowDown") setWorkbenchGeometryFloatingY((y) => y + step);
-           }}
-         >⠿</span>
-       ) : null}
-     </summary>
-     {workbenchDockSplitHandle("geometry")}
-     {workbenchGeometryFloating ? (
-       <div
-         className="workbench-floating-resize-handle"
-         role="button"
-         tabIndex={0}
-         aria-label="Resize Geometry window"
-         onPointerDown={(event) => startWorkbenchFloatingResize("geometry", event)}
-         onKeyDown={(event) => {
-           const step = event.shiftKey ? 32 : 8;
-           if (event.key === "ArrowRight") adjustWorkbenchFloatingSize("geometry", step, 0);
-           if (event.key === "ArrowLeft") adjustWorkbenchFloatingSize("geometry", -step, 0);
-           if (event.key === "ArrowDown") adjustWorkbenchFloatingSize("geometry", 0, step);
-           if (event.key === "ArrowUp") adjustWorkbenchFloatingSize("geometry", 0, -step);
-         }}
-       />
-     ) : null}
    <fieldset id="settings-geometry" className={`control-group geometry-group${settingsSection === "geometry" ? " settings-focused" : ""}`}>
      <legend className="visually-hidden">Geometry</legend>
    <div className="geometry-row geometry-primary-row control-row control-row-3">
@@ -150,6 +63,8 @@ export function GeometrySettingsWindow() {
        <option value="stretch">Stretch</option>
      </select>
    </label>
+   {levelAtLeast(level, "advanced") ? (
+   <>
    <label>
      <span>Resampling</span>
      <select value={resampling} onChange={(event) => { setResampling(event.target.value as ResamplingMethod); setState({ kind: "idle" }); }}>
@@ -174,6 +89,8 @@ export function GeometrySettingsWindow() {
        <option value={270}>270° clockwise</option>
      </select>
    </label>
+   </>
+   ) : null}
    </div>
    {framing === "fill" ? (
      <fieldset className="geometry-row framing-detail focal-control control-row control-row-2">
@@ -283,6 +200,7 @@ export function GeometrySettingsWindow() {
        {cropValid ? null : <span className="field-error" id="crop-error">Invalid value</span>}
      </fieldset>
    ) : null}
+   {levelAtLeast(level, "advanced") ? (
    <div className="geometry-row orientation-actions control-row control-row-4">
      <fieldset className="orientation-control">
        <legend>Mirror</legend>
@@ -350,7 +268,106 @@ export function GeometrySettingsWindow() {
        <input className="background-picker" type="color" aria-label="Background color" title="Choose background color; the color dialog supports manual RGB entry" value={rgbToHex(background)} onChange={(event) => { setBackground(hexToRgb(event.target.value)); setState({ kind: "idle" }); }} />
      </fieldset>
    </div>
+   ) : null}
    </fieldset>
+  );
+}
+
+export function GeometrySettingsWindow() {
+  const s = useAppState();
+  const {
+    adjustWorkbenchFloatingSize,
+    bringWorkbenchWindowToFront,
+    handleWorkbenchTitlebarClick,
+    handleWorkbenchTitlebarKeyDown,
+    setWorkbenchGeometryFloatingX,
+    setWorkbenchGeometryFloatingY,
+    setWorkbenchWindowOpen,
+    startWorkbenchFloatingResize,
+    startWorkbenchSectionDrag,
+    startWorkbenchTitlebarDrag,
+    workbenchDockSplitHandle,
+    workbenchDockWindowStyle,
+    workbenchGeometryFloating,
+    workbenchGeometryFloatingAutoHeight,
+    workbenchPortal,
+    workbenchWindowActions,
+    workbenchWindowDragAttributes,
+    workbenchWindowLayout,
+    workbenchWindowZIndex,
+  } = s;
+  if (s.uiLayout === "guided") return null;
+  return (
+    <>{workbenchPortal("geometry", (
+   <details
+     className={`workbench-settings-section workbench-window${workbenchGeometryFloating ? ` workbench-section-floating workbench-geometry-floating${workbenchGeometryFloatingAutoHeight ? " workbench-floating-auto-height" : ""}` : ""}`}
+     {...workbenchWindowDragAttributes("geometry")}
+     data-workbench-window="geometry"
+     hidden={!workbenchWindowLayout("geometry").visible}
+     data-dock={workbenchWindowLayout("geometry").dock}
+     data-minimized={workbenchWindowLayout("geometry").minimized ? "true" : "false"}
+     open={workbenchWindowLayout("geometry").open && !workbenchWindowLayout("geometry").minimized}
+     style={workbenchDockWindowStyle("geometry", workbenchGeometryFloating ? { zIndex: workbenchWindowZIndex("geometry") } : undefined)}
+     onPointerDown={(event) => {
+       if (workbenchGeometryFloating) {
+         event.stopPropagation();
+         bringWorkbenchWindowToFront("geometry");
+       }
+     }}
+     onFocusCapture={() => {
+       if (workbenchGeometryFloating) bringWorkbenchWindowToFront("geometry");
+     }}
+     onToggle={(event) => setWorkbenchWindowOpen("geometry", event.currentTarget.open)}
+   >
+     <summary
+       onPointerDown={(event) => {
+         startWorkbenchTitlebarDrag("geometry", event);
+       }}
+       onKeyDown={(event) => handleWorkbenchTitlebarKeyDown("geometry", event)}
+       onClick={(event) => handleWorkbenchTitlebarClick("geometry", event)}
+     >
+       <span>Geometry</span>
+       {workbenchWindowActions("geometry")}
+       {workbenchGeometryFloating ? (
+         <span
+           className="workbench-window-drag-handle"
+           role="button"
+           tabIndex={0}
+           aria-label="Move Geometry window"
+           title="Drag to move Geometry"
+           onPointerDown={(event) => startWorkbenchSectionDrag("geometry", event)}
+           onClick={(event) => {
+             event.preventDefault();
+             event.stopPropagation();
+           }}
+           onKeyDown={(event) => {
+             const step = event.shiftKey ? 32 : 8;
+             if (event.key === "ArrowLeft") setWorkbenchGeometryFloatingX((x) => Math.max(8, x - step));
+             if (event.key === "ArrowRight") setWorkbenchGeometryFloatingX((x) => x + step);
+             if (event.key === "ArrowUp") setWorkbenchGeometryFloatingY((y) => Math.max(8, y - step));
+             if (event.key === "ArrowDown") setWorkbenchGeometryFloatingY((y) => y + step);
+           }}
+         >⠿</span>
+       ) : null}
+     </summary>
+     {workbenchDockSplitHandle("geometry")}
+     {workbenchGeometryFloating ? (
+       <div
+         className="workbench-floating-resize-handle"
+         role="button"
+         tabIndex={0}
+         aria-label="Resize Geometry window"
+         onPointerDown={(event) => startWorkbenchFloatingResize("geometry", event)}
+         onKeyDown={(event) => {
+           const step = event.shiftKey ? 32 : 8;
+           if (event.key === "ArrowRight") adjustWorkbenchFloatingSize("geometry", step, 0);
+           if (event.key === "ArrowLeft") adjustWorkbenchFloatingSize("geometry", -step, 0);
+           if (event.key === "ArrowDown") adjustWorkbenchFloatingSize("geometry", 0, step);
+           if (event.key === "ArrowUp") adjustWorkbenchFloatingSize("geometry", 0, -step);
+         }}
+       />
+     ) : null}
+   <GeometryControls level="expert" />
    </details>
    ))}</>
   );

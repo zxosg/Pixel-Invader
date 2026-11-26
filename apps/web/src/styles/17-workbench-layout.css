@@ -1542,6 +1542,13 @@
 .sidebar-slider { display: grid; grid-template-columns: 1fr auto; gap: 0.4rem; align-items: center; }
 .sidebar-slider output { font-family: ui-monospace, Menlo, Consolas, monospace; min-width: 3.5em; text-align: right; }
 .settings-sidebar-footer { padding: 0.5rem 0.75rem; border-top: 1px solid var(--color-border-subtle); }
+.settings-sidebar-group > summary { cursor: pointer; font-weight: 700; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; padding: 0.2rem 0; }
+.settings-sidebar .palette-attributes-grid,
+.settings-sidebar .dithering-group,
+.settings-sidebar .control-row { grid-template-columns: minmax(0, 1fr); --control-columns: 1; }
+.settings-sidebar .palette-attributes-grid { gap: 0.6rem; }
+.settings-sidebar .palette-subcard, .settings-sidebar .attributes-subcard { min-width: 0; overflow-wrap: anywhere; }
+.settings-sidebar fieldset { min-width: 0; margin: 0; }
 @media (max-width: 1100px) { .settings-sidebar { flex-basis: 260px; width: 260px; } }
 
 /* Status bar */

@@ -1,17 +1,14 @@
 import { useAppState } from "../app-state.js";
+import { levelAtLeast, type SettingLevel } from "../../settings-registry.js";
 import { RangeNumberControl } from "../../app-controls.js";
 
-export function AdjustmentsSettingsWindow() {
+export function AdjustmentsControls({ level = "expert" }: { readonly level?: SettingLevel }) {
   const s = useAppState();
   const {
-    adjustWorkbenchFloatingSize,
     brightness,
-    bringWorkbenchWindowToFront,
     colorize,
     contrast,
     gamma,
-    handleWorkbenchTitlebarClick,
-    handleWorkbenchTitlebarKeyDown,
     hslSaturation,
     hueShift,
     lightness,
@@ -27,12 +24,63 @@ export function AdjustmentsSettingsWindow() {
     setSliderValidity,
     setSmoothing,
     setState,
-    setWorkbenchAdjustmentsFloatingX,
-    setWorkbenchAdjustmentsFloatingY,
-    setWorkbenchWindowOpen,
     settingsSection,
     sharpening,
     smoothing,
+  } = s;
+  return (
+   <fieldset id="settings-adjustments" className={`adjustment-control control-group${settingsSection === "adjustments" ? " settings-focused" : ""}`}>
+     <legend className="visually-hidden">Image adjustments</legend>
+     <div className="control-row control-row-2">
+     <RangeNumberControl id="brightness" label="Brightness" value={brightness} min={-100} max={100} resetValue={0} onChange={(value) => { setBrightness(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
+     <RangeNumberControl id="contrast" label="Contrast" value={contrast} min={-100} max={100} resetValue={0} onChange={(value) => { setContrast(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
+     </div>
+     {levelAtLeast(level, "advanced") ? (
+     <>
+     <div className="control-row control-row-2">
+     <RangeNumberControl id="gamma" label="Gamma" value={gamma} min={10} max={300} unit="%" resetValue={100} onChange={(value) => { setGamma(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
+     </div>
+     <div className="control-row control-row-2">
+     <RangeNumberControl id="hue-shift" label="Hue" value={hueShift} min={-180} max={180} unit="°" resetValue={0} onChange={(value) => { setHueShift(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
+     <RangeNumberControl id="hsl-saturation" label="Saturation" value={hslSaturation} min={-100} max={100} resetValue={0} onChange={(value) => { setHslSaturation(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
+     </div>
+     <div className="control-row control-row-2">
+     <RangeNumberControl id="lightness" label="HSL Lightness" value={lightness} min={-100} max={100} resetValue={0} onChange={(value) => { setLightness(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
+     <label className="check-control"><input id="colorize" type="checkbox" checked={colorize} onChange={(event) => { setColorize(event.target.checked); setState({ kind: "idle" }); }} /><span>Colorize</span></label>
+     </div>
+     <div className="control-row control-row-2">
+     <RangeNumberControl id="smoothing" label="Smoothing" value={smoothing} min={0} max={100} unit="%" resetValue={0} onChange={(value) => { setSmoothing(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
+     <RangeNumberControl id="sharpening" label="Sharpening" value={sharpening} min={0} max={100} unit="%" resetValue={0} onChange={(value) => { setSharpening(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
+     </div>
+     </>
+     ) : null}
+     <button className="secondary compact" type="button" onClick={() => {
+       setBrightness(0);
+       setContrast(0);
+       setSaturation(0);
+       setHueShift(0);
+       setHslSaturation(0);
+       setLightness(0);
+       setColorize(false);
+       setGamma(100);
+       setSmoothing(0);
+       setSharpening(0);
+       setState({ kind: "idle" });
+     }}>Reset adjustments</button>
+   </fieldset>
+  );
+}
+
+export function AdjustmentsSettingsWindow() {
+  const s = useAppState();
+  const {
+    adjustWorkbenchFloatingSize,
+    bringWorkbenchWindowToFront,
+    handleWorkbenchTitlebarClick,
+    handleWorkbenchTitlebarKeyDown,
+    setWorkbenchAdjustmentsFloatingX,
+    setWorkbenchAdjustmentsFloatingY,
+    setWorkbenchWindowOpen,
     startWorkbenchFloatingResize,
     startWorkbenchSectionDrag,
     startWorkbenchTitlebarDrag,
@@ -46,6 +94,7 @@ export function AdjustmentsSettingsWindow() {
     workbenchWindowLayout,
     workbenchWindowZIndex,
   } = s;
+  if (s.uiLayout === "guided") return null;
   return (
     <>{workbenchPortal("adjustments", (
    <details
@@ -116,43 +165,7 @@ export function AdjustmentsSettingsWindow() {
          }}
        />
      ) : null}
-   <fieldset id="settings-adjustments" className={`adjustment-control control-group${settingsSection === "adjustments" ? " settings-focused" : ""}`}>
-     <legend className="visually-hidden">Image adjustments</legend>
-     <div className="control-row control-row-2">
-     <RangeNumberControl id="brightness" label="Brightness" value={brightness} min={-100} max={100} resetValue={0} onChange={(value) => { setBrightness(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
-     <RangeNumberControl id="contrast" label="Contrast" value={contrast} min={-100} max={100} resetValue={0} onChange={(value) => { setContrast(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
-     </div>
-     <div className="control-row control-row-2">
-     <RangeNumberControl id="gamma" label="Gamma" value={gamma} min={10} max={300} unit="%" resetValue={100} onChange={(value) => { setGamma(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
-     </div>
-     <div className="control-row control-row-2">
-     <RangeNumberControl id="hue-shift" label="Hue" value={hueShift} min={-180} max={180} unit="°" resetValue={0} onChange={(value) => { setHueShift(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
-     <RangeNumberControl id="hsl-saturation" label="Saturation" value={hslSaturation} min={-100} max={100} resetValue={0} onChange={(value) => { setHslSaturation(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
-     </div>
-     <div className="control-row control-row-2">
-     <RangeNumberControl id="lightness" label="HSL Lightness" value={lightness} min={-100} max={100} resetValue={0} onChange={(value) => { setLightness(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
-     <label className="check-control"><input id="colorize" type="checkbox" checked={colorize} onChange={(event) => { setColorize(event.target.checked); setState({ kind: "idle" }); }} /><span>Colorize</span></label>
-     </div>
-     <div className="control-row control-row-2">
-     <RangeNumberControl id="smoothing" label="Smoothing" value={smoothing} min={0} max={100} unit="%" resetValue={0} onChange={(value) => { setSmoothing(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
-     <RangeNumberControl id="sharpening" label="Sharpening" value={sharpening} min={0} max={100} unit="%" resetValue={0} onChange={(value) => { setSharpening(value); setState({ kind: "idle" }); }} onValidityChange={setSliderValidity} />
-     </div>
-     <div className="control-row control-row-2">
-     </div>
-     <button className="secondary compact" type="button" onClick={() => {
-       setBrightness(0);
-       setContrast(0);
-       setSaturation(0);
-       setHueShift(0);
-       setHslSaturation(0);
-       setLightness(0);
-       setColorize(false);
-       setGamma(100);
-       setSmoothing(0);
-       setSharpening(0);
-       setState({ kind: "idle" });
-     }}>Reset adjustments</button>
-   </fieldset>
+   <AdjustmentsControls level="expert" />
    </details>
    ))}</>
   );
