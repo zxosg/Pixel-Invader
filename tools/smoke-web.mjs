@@ -233,6 +233,15 @@ try {
   expect(await page.locator("footer.status-bar").count() === 1, "status bar is shown");
   await shot("06c-guided-expert");
   await auditContrast("guided layout, expert tier");
+  for (const [name, shotName] of [["Swipe", "06d-compare-swipe"], ["Result only", "06e-compare-result-only"], ["Difference", "06f-compare-difference"]]) {
+    await page.getByRole("radio", { name, exact: true }).first().click();
+    await settle(400);
+    expect(await page.locator(`.comparison[data-compare-mode]`).count() === 1, `compare mode ${name} applies`);
+    await shot(shotName);
+    await auditContrast(`compare ${name}`);
+  }
+  await page.getByRole("radio", { name: "Side by side", exact: true }).click();
+  await settle(300);
   await page.getByRole("radio", { name: "Advanced", exact: true }).click();
   await menu("Tools");
   await page.locator("[data-workbench-menu] button", { hasText: "Palette editor" }).click();

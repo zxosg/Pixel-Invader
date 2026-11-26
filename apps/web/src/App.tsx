@@ -34,6 +34,7 @@ import { PaintColorsSettingsWindow } from "./app/sections/paint-colors-settings-
 import { AdvancedConversionSettings } from "./app/sections/advanced-conversion-settings.js";
 import { DitherComposerControls } from "./app/sections/dither-composer-controls.js";
 import { ErrorDiffusionControls } from "./app/sections/error-diffusion-controls.js";
+import { CompareModeBar, type CompareMode } from "./app/sections/compare-mode-bar.js";
 import { StatusBar } from "./app/sections/status-bar.js";
 import { SettingsSidebar } from "./app/sections/settings-sidebar.js";
 import { ToolsSettingsWindow } from "./app/sections/tools-settings-window.js";
@@ -305,6 +306,8 @@ export function App() {
 
 
   const [conversionCancelled, setConversionCancelled] = useState(false);
+  const [compareMode, setCompareMode] = useState<CompareMode>("side-by-side");
+  const [swipePosition, setSwipePosition] = useState(50);
   useEffect(() => { if (state.kind === "running") setConversionCancelled(false); }, [state.kind]);
   const cancelConversion = () => { setConversionCancelled(true); cancelHigh(); };
 
@@ -1103,6 +1106,9 @@ export function App() {
               <h2 id="inspection-title">Preview and inspection</h2>
               <p>Click-drag to pan, inspect encoded cells, and verify palette usage.</p>
             </div>
+            {uiLayout === "guided" ? (
+              <CompareModeBar mode={compareMode} onModeChange={setCompareMode} swipe={swipePosition} onSwipeChange={setSwipePosition} />
+            ) : null}
           </div>
 
           <ToolsSettingsWindow />
@@ -1113,6 +1119,8 @@ export function App() {
             className="comparison workbench-preview-dock"
             aria-label="Configurable preview panes"
             data-preview-layout={previewLayout}
+            data-compare-mode={uiLayout === "guided" ? compareMode : undefined}
+            style={uiLayout === "guided" && compareMode === "swipe" ? ({ "--swipe": `${swipePosition}%` } as CSSProperties) : undefined}
             {...workbenchDockDropAttributes("center")}
           >
             <SourceComparisonDock />
