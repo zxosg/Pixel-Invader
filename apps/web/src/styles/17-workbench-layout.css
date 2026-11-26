@@ -1523,10 +1523,12 @@
 .workbench-workspace[data-ui-layout="guided"] .workspace-heading .heading-actions { display: none; }
 
 .settings-sidebar {
-  flex: 0 0 320px; width: 320px; box-sizing: border-box; display: flex; flex-direction: column;
+  flex: 0 0 var(--sidebar-width, 380px); width: var(--sidebar-width, 380px); box-sizing: border-box; display: flex; flex-direction: column;
   border-left: 1px solid var(--color-border-subtle); background: var(--color-surface-deep); color: var(--color-text-primary);
-  max-height: calc(100vh - 3rem); position: sticky; top: 0; align-self: flex-start;
+  position: relative; align-self: stretch; min-height: 0; overflow: hidden;
 }
+.settings-sidebar-resize { position: absolute; left: -3px; top: 0; bottom: 0; width: 6px; cursor: col-resize; z-index: 2; touch-action: none; }
+.settings-sidebar-resize:hover, .settings-sidebar-resize:focus-visible { background: var(--color-highlight-yellow); outline: none; }
 .settings-sidebar-header { padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--color-border-subtle); }
 .settings-sidebar-header h2 { margin: 0 0 0.4rem; font-size: 0.95rem; }
 .settings-tier { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; }
@@ -1549,7 +1551,33 @@
 .settings-sidebar .palette-attributes-grid { gap: 0.6rem; }
 .settings-sidebar .palette-subcard, .settings-sidebar .attributes-subcard { min-width: 0; overflow-wrap: anywhere; }
 .settings-sidebar fieldset { min-width: 0; margin: 0; }
-@media (max-width: 1100px) { .settings-sidebar { flex-basis: 260px; width: 260px; } }
+@media (max-width: 1280px) { .settings-sidebar { flex-basis: min(var(--sidebar-width, 340px), 340px); width: min(var(--sidebar-width, 340px), 340px); } }
+.settings-sidebar .range-number-control, .settings-sidebar .adjustment-control { grid-template-columns: minmax(0, 1fr); }
+.settings-sidebar .filter-inputs { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.5rem; align-items: center; }
+.settings-sidebar input[type="range"] { width: 100%; min-width: 0; }
+.settings-sidebar .range-number-entry input { width: 4.2rem; }
+
+/* Guided desktop: the stage fills every spare pixel; chrome is compressed. */
+@media (min-width: 800px) {
+  .shell:has(> .guided-body) { display: flex; flex-direction: column; height: 100dvh; box-sizing: border-box; padding-bottom: 0; overflow: hidden; }
+  .shell > .guided-body { flex: 1 1 0; min-height: 0; }
+  .guided-body > .workbench-workspace { display: flex; flex-direction: column; margin-top: 0; min-height: 0; overflow: hidden; }
+  .guided-body .workspace-heading { display: none; }
+  .guided-body .workbench-workspace > .inspection-workspace { flex: 1 1 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .guided-body .inspection-heading { grid-column: 1 / -1; grid-row: 1; display: flex; }
+  .guided-body .inspection-heading > div:first-child { display: none; }
+  .guided-body .comparison { display: contents; }
+  .guided-body .comparison[data-compare-mode="swipe"] { display: grid; grid-column: 1 / -1; grid-row: 2; min-height: 0; }
+  .guided-body .comparison[data-compare-mode="result-only"] { display: contents; }
+  .guided-body .inspection-workspace .source-panel, .guided-body .inspection-workspace .result-panel { grid-row: 2; min-height: 0; display: flex; flex-direction: column; }
+  .guided-body .inspection-workspace .source-panel { grid-column: 1; }
+  .guided-body .inspection-workspace .result-panel { grid-column: 2; }
+  .guided-body .comparison[data-compare-mode="result-only"] ~ * , .guided-body [data-compare-mode="result-only"] .result-panel { grid-column: 1 / -1; }
+  .guided-body .preview-panel .preview-viewport { flex: 1 1 0; min-height: 0; max-height: none; height: auto; display: flex; }
+  .guided-body .preview-panel .preview-viewport > .preview-stage { flex: 0 0 auto; }
+  .guided-body .inspection-workspace .preview-palette-panel, .guided-body .inspection-drawer { grid-column: 1 / -1; }
+  .guided-body .compare-mode-bar { padding: 0; }
+}
 
 /* Status bar */
 .status-bar { position: sticky; bottom: 0; z-index: 5; display: flex; align-items: center; gap: 0.75rem; padding: 0.25rem 0.75rem; border-top: 1px solid var(--color-border-subtle); background: var(--color-surface-deep); color: var(--color-text-primary); font-size: 0.74rem; }
@@ -1606,3 +1634,5 @@
 .swipe-handle { grid-area: 1 / 1; z-index: 3; justify-self: start; align-self: stretch; position: relative; left: var(--swipe, 50%); width: 0.9rem; margin-left: -0.45rem; cursor: ew-resize; touch-action: none; background: linear-gradient(to right, transparent 0.38rem, var(--color-highlight-yellow) 0.38rem, var(--color-highlight-yellow) 0.52rem, transparent 0.52rem); }
 .swipe-handle::after { content: ""; position: absolute; top: 50%; left: 0; width: 0.9rem; height: 1.6rem; margin-top: -0.8rem; border-radius: var(--radius-sm); background: var(--color-highlight-yellow); box-shadow: 0 0 0 1px #1a1300; }
 .swipe-handle:focus-visible { outline: 2px solid var(--color-accent-blue); }
+.status-bar-image { max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (min-width: 800px) { .shell > .tablet-tabs { width: 100%; box-sizing: border-box; } }

@@ -259,6 +259,26 @@ try {
   await page.getByRole("radio", { name: "Expert", exact: true }).click();
   await settle(300);
   expect(await page.locator("footer.status-bar").count() === 1, "status bar is shown");
+  for (const [w, h] of [[1440, 900], [1280, 720]]) {
+    await page.setViewportSize({ width: w, height: h });
+    await settle(700);
+    const fit = await page.evaluate(() => {
+      const box = (el) => { const r = el.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom, h: r.height }; };
+      const stage = document.querySelector(".inspection-workspace");
+      const inside = (side) => {
+        const view = document.querySelector(`.${side}-panel .preview-viewport`);
+        const canvas = view?.querySelector(".preview-stage canvas");
+        if (!view || !canvas) return false;
+        const v = box(view); const c = box(canvas);
+        return c.l >= v.l - 2 && c.r <= v.r + 2 && c.t >= v.t - 2 && c.b <= v.b + 2;
+      };
+      return { stageHeight: box(stage).h, vh: innerHeight, source: inside("source"), result: inside("result"), noScroll: document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight + 1 };
+    });
+    expect(fit.stageHeight >= fit.vh * 0.65, `stage fills ${w}x${h} (${Math.round(fit.stageHeight)} of ${fit.vh})`);
+    expect(fit.source && fit.result, `source and result fit their panes at ${w}x${h}`);
+    expect(fit.noScroll, `no page overflow at ${w}x${h}`);
+    await shot(`06d-stage-${w}x${h}`);
+  }
   await page.setViewportSize({ width: 820, height: 1180 });
   await settle(500);
       for (const tab of ["Source", "Result", "Settings"]) {

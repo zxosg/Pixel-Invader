@@ -2,7 +2,7 @@ import { useAppState } from "../app-state.js";
 
 export function StatusBar({ cancelled, onCancel }: { readonly cancelled: boolean; readonly onCancel: () => void }) {
   const s = useAppState();
-  const { state, conversionStatusText, projectName, dirty, image, settingsValid, convertImage, sourceFileName } = s;
+  const { state, conversionStatusText, projectName, dirty, image, settingsValid, convertImage, sourceFileName, imageStatus } = s;
   const running = state.kind === "running";
   const failed = state.kind === "error";
   const tone = running ? "running" : failed ? "error" : cancelled ? "cancelled" : state.kind === "stale" ? "stale" : "ok";
@@ -22,6 +22,7 @@ export function StatusBar({ cancelled, onCancel }: { readonly cancelled: boolean
       </div>
       <div className="status-bar-project" title={sourceFileName ?? undefined}>
         <span className="status-bar-project-name">{projectName}</span>
+        <span className="status-bar-image" title={imageStatus}>{image === null ? null : imageStatus.replace(/^Accepted /, "").replace(/ RGBA bytes\.?$/, "")}</span>
         <span>{image === null ? "No image" : dirty ? "Unsaved changes" : "Saved"}</span>
       </div>
     </footer>
