@@ -84,6 +84,7 @@ export interface WorkbenchMenuBarProps {
   readonly onDeleteSelectedProfile: () => void;
   readonly onDeleteImportedProfiles: () => void;
   readonly hasImage: boolean;
+  readonly resultStale: boolean;
   readonly imageName: string | null;
   readonly canConvert: boolean;
   readonly conversionRunning: boolean;
@@ -389,7 +390,7 @@ export function WorkbenchMenuBar(props: WorkbenchMenuBarProps) {
           {props.conversionRunning
             ? <button type="button" onClick={props.onCancelConvert}><span className="workflow-step-number">3</span><span className="workflow-step-label">Cancel</span><span className="workflow-step-detail">Converting…</span></button>
             : <button type="button" className="workflow-convert" disabled={!props.canConvert} onClick={props.onConvert} title={`Convert (${modifierLabel}+Enter)`}>
-              <span className="workflow-step-number">3</span><span className="workflow-step-label">Convert</span>
+              <span className="workflow-step-number">3</span><span className="workflow-step-label">Convert</span>{props.resultStale ? <span className="workflow-step-detail workflow-stale">results out of date</span> : null}
             </button>}
         </li>
         <li className={`workflow-step${hasResult ? " active" : ""}`}>

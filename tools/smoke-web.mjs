@@ -230,6 +230,7 @@ try {
   await settle(300);
   await page.getByRole("radio", { name: "Expert", exact: true }).click();
   await settle(300);
+  expect(await page.locator("footer.status-bar").count() === 1, "status bar is shown");
   await shot("06c-guided-expert");
   await auditContrast("guided layout, expert tier");
   await page.getByRole("radio", { name: "Advanced", exact: true }).click();

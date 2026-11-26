@@ -1,6 +1,6 @@
 import { AppStateContext, type AppState } from "./app/app-state.js";
 import { uiTypographyCssVariables } from "./ui-typography.js";
-import { lazy, Suspense, type CSSProperties } from "react";
+import { lazy, Suspense, useEffect, useState, type CSSProperties } from "react";
 import { WorkbenchMenuBar } from "./workbench-menu-bar.js";
 import { type ConversionSettings, DITHER_ENGINES, type DitherEngineId, ditherEngineSelectionGroupForTarget, isCompatibleEnginePair, isDitherEngineAvailableForSelection, type OrderedMatrixId, type QlMixedOptimizerId, type TargetModeId } from "@retro-converter/conversion-core";
 import { BUILT_IN_PROFILES } from "./profiles.js";
@@ -34,6 +34,7 @@ import { PaintColorsSettingsWindow } from "./app/sections/paint-colors-settings-
 import { AdvancedConversionSettings } from "./app/sections/advanced-conversion-settings.js";
 import { DitherComposerControls } from "./app/sections/dither-composer-controls.js";
 import { ErrorDiffusionControls } from "./app/sections/error-diffusion-controls.js";
+import { StatusBar } from "./app/sections/status-bar.js";
 import { SettingsSidebar } from "./app/sections/settings-sidebar.js";
 import { ToolsSettingsWindow } from "./app/sections/tools-settings-window.js";
 import { PreviewPalettePanel } from "./app/sections/preview-palette-panel.js";
@@ -303,6 +304,10 @@ export function App() {
 
 
 
+  const [conversionCancelled, setConversionCancelled] = useState(false);
+  useEffect(() => { if (state.kind === "running") setConversionCancelled(false); }, [state.kind]);
+  const cancelConversion = () => { setConversionCancelled(true); cancelHigh(); };
+
   return (
     <AppStateContext.Provider value={s}>
     <a className="skip-link" href="#workspace-title">Skip to converter</a>
@@ -332,7 +337,8 @@ export function App() {
         canConvert={image !== null && settingsValid && state.kind !== "running"}
         conversionRunning={state.kind === "running"}
         onConvert={() => void convertImage()}
-        onCancelConvert={cancelHigh}
+        onCancelConvert={cancelConversion}
+        resultStale={state.kind === "stale" || (workspaceMode === "tilemap" && s.tilemapStale)}
         canSaveProject={artifactsReady && sourceArtifact !== null && image !== null}
         canExportResult={resultSaveReady}
         canExportMetadata={paletteArtifactsReady && image !== null}
@@ -1127,6 +1133,7 @@ export function App() {
       </section>
       {uiLayout === "guided" ? <SettingsSidebar /> : null}
       </div>
+      <StatusBar cancelled={conversionCancelled} onCancel={cancelConversion} />
     </main>
     </AppStateContext.Provider>
   );
