@@ -231,6 +231,21 @@ try {
   await page.getByRole("radio", { name: "Expert", exact: true }).click();
   await settle(300);
   expect(await page.locator("footer.status-bar").count() === 1, "status bar is shown");
+  await page.setViewportSize({ width: 820, height: 1180 });
+  await settle(500);
+      for (const tab of ["Source", "Result", "Settings"]) {
+        await page.getByRole("tab", { name: tab, exact: true }).click();
+        await settle(400);
+        const sw = await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
+        expect(sw, `no horizontal scroll on ${tab} tab at 820`);
+        await shot(`02-tablet-${tab.toLowerCase()}`);
+        await auditContrast(`tablet ${tab} tab`);
+      }
+      expect(await page.locator(".settings-sidebar").isVisible(), "settings tab shows sidebar at 820");
+      await page.getByRole("tab", { name: "Compare", exact: true }).click();
+      await settle(300);
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await settle(400);
   await shot("06c-guided-expert");
   await auditContrast("guided layout, expert tier");
   for (const [name, shotName] of [["Swipe", "06d-compare-swipe"], ["Result only", "06e-compare-result-only"], ["Difference", "06f-compare-difference"]]) {

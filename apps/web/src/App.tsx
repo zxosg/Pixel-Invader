@@ -306,6 +306,7 @@ export function App() {
 
 
   const [conversionCancelled, setConversionCancelled] = useState(false);
+  const [tabletTab, setTabletTab] = useState<"both" | "source" | "result" | "settings">("both");
   const [compareMode, setCompareMode] = useState<CompareMode>("side-by-side");
   const [swipePosition, setSwipePosition] = useState(50);
   useEffect(() => { if (state.kind === "running") setConversionCancelled(false); }, [state.kind]);
@@ -395,7 +396,16 @@ export function App() {
         </Suspense>
       ) : null}
 
-      <div className={uiLayout === "guided" ? "guided-body" : "pro-body"} data-ui-layout={uiLayout}>
+      {uiLayout === "guided" ? (
+        <div className="tablet-tabs" role="tablist" aria-label="Workspace panel">
+          {(["both", "source", "result", "settings"] as const).map((tab) => (
+            <button key={tab} type="button" role="tab" aria-selected={tabletTab === tab} className={tabletTab === tab ? "active" : ""} onClick={() => setTabletTab(tab)}>
+              {tab === "both" ? "Compare" : tab === "source" ? "Source" : tab === "result" ? "Result" : "Settings"}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <div className={uiLayout === "guided" ? "guided-body" : "pro-body"} data-ui-layout={uiLayout} data-tablet-tab={tabletTab}>
       <section
         ref={workbenchRootRef}
         data-ui-layout={uiLayout}
