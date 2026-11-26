@@ -246,6 +246,22 @@ try {
       await settle(300);
   await page.setViewportSize({ width: 1600, height: 1000 });
   await settle(400);
+  {
+    const target = page.getByLabel("Target profile");
+    const labels = await target.locator("option").allTextContents();
+    const pick = (re) => labels.find((l) => re.test(l));
+    const cycle = [pick(/Sinclair QL/i), pick(/PMD ?85/i), pick(/ZX Spectrum 48K standard/i)].filter(Boolean);
+    expect(cycle.length === 3, `profile cycle options found (${cycle.join(" | ")})`);
+    for (const label of cycle) {
+      await target.selectOption({ label });
+      await settle(1200);
+      await page.locator("button.workflow-convert").click().catch(() => {});
+      await settle(2500);
+      const failed = await page.locator("footer.status-bar-error, [role=alert]").allTextContents();
+      expect(failed.length === 0, `no error after switching to ${label}: ${failed.join(" / ")}`);
+    }
+    await shot("06g-profile-cycle");
+  }
   await shot("06c-guided-expert");
   await auditContrast("guided layout, expert tier");
   for (const [name, shotName] of [["Swipe", "06d-compare-swipe"], ["Result only", "06e-compare-result-only"], ["Difference", "06f-compare-difference"]]) {

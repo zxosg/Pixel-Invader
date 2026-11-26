@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo } from "react";
 import { extractPmd85GapBytes, type Pmd85RgbColor } from "@retro-converter/pmd-85";
 import { profileModeScreens } from "../profiles.js";
 import { hexToRgb } from "../dithering-labels.js";
+import { pmd85PaletteForResult } from "../result-palette.js";
 import { ConversionWorkerClient, type WorkerConversionResult, type WorkerDecodedImage } from "../worker/client.js";
 import { buildVerticalSpatialAnalyticPreview, type ConversionSettings, DEFAULT_CONVERSION_SETTINGS, DITHER_ENGINES, type DitherEngineId, type DitheringMethod, ditherMethodForEngine, renderZxFlashPreview, resolveZxPalette } from "@retro-converter/conversion-core";
 import { defaultOutputPreviewStage, verticalSpatialPreviewForStage } from "../vertical-spatial-preview.js";
@@ -523,7 +524,7 @@ export function useResultEditing(
         : {}),
       ...(result.platformId === "pmd-85"
         ? {
-            pmd85ForegroundPalette: overrides.pmd85Palette ?? pmd85ForegroundPalette,
+            pmd85ForegroundPalette: overrides.pmd85Palette ?? pmd85PaletteForResult(profiles, selectedProfile, result.modeId, pmd85PaletteCalibrationId),
             pmd85GapPolicy: overrides.pmd85GapPolicy ?? pmd85GapPolicy,
             ...(importedGapBytes === undefined ? {} : { pmd85ImportedGapBytes: importedGapBytes }),
           }
